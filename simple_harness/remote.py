@@ -150,6 +150,30 @@ def _cfg(name, default):
     return getattr(config, name, default)
 
 
+def _same_secret(offered, expected: str) -> bool:
+    """A constant-time comparison that cannot be made to raise instead.
+
+    `secrets.compare_digest` refuses two *strings* when either holds a
+    character outside ASCII - it raises TypeError rather than answering False.
+    Everything compared here arrives off the wire: a token out of the query
+    string, percent-decoded as UTF-8, and a pairing code whose digits are
+    filtered with `str.isdigit()`, which is true of `٣` as well as `3`. So one
+    byte of UTF-8 in `?k=` took the handler out through `handle_error` - the
+    connection dropped with no HTTP reply at all, and, worse, `note_bad_token`
+    was never reached: an address could knock all afternoon without ever
+    being counted towards `REMOTE_MAX_BAD_TOKENS` or reported at the prompt,
+    which is the one warning this module promises on a shared network.
+
+    Both sides are compared as UTF-8 bytes, which `compare_digest` takes
+    without complaint and which cannot compare equal unless the strings do.
+    """
+    try:
+        return secrets.compare_digest(str(offered).encode("utf-8", "surrogatepass"),
+                                      expected.encode("utf-8", "surrogatepass"))
+    except (TypeError, ValueError, UnicodeError):
+        return False
+
+
 def running() -> bool:
     return _server is not None
 
@@ -498,7 +522,7 @@ def complete_pairing(who: str, offered: str) -> str:
             return ""
         if _pairing["address"] != who:
             return ""
-        if not secrets.compare_digest(offered, _pairing["code"]):
+        if not _same_secret(offered, _pairing["code"]):
             _pairing["tries"] += 1
             spent = _pairing["tries"]
             if spent >= PAIR_TRIES:
@@ -860,7 +884,7 @@ class _Handler(BaseHTTPRequestHandler):
         header = self.headers.get("Authorization", "")
         if header.lower().startswith("bearer "):
             offered = header[7:].strip()
-        return bool(_token) and secrets.compare_digest(offered, _token)
+        return bool(_token) and _same_secret(offered, _token)
 
     def _host_is_this_machine(self) -> bool:
         """Refuse a `Host` this server was not asked for.

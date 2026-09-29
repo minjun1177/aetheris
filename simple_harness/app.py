@@ -644,6 +644,74 @@ def _arm_tdd() -> None:
           f"{llm_client.MAX_VERIFY_FAILURES}.{S.R}")
 
 
+def _export_command(rest: str, messages: list[dict]) -> None:
+    """`/export [filename]`: the conversation as markdown.
+
+    `rest` comes off `user_input` and not off the lowercased line the commands
+    are matched against. A filename is not a command, and taking it from there
+    meant `/export Notes.MD` quietly wrote `notes.md` - on a case-sensitive
+    filesystem that is a different file from the one that was asked for.
+    """
+    name = rest.strip()
+    if not name:
+        # `/export ` with a stray space used to name no file at all and report
+        # `Export failed: ''` instead of exporting.
+        name = f"export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    try:
+        with open(name, "w", encoding="utf-8") as f:
+            for m in messages:
+                if not isinstance(m, dict) or m.get("role") == "system":
+                    continue
+                role_name = "User" if m.get("role") == "user" else "Assistant"
+                content = m.get("content")
+                if not isinstance(content, str):
+                    continue
+                c = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL)
+                c = strip_thinking(c)
+                if c:
+                    f.write(f"### {role_name}\n\n{c}\n\n")
+        print(f"  {S.OK}✓ Conversation exported to {name}{S.R}\n")
+    except Exception as e:
+        print(f"  {S.ERR}✗ Export failed: {e}{S.R}\n")
+
+
+def _system_command(rest: str, messages: list[dict]) -> None:
+    """`/system <persona>` and `/system reset`: what goes in front of the prompt.
+
+    Two things were wrong here, and both were about reading the line rather
+    than about personas.
+
+    `rest` comes off `user_input`, not off the lowercased `cmd` the commands are
+    matched against. A persona is prose the person wrote for the model to read,
+    and this is the only command whose whole argument is that - so it was the
+    only one where lowercasing the line changed the meaning of what was stored:
+    "You are a Korean tutor named Minji" became "you are a korean tutor named
+    minji".
+
+    And the system message is *composed*, not concatenated. Writing
+    `persona + SYSTEM_PROMPT + summary` by hand left out the two blocks
+    `_compose_system_prompt` adds - the memories marked important (5.15) and
+    this project's note titles (5.16) - so setting a persona silently dropped
+    both from the prompt until something else happened to rebuild it.
+    `_refresh_system_prompt` carries the `<SUMMARY>` across on its own.
+    """
+    new_prompt = rest.strip()
+    if not new_prompt:
+        print(f"  {S.ERR}✗ Usage: /system <new prompt> or /system reset{S.R}\n")
+        return
+
+    config.CUSTOM_PERSONA = "" if new_prompt.lower() == "reset" else new_prompt
+    _refresh_system_prompt(messages)
+    if config.CUSTOM_PERSONA:
+        print(f"  {S.INFO}✓ System prompt updated.{S.R}")
+        print(f"  {S.WARN}⚠ To ensure the persona is applied correctly, please "
+              f"clear the previous conversation with /clear.{S.R}\n")
+    else:
+        print(f"  {S.INFO}✓ System prompt reset to default.{S.R}")
+        print(f"  {S.WARN}⚠ If the persona context from the previous conversation "
+              f"remains, please clear the conversation history with /clear.{S.R}\n")
+
+
 def _set_command(rest: str, messages: list[dict]) -> None:
     """`/set`: read and change a setting without editing `config.py`.
 
@@ -1158,40 +1226,12 @@ async def main(resume_id: str = "") -> None:
                 config.SAVE_CHAT_HISTORY = chosen
             continue
         if cmd.startswith("/export"):
-            parts = cmd.split(" ", 1)
-            filename = parts[1].strip() if len(parts) > 1 else f"export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-            try:
-                with open(filename, "w", encoding="utf-8") as f:
-                    for m in messages:
-                        if m["role"] == "system": continue
-                        role_name = "User" if m["role"] == "user" else "Assistant"
-                        c = re.sub(r'<tool_call>.*?</tool_call>', '', m["content"], flags=re.DOTALL)
-                        c = strip_thinking(c)
-                        if c: f.write(f"### {role_name}\n\n{c}\n\n")
-                print(f"  {S.OK}✓ Conversation exported to {filename}{S.R}\n")
-            except Exception as e:
-                print(f"  {S.ERR}✗ Export failed: {e}{S.R}\n")
+            # `user_input`, not `cmd`: see `_export_command`.
+            _export_command(user_input[len("/export"):], messages)
             continue
         if cmd.startswith("/system"):
-            parts = cmd.split(" ", 1)
-            if len(parts) < 2:
-                print(f"  {S.ERR}✗ Usage: /system <new prompt> or /system reset{S.R}\n")
-                continue
-            new_prompt = parts[1].strip()
-            current_sys = messages[0]["content"]
-            summary_match = re.search(r'\n\n<SUMMARY>(.*?)</SUMMARY>', current_sys, re.DOTALL)
-            summary_text = f"\n\n<SUMMARY>{summary_match.group(1)}</SUMMARY>" if summary_match else ""
-
-            if new_prompt.lower() == "reset":
-                config.CUSTOM_PERSONA = ""
-                messages[0]["content"] = config.SYSTEM_PROMPT + summary_text
-                print(f"  {S.INFO}✓ System prompt reset to default.{S.R}")
-                print(f"  {S.WARN}⚠ If the persona context from the previous conversation remains, please clear the conversation history with /clear.{S.R}\n")
-            else:
-                config.CUSTOM_PERSONA = new_prompt
-                messages[0]["content"] = config.CUSTOM_PERSONA + "\n\n" + config.SYSTEM_PROMPT + summary_text
-                print(f"  {S.INFO}✓ System prompt updated.{S.R}")
-                print(f"  {S.WARN}⚠ To ensure the persona is applied correctly, please clear the previous conversation with /clear.{S.R}\n")
+            # `user_input`, not `cmd`: see `_system_command`.
+            _system_command(user_input[len("/system"):], messages)
             continue
         if cmd == "/planmode" or cmd.startswith("/planmode "):
             chosen = _switch(

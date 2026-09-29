@@ -93,6 +93,70 @@ from anywhere else, forward the port over `ssh -L`.
 9000` at a prompt with a remote already open *moves* it - new token, new link,
 printed on the spot - rather than waiting for a restart.
 
+### Fixed, from a read of every file in the tree
+
+Seven faults, each with a test that fails without its fix.
+
+- **An anchor on line 0 was applied instead of refused.** `_anchor_problem`
+  looked for the first out-of-range line number with `next(..., 0)`, so the one
+  value it could not report was the one it was looking for. `0:<hash>` skipped
+  the range check, fell through to the hash comparison - which indexes
+  `lines[0 - 1]`, the *last* line of the file - and a hash that matched made
+  the anchor "verified". `_edit_by_anchor(start=0)` then assigns to
+  `lines[-1:0]`, an empty slice, so the replacement was **inserted** near the
+  end of the file and reported as `[Success] line 0 replaced`. A write nobody
+  asked for, under a success message, is exactly what invariant 5.12 exists to
+  prevent.
+- **The refusal that hands back the lines it meant could itself raise.**
+  `38|print()` carries no hash and is refused with what those lines actually
+  say, so the next call can be right without a `read_file` round trip. It built
+  its example from `numbers[0]` unconditionally, so a call naming one real line
+  and one imaginary one - enough for a listing, not enough to index - raised
+  `IndexError` out of the handler, and the model was told `edit_file raised
+  IndexError` instead of being shown the anchors it was missing.
+- **A damaged session file could not be reopened.**
+  `skills.loaded_skill_names` asked every entry for a key without checking it
+  was a dict, the way `mcp_client.loaded_in` beside it does. One bare string in
+  the list raised `AttributeError` out of `app._adopt_session`, which runs
+  *before* `_replay_session` - so the resume died earlier than, and in spite of,
+  all the care taken to make replaying a holey file survivable.
+- **A token that was not ASCII got past the lockout.**
+  `secrets.compare_digest` refuses two *strings* when either holds a character
+  outside ASCII: it raises `TypeError` rather than answering False. So `?k=%C3%A9`
+  left the handler through `handle_error` - the connection dropped with no HTTP
+  reply at all, `note_bad_token` was never reached, and the count that leads to
+  `REMOTE_MAX_BAD_TOKENS` never moved. An address could knock all afternoon
+  and appear at the prompt only as a stream of TypeErrors, which is the one
+  warning that module promises on a network somebody else is on. Both sides are
+  compared as UTF-8 bytes now. The pairing code had the same fault one factor
+  along, because `str.isdigit()` is true of `٣` as well as `3`, and a guess made
+  of those raised instead of spending one of its three tries.
+- **`/system` lower-cased the persona.** It read its argument off `cmd`, the
+  line lower-cased so the command itself can be matched case-insensitively, and
+  it is the only command whose whole argument is prose meant to reach the model
+  verbatim: "You are a Korean tutor named Minji" was stored as "you are a korean
+  tutor named minji". `/export` had it too, and wrote its markdown out under a
+  lower-cased spelling of the filename - which on a case-sensitive filesystem is
+  a different file from the one asked for. Every other command in the loop
+  already reads `user_input`.
+- **Setting a persona dropped the important memories from the prompt.**
+  `/system` wrote the system message by hand as `persona + SYSTEM_PROMPT +
+  summary`, which is everything `_compose_system_prompt` builds except the two
+  blocks it adds: the memories marked important (5.15) and this project's note
+  titles (5.16). Both went missing until something else happened to rebuild the
+  prompt. It composes through `_refresh_system_prompt` now, which carries the
+  `<SUMMARY>` across on its own.
+- **A sub-agent was offered a tool and then refused it.** `withheld(depth)`
+  exists so that the listing, the schemas and the refusal cannot disagree, and
+  the refusal in the loop was the one of the three still reading the raw
+  `DENIED` tuple. With `SUBAGENT_MAX_DEPTH` raised above 1 - an ordinary `/set` -
+  a depth-1 sub-agent was handed `spawn_agent` in its prompt and in its schemas
+  and then told it did not have it, so it spent its budget knocking.
+
+`/export` and `/system` are now `_export_command` and `_system_command`
+alongside the `/set`, `/agents`, `/remote` and `/vm` helpers they sat between,
+which is what makes both testable.
+
 ### Fixed, from the first afternoon of it running on Windows
 
 - **A message that arrived while you were at the prompt lost its colours** and

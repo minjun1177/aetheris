@@ -490,6 +490,51 @@ check("showing the line before and after",
       approvals[0].get("line 3") == "    print(answer)  →      pass", str(approvals[0]))
 check("declining refuses it", denied.startswith("[System]") and read(path) == SAMPLE)
 
+print("\n--- line 0 is not a line, and saying so is not optional ---")
+# `_anchor_problem` looked for the first out-of-range number with
+# `next(..., 0)`, so the one value it could not report was 0 - the sentinel and
+# the answer were the same. `0:<hash>` therefore skipped the range check and
+# fell through to the hash comparison, which indexes `lines[0 - 1]`: the LAST
+# line of the file. A hash that matched it made the anchor "verified", and
+# `_edit_by_anchor(start=0)` then assigned to `lines[-1:0]` - an empty slice -
+# so the replacement was INSERTED near the end of the file and reported as
+# "[Success] line 0 replaced". A write nobody asked for under a success
+# message is the exact failure invariant 5.12 exists to prevent.
+path = sample("zero.py", "alpha\nbeta\ngamma\n")
+tail_hash = tools._line_hash("")           # the empty line a trailing \n leaves
+result = edit(path, f"0:{tail_hash}", "REPLACEMENT")
+check("an anchor on line 0 is refused", result.startswith("[Error]"), result)
+check("and says there is no such line", "no line 0" in result, result)
+check("and writes nothing", read(path) == "alpha\nbeta\ngamma\n", repr(read(path)))
+check("a line past the end is still refused too",
+      edit(path, "99:aaa", "x").startswith("[Error]"))
+check("and the real lines still edit",
+      edit(path, "", f"2:{tools._line_hash('beta')}|BETA").startswith("[Success"))
+check("in the right place", read(path) == "alpha\nBETA\ngamma\n", repr(read(path)))
+
+
+print("\n--- the refusal that hands back the lines it meant cannot itself fail ---")
+# `38|print()` names a line and carries no hash, so it is refused - and the
+# refusal shows what those lines actually say, so the next call can be right
+# without a read_file round trip. It built its example from `numbers[0]`
+# unconditionally, so a call naming one real line and one imaginary one -
+# enough for a listing, not enough for `lines[numbers[0] - 1]` - raised
+# IndexError out of the handler, and the model was told "edit_file raised
+# IndexError" instead of being shown the anchors it was missing.
+path = sample("nohash.py", "a = 1\nb = 2\nc = 3\n")
+result = edit(path, "", "9999|x\n2|y")
+one_line = " ".join(result.split())[:110]
+check("an out-of-range row first does not raise", result.startswith("[Error]"), one_line)
+check("the listing shows the line that does exist", "2:" in result)
+check("the example names a line that is really there",
+      f"2:{tools._line_hash('b = 2')}|" in result)
+check("and nothing was written", read(path) == "a = 1\nb = 2\nc = 3\n")
+result = edit(path, "", "9999|x")
+check("with no real line at all it falls back to the plain error",
+      result.startswith("[Error]") and "old_content was empty" in result)
+check("and still writes nothing", read(path) == "a = 1\nb = 2\nc = 3\n")
+
+
 print("\n--- a missing file is a missing file, whichever form is used ---")
 absent = os.path.join(WORK, "not-here.py")
 check("by one-row anchor", edit(absent, "", "1:aaa|x").startswith("[Error]"))
