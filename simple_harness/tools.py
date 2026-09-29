@@ -563,14 +563,23 @@ def _no_old_content(filepath: str, file_content: str, new_content: str) -> str:
     if rows and all(matched):
         numbers = [int(m.group(1)) for m in matched]
         listing = _show_lines(lines, numbers)
-        if listing:
+        # The example is built from a line that is actually in the file, not
+        # from `numbers[0]`. A call naming `9999|x` and `2|y` produces a
+        # listing - line 2 is real - and then indexing `lines[9998]` to build
+        # the example raised IndexError out of the handler, so the model was
+        # told "edit_file raised IndexError" instead of being shown the anchors
+        # it was missing. `_show_lines` already sorts and filters to what
+        # exists, so the first number it kept is the one to demonstrate with.
+        shown = sorted(n for n in numbers if 1 <= n <= len(lines))
+        if listing and shown:
+            example = f"{shown[0]}:{_line_hash(lines[shown[0] - 1])}"
             return (f"[Error] Nothing was written. Those rows name lines but carry no "
                     f"hash, and the text after the `|` is what the line is to become - "
                     f"so there is nothing here that shows you have read what is "
                     f"already on {'them' if len(numbers) > 1 else 'it'}. "
                     f"{filepath} currently has:\n{listing}\n"
                     f"Send it again with each anchor exactly as it appears above - "
-                    f"{numbers[0]}:{_line_hash(lines[numbers[0] - 1])}|<the new line> - "
+                    f"{example}|<the new line> - "
                     f"or read_file for the rest.")
     return ("[Error] old_content was empty, so nothing was named to replace. "
             "Either put the hashline anchors of the lines in old_content "
@@ -645,8 +654,17 @@ def _anchor_problem(filepath: str, lines: list, reading: tuple) -> str:
     if last < first:
         return (f"[Error] The anchors run backwards: {first} comes after "
                 f"{last}. Name the first line of the span first.")
-    out_of_range = next((n for n, _, _ in checks if n < 1 or n > len(lines)), 0)
-    if out_of_range:
+    # `None` as the sentinel, not 0. Line 0 is one of the values this is
+    # looking for, so a 0 default made the one case it could not report the one
+    # case it read as "nothing wrong": `0:d41` fell straight through to the
+    # hash check below, which compares against `lines[-1]`, and a hash that
+    # happened to match handed `_edit_by_anchor` a start of 0. `lines[-1:0]` is
+    # an empty slice, so the replacement was *inserted* near the end of the
+    # file and reported as "line 0 replaced" - a write the model never asked
+    # for, under a success message, which is exactly what invariant 5.12 is
+    # there to make impossible.
+    out_of_range = next((n for n, _, _ in checks if n < 1 or n > len(lines)), None)
+    if out_of_range is not None:
         return (f"[Error] There is no line {out_of_range} in {filepath} - "
                 f"it has {len(lines)} lines. read_file it again and take "
                 f"the anchors from that listing.")

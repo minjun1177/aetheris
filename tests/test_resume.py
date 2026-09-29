@@ -10,6 +10,8 @@ what most of the checks below are about.
 the directory it was worked in. Files written before it did have nothing to
 match on, and must never be guessed at.
 """
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -183,6 +185,42 @@ try:
         messages = app._adopt_session(broken)
         check(f"a system message is always first ({type(broken).__name__})",
               messages and messages[0]["role"] == "system")
+
+    print("\n--- writing the conversation out under the name that was asked for ---")
+    # `/export` read its filename off the lowercased line the commands are
+    # matched against, so `/export Notes.MD` wrote `notes.md` - which on a
+    # case-sensitive filesystem is a different file from the one requested.
+    os.chdir(WORK)
+    conversation = [{"role": "system", "content": "the prompt"},
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant",
+                     "content": "hi\n<tool_call>\n{\"name\": \"git_status\"}\n</tool_call>"},
+                    {"role": "user", "content": "[Tool Result for 'git_status']:\nclean"}]
+    with contextlib.redirect_stdout(io.StringIO()):
+        app._export_command(" Notes.MD", conversation)
+    check("the file has the name that was typed", os.path.isfile("Notes.MD"),
+          str(sorted(os.listdir("."))))
+    written = open("Notes.MD", encoding="utf-8").read()
+    check("the system prompt is left out", "the prompt" not in written)
+    check("the tool call is stripped from the answer", "<tool_call>" not in written,
+          written)
+    check("and both speakers are in it", "### User" in written and "### Assistant" in written)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        app._export_command("   ", conversation)
+    check("a bare /export still names a file itself",
+          any(n.startswith("export_") and n.endswith(".md") for n in os.listdir(".")),
+          str(sorted(os.listdir("."))))
+
+    # It reads a file that another version may have written, so a message with
+    # no content must not be what stops the export.
+    with contextlib.redirect_stdout(io.StringIO()) as said:
+        app._export_command(" holey.md", [{"role": "user"}, "not a dict",
+                                          {"role": "assistant", "content": None},
+                                          {"role": "user", "content": "kept"}])
+    check("a file with holes in it still exports",
+          os.path.isfile("holey.md") and "kept" in open("holey.md", encoding="utf-8").read(),
+          said.getvalue().strip()[:60])
 
 finally:
     os.chdir(origin)

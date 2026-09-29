@@ -25,6 +25,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -463,6 +464,32 @@ check("who opened it is known", any(row["address"] == "127.0.0.1"
                                     for row in remote.clients()),
       str(remote.clients()))
 
+# A token with a byte of UTF-8 in it used to be the way past all of that.
+# `secrets.compare_digest` will not compare two *strings* when either holds a
+# character outside ASCII - it raises TypeError rather than answering False -
+# so `?k=%C3%A9` left the handler through `handle_error`: the connection was
+# dropped with no HTTP reply, `note_bad_token` was never reached, and the count
+# that leads to the lockout never moved. An address could knock all afternoon
+# and appear at the prompt only as a stream of TypeErrors.
+remote.take_notices()
+config.REMOTE_MAX_BAD_TOKENS = 3
+config.REMOTE_LOCKOUT = 1
+codes = [request("/state", quote("é"))[0], request("/state", quote("中文"))[0]]
+check("a token that is not even ASCII is answered, not crashed",
+      codes == [401, 401], str(codes))
+check("and it is counted like any other wrong one",
+      request("/state", quote("ü"))[0] == 401
+      and remote.status()["refused"] == ["127.0.0.1"],
+      str(remote.status()["refused"]))
+notices = remote.take_notices()
+check("reported as a wrong token rather than as a TypeError",
+      any("token that is not this one" in text for text in notices)
+      and not any("TypeError" in text for text in notices), str(notices))
+time.sleep(1.1)
+config.REMOTE_MAX_BAD_TOKENS = 20
+check("and the real token still opens it", request("/", TOKEN)[0] == 200)
+remote.take_notices()
+
 # ---------------------------------------------------------------------------
 print("\n--- and what the conversation is costing ---")
 
@@ -585,6 +612,21 @@ check("the pairing is listed", len(remote.sessions()) == 1, str(remote.sessions(
 check("/remote forget drops it", remote.forget_sessions() == 1)
 check("...and the browser is outside again", state_with(SESSION)[0] == 403)
 check("the link itself still works", request("/", TOKEN)[0] == 200)
+
+# The same trap as the non-ASCII token, one factor along.
+# `complete_pairing` keeps whatever `str.isdigit()` accepts, and that is true
+# of `٣` as well as `3` - so a code of Arabic-Indic digits reached
+# `compare_digest` as a non-ASCII string and raised out of the handler instead
+# of spending one of the three tries it is allowed.
+request("/pair", TOKEN, "POST", {})                    # a fresh code to guess at
+remote.take_notices()
+code, _ = request("/pair", TOKEN, "POST", {"code": "١٢٣٤٥٦"})
+check("a pairing code that is not ASCII digits is refused, not crashed",
+      code == 403, str(code))
+check("and it spent a try like any other wrong guess",
+      (remote._pairing or {}).get("tries") == 1, str(remote._pairing))
+remote.forget_sessions()                               # back to no code outstanding
+remote.take_notices()
 
 config.REMOTE_PAIR = "never"
 check("a door can be told not to ask", state(TOKEN)[0] == 200)
