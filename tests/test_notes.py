@@ -25,6 +25,7 @@ What the checks below are actually protecting:
   every write.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -236,8 +237,19 @@ try:
 
     check("building the block twice gives the same bytes",
           notes.notes_prompt_section() == notes.notes_prompt_section())
-    check("with no clock in it",
-          "20" not in notes.notes_prompt_section().replace("v0.7.0", ""))
+    # A clock in the prompt is a cache miss on every turn, so the block must not
+    # carry one - but it is matched as the shapes a timestamp actually takes
+    # rather than as "contains 20". The heading interpolates the project's name,
+    # and this suite's project is a `mkdtemp` directory whose random suffix holds
+    # `20` about one run in two hundred; that failed the check on a block with no
+    # clock in it at all, on one platform of six, for a reason nothing said.
+    block = notes.notes_prompt_section()
+    named = block.replace(os.path.basename(channel.workspace()), "")
+    CLOCKS = (r"\d{4}-\d{2}-\d{2}",     # a date
+              r"\d{1,2}:\d{2}",         # a time
+              r"\b\d{9,}\b")            # an epoch
+    ticking = [shape for shape in CLOCKS if re.search(shape, named)]
+    check("with no clock in it", not ticking, str(ticking))
     ordered = [line for line in notes.notes_prompt_section().splitlines()
                if line.startswith("- ")]
     check("the titles are in a fixed order, not the order they were written",
