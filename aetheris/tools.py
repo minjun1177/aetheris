@@ -11,7 +11,7 @@ import psutil
 from aetheris import atomic
 from aetheris import config
 from aetheris.config import S, TREE_SITTER_AVAILABLE, _TS_LANGUAGES, _EXT_TO_LANG
-from aetheris.tui import _fmt_tool_call, _approval_prompt
+from aetheris.tui import _fmt_tool_call, _approval_prompt, ask_the_driver as _ask_the_driver
 from aetheris.skills import handle_use_skill
 from aetheris import mcp_client
 from aetheris import channel
@@ -563,14 +563,23 @@ def _no_old_content(filepath: str, file_content: str, new_content: str) -> str:
     if rows and all(matched):
         numbers = [int(m.group(1)) for m in matched]
         listing = _show_lines(lines, numbers)
-        if listing:
+        # The example is built from a line that is actually in the file, not
+        # from `numbers[0]`. A call naming `9999|x` and `2|y` produces a
+        # listing - line 2 is real - and then indexing `lines[9998]` to build
+        # the example raised IndexError out of the handler, so the model was
+        # told "edit_file raised IndexError" instead of being shown the anchors
+        # it was missing. `_show_lines` already sorts and filters to what
+        # exists, so the first number it kept is the one to demonstrate with.
+        shown = sorted(n for n in numbers if 1 <= n <= len(lines))
+        if listing and shown:
+            example = f"{shown[0]}:{_line_hash(lines[shown[0] - 1])}"
             return (f"[Error] Nothing was written. Those rows name lines but carry no "
                     f"hash, and the text after the `|` is what the line is to become - "
                     f"so there is nothing here that shows you have read what is "
                     f"already on {'them' if len(numbers) > 1 else 'it'}. "
                     f"{filepath} currently has:\n{listing}\n"
                     f"Send it again with each anchor exactly as it appears above - "
-                    f"{numbers[0]}:{_line_hash(lines[numbers[0] - 1])}|<the new line> - "
+                    f"{example}|<the new line> - "
                     f"or read_file for the rest.")
     return ("[Error] old_content was empty, so nothing was named to replace. "
             "Either put the hashline anchors of the lines in old_content "
@@ -645,8 +654,17 @@ def _anchor_problem(filepath: str, lines: list, reading: tuple) -> str:
     if last < first:
         return (f"[Error] The anchors run backwards: {first} comes after "
                 f"{last}. Name the first line of the span first.")
-    out_of_range = next((n for n, _, _ in checks if n < 1 or n > len(lines)), 0)
-    if out_of_range:
+    # `None` as the sentinel, not 0. Line 0 is one of the values this is
+    # looking for, so a 0 default made the one case it could not report the one
+    # case it read as "nothing wrong": `0:d41` fell straight through to the
+    # hash check below, which compares against `lines[-1]`, and a hash that
+    # happened to match handed `_edit_by_anchor` a start of 0. `lines[-1:0]` is
+    # an empty slice, so the replacement was *inserted* near the end of the
+    # file and reported as "line 0 replaced" - a write the model never asked
+    # for, under a success message, which is exactly what invariant 5.12 is
+    # there to make impossible.
+    out_of_range = next((n for n, _, _ in checks if n < 1 or n > len(lines)), None)
+    if out_of_range is not None:
         return (f"[Error] There is no line {out_of_range} in {filepath} - "
                 f"it has {len(lines)} lines. read_file it again and take "
                 f"the anchors from that listing.")
@@ -1212,6 +1230,12 @@ def _normalise_questions(what_do, prompt, questions) -> list[dict]:
     return items
 
 
+def _driven_remotely() -> bool:
+    """Is the line being worked on one that was typed somewhere else?"""
+    from aetheris import remote
+    return remote.driven()
+
+
 def _ask_one(question: str, options: list[str], index: int, total: int) -> str | None:
     """Show one question with its own choices. None means the user gave up."""
     counter = f" {S.MUTED}({index}/{total}){S.R}" if total > 1 else ""
@@ -1222,28 +1246,44 @@ def _ask_one(question: str, options: list[str], index: int, total: int) -> str |
     custom_idx = len(options) + 1
     print(f"  {S.MUTED}\u2502{S.R}  {S.GRAY}{custom_idx}.  Custom Input{S.R}\n  {S.MUTED}\u2502{S.R}")
 
+    offered = [(str(i), option) for i, option in enumerate(options, 1)]
+    numbered = f"  {S.MUTED}\u2570\u2500{S.R} {S.INFO}Chosen{S.R} " \
+               f"{S.MUTED}(1~{custom_idx}){S.R} {S.INFO}\u203a{S.R} "
+    open_ended = f"  {S.MUTED}\u2570\u2500{S.R} {S.INFO}\u203a{S.R} "
+
     while True:
         try:
-            if options:
-                raw = input(f"  {S.MUTED}\u2570\u2500{S.R} {S.INFO}Chosen{S.R} "
-                            f"{S.MUTED}(1~{custom_idx}){S.R} {S.INFO}\u203a{S.R} ").strip()
-                if not raw:
-                    continue
-                choice = int(raw)
-                if 1 <= choice <= len(options):
-                    return options[choice - 1]
-                if choice == custom_idx:
-                    return config.safe_text(input(f"  {S.INFO}  \u203a{S.R} ").strip())
-                print(f"  {S.ERR}    Input 1 to {custom_idx} number.{S.R}")
-            else:
-                answer = config.safe_text(input(f"  {S.MUTED}\u2570\u2500{S.R} {S.INFO}\u203a{S.R} ").strip())
-                if answer:
-                    return answer
-        except ValueError:
-            print(f"  {S.ERR}    Input correct number.{S.R}")
-        except (EOFError, KeyboardInterrupt):
+            raw = _ask_the_driver(question, [("question", question)], offered,
+                                  numbered if options else open_ended, free_text=True)
+        except KeyboardInterrupt:      # as before: interrupting is giving up
             print()
             return None
+        if raw is None:
+            return None
+        raw = config.safe_text(raw.strip())
+        if not raw:
+            continue
+        if not options:
+            return raw
+        if raw.isdigit():
+            choice = int(raw)
+            if 1 <= choice <= len(options):
+                return options[choice - 1]
+            if choice == custom_idx:
+                try:
+                    typed = _ask_the_driver(question, [("question", question)], (),
+                                            f"  {S.INFO}  \u203a{S.R} ", free_text=True)
+                except KeyboardInterrupt:
+                    print()
+                    return None
+                return None if typed is None else config.safe_text(typed.strip())
+        # A remote answers a list by sending one of its own buttons back, and
+        # its "type an answer" button sends the words themselves - which is the
+        # custom option, arriving in one step rather than two. At this keyboard
+        # the numbers are still the only spelling, as they always were.
+        if not raw.isdigit() and _driven_remotely():
+            return raw
+        print(f"  {S.ERR}    Input 1 to {custom_idx} number.{S.R}")
 
 
 def handle_get_input(what_do="", prompt=None, questions=None) -> str:
@@ -1779,22 +1819,35 @@ def handle_submit_plan_for_approval(context_discovered: str, diff_blueprint: str
     print(f"  {S.MUTED}│{S.R}  {S.BOLD}3.{S.R} Revise (Provide custom feedback)")
     print(f"  {S.MUTED}│{S.R}")
     
+    details = [("context", context_discovered), ("blueprint", diff_blueprint),
+               ("verification", verification_steps)]
+    offered = [("1", "Approve"), ("2", "Reject"), ("3", "Revise with feedback")]
+
     while True:
-        try:
-            choice_str = input(f"  {S.MUTED}╰─{S.R} {S.INFO}Select{S.R} {S.MUTED}(1~3){S.R} {S.INFO}›{S.R} ").strip()
-            if not choice_str: continue
-            choice = int(choice_str)
-            if choice == 1:
-                return "[System] Plan Approved by User. You may now execute the plan strictly within the approved blueprint. Conclude by executing the verification steps."
-            elif choice == 2:
-                return "[System] Plan Rejected by User. Abort the task."
-            elif choice == 3:
-                feedback = input(f"  {S.INFO}  › Please enter feedback: {S.R}").strip()
-                return f"[System] Plan Rejected with feedback: {feedback}\nPlease revise your plan and submit again."
-            else:
-                print(f"  {S.ERR}    Input 1 to 3.{S.R}")
-        except ValueError:
-            print(f"  {S.ERR}    Input correct number.{S.R}")
+        choice_str = _ask_the_driver("Plan approval required", details, offered,
+                                     f"  {S.MUTED}╰─{S.R} {S.INFO}Select{S.R} "
+                                     f"{S.MUTED}(1~3){S.R} {S.INFO}›{S.R} ")
+        if choice_str is None:
+            # Nobody answered - at this keyboard that is Ctrl+C, and from a
+            # remote it is a question that expired. Either way the plan has
+            # not been approved, and saying so is better than asking again
+            # into an empty room.
+            return "[System] Plan Rejected by User. Abort the task."
+        choice_str = choice_str.strip()
+        if not choice_str:
+            continue
+        if choice_str == "1":
+            return "[System] Plan Approved by User. You may now execute the plan strictly within the approved blueprint. Conclude by executing the verification steps."
+        if choice_str == "2":
+            return "[System] Plan Rejected by User. Abort the task."
+        if choice_str == "3":
+            feedback = _ask_the_driver("What should change about the plan?",
+                                       [("plan", diff_blueprint)], (),
+                                       f"  {S.INFO}  › Please enter feedback: {S.R}",
+                                       free_text=True)
+            return (f"[System] Plan Rejected with feedback: {(feedback or '').strip()}\n"
+                    f"Please revise your plan and submit again.")
+        print(f"  {S.ERR}    Input 1 to 3.{S.R}")
 
 
 def handle_mcp_tool_call(function_name: str, arguments: dict) -> str:

@@ -33,8 +33,265 @@ packages of their own rather than be imported from here.
 
 ## 1.0.0 - 2026-10-06
 
-The release where the project took its own name. Nothing about what it does
-changed; everything about what it is called did.
+Three things, and the version number is about the third. The session can be
+driven from a phone; the harnesses running in one project can talk to each
+other while they work; and the project is called Aetheris.
+
+### Remote control: one door into the session that is already running
+
+A harness is a terminal, and a terminal is somewhere you have to be. The moment
+a request takes minutes rather than seconds - a `/deepthink` pass, a suite the
+model is chasing - the two things you need are *what is it doing* and *yes, go
+ahead*, and both are behind a keyboard you have walked away from. Worse than
+slow: a turn that stops at `Allow? [y/n]` on a screen nobody is looking at has
+hung, and nothing says so.
+
+`/remote on` prints a link. Open it on a phone and you are at the prompt - the
+transcript as it is printed, a box that types into the same loop the keyboard
+types into, and the approval prompts themselves, with buttons.
+
+The rule that makes it a control rather than a viewer: **a question is asked
+wherever the person driving the turn is.** A line typed on the phone marks the
+turn, and every blocking question in the harness - the approval prompt,
+`get_input`, `submit_plan_for_approval` - now goes through one place that knows
+which that is. Both are still printed on the terminal, so the person at the
+desk can read what was asked and what came back. Nobody answering inside
+`REMOTE_ASK_TIMEOUT` is a no.
+
+What is behind the link is a shell, so: off until `/remote on`; loopback unless
+`/remote on lan`, which says what it is doing in as many words; a token made
+when the door opens, printed once, never written to disk and gone when it
+closes - 128 bits on loopback, 256 for `lan`, which is the one that crosses a
+network somebody else is also on; a `Host` that is not this machine refused
+before the token is read; wrong tokens counted per address and shut out after
+`REMOTE_MAX_BAD_TOKENS` of them; and the mirrored transcript redacted the way
+the model's copy is, so a `.env` value that is on your screen because *you* ran
+`!cat .env` does not go out over the wire.
+
+And you are told who is there. The first request from an address, and the first
+wrong token from one, arrive at your prompt the way another agent's message
+does - `◆ 192.168.0.14 opened the remote link.` On a shared network the
+question worth answering is not whether somebody *could* get in but whether
+they did, and nothing else here can answer it.
+
+**Over a network the link is not enough on its own.** A browser that arrives
+over `lan` is shown a box rather than the transcript: six digits, printed in the
+terminal the harness runs in, good for two minutes and three guesses. Type them
+on the phone and it gets a session of its own; anything else stays outside.
+That is a second factor rather than a second copy of the first - the link
+crosses the network and can be photographed, read aloud or left in a history,
+and the terminal cannot. `REMOTE_PAIR` chooses when it is asked (`lan`,
+`always`, `never`) and `/remote forget` drops every browser that has paired.
+
+**`/remote qr`** draws the link as something to point a camera at, because
+nobody types forty-three random characters into a phone twice. Black modules on
+a white ground the harness paints itself, so it scans in any terminal theme.
+There is no library behind it: `qr.py` is a byte-mode encoder in the stdlib,
+level M, versions 1 to 9. `tests/test_qr.py` reads each symbol back the way a
+scanner does - the mask out of its own format bits, the zigzag, the blocks - and
+checks that every block still satisfies its Reed-Solomon parity, which is one
+check over the format bits, the placement, the block tables, the interleaving
+and the arithmetic at once.
+
+It is plain HTTP, which on loopback is the whole story and over `lan` is a
+network you are choosing to trust. There is deliberately no TLS and no account:
+from anywhere else, forward the port over `ssh -L`.
+
+`REMOTE_PORT` and `REMOTE_HOST` are ordinary settings, and `/set REMOTE_PORT
+9000` at a prompt with a remote already open *moves* it - new token, new link,
+printed on the spot - rather than waiting for a restart.
+
+### Fixed, from a read of every file in the tree
+
+Seven faults, each with a test that fails without its fix.
+
+- **An anchor on line 0 was applied instead of refused.** `_anchor_problem`
+  looked for the first out-of-range line number with `next(..., 0)`, so the one
+  value it could not report was the one it was looking for. `0:<hash>` skipped
+  the range check, fell through to the hash comparison - which indexes
+  `lines[0 - 1]`, the *last* line of the file - and a hash that matched made
+  the anchor "verified". `_edit_by_anchor(start=0)` then assigns to
+  `lines[-1:0]`, an empty slice, so the replacement was **inserted** near the
+  end of the file and reported as `[Success] line 0 replaced`. A write nobody
+  asked for, under a success message, is exactly what invariant 5.12 exists to
+  prevent.
+- **The refusal that hands back the lines it meant could itself raise.**
+  `38|print()` carries no hash and is refused with what those lines actually
+  say, so the next call can be right without a `read_file` round trip. It built
+  its example from `numbers[0]` unconditionally, so a call naming one real line
+  and one imaginary one - enough for a listing, not enough to index - raised
+  `IndexError` out of the handler, and the model was told `edit_file raised
+  IndexError` instead of being shown the anchors it was missing.
+- **A damaged session file could not be reopened.**
+  `skills.loaded_skill_names` asked every entry for a key without checking it
+  was a dict, the way `mcp_client.loaded_in` beside it does. One bare string in
+  the list raised `AttributeError` out of `app._adopt_session`, which runs
+  *before* `_replay_session` - so the resume died earlier than, and in spite of,
+  all the care taken to make replaying a holey file survivable.
+- **A token that was not ASCII got past the lockout.**
+  `secrets.compare_digest` refuses two *strings* when either holds a character
+  outside ASCII: it raises `TypeError` rather than answering False. So `?k=%C3%A9`
+  left the handler through `handle_error` - the connection dropped with no HTTP
+  reply at all, `note_bad_token` was never reached, and the count that leads to
+  `REMOTE_MAX_BAD_TOKENS` never moved. An address could knock all afternoon
+  and appear at the prompt only as a stream of TypeErrors, which is the one
+  warning that module promises on a network somebody else is on. Both sides are
+  compared as UTF-8 bytes now. The pairing code had the same fault one factor
+  along, because `str.isdigit()` is true of `٣` as well as `3`, and a guess made
+  of those raised instead of spending one of its three tries.
+- **`/system` lower-cased the persona.** It read its argument off `cmd`, the
+  line lower-cased so the command itself can be matched case-insensitively, and
+  it is the only command whose whole argument is prose meant to reach the model
+  verbatim: "You are a Korean tutor named Minji" was stored as "you are a korean
+  tutor named minji". `/export` had it too, and wrote its markdown out under a
+  lower-cased spelling of the filename - which on a case-sensitive filesystem is
+  a different file from the one asked for. Every other command in the loop
+  already reads `user_input`.
+- **Setting a persona dropped the important memories from the prompt.**
+  `/system` wrote the system message by hand as `persona + SYSTEM_PROMPT +
+  summary`, which is everything `_compose_system_prompt` builds except the two
+  blocks it adds: the memories marked important (5.15) and this project's note
+  titles (5.16). Both went missing until something else happened to rebuild the
+  prompt. It composes through `_refresh_system_prompt` now, which carries the
+  `<SUMMARY>` across on its own.
+- **A sub-agent was offered a tool and then refused it.** `withheld(depth)`
+  exists so that the listing, the schemas and the refusal cannot disagree, and
+  the refusal in the loop was the one of the three still reading the raw
+  `DENIED` tuple. With `SUBAGENT_MAX_DEPTH` raised above 1 - an ordinary `/set` -
+  a depth-1 sub-agent was handed `spawn_agent` in its prompt and in its schemas
+  and then told it did not have it, so it spent its budget knocking.
+
+`/export` and `/system` are now `_export_command` and `_system_command`
+alongside the `/set`, `/agents`, `/remote` and `/vm` helpers they sat between,
+which is what makes both testable.
+
+### Fixed, from the first afternoon of it running on Windows
+
+- **A message that arrived while you were at the prompt lost its colours** and
+  arrived as `?[38;2;250;189;47m◆ …` instead. Printing above a live prompt goes
+  through prompt_toolkit's own console writer on Windows, which hands escape
+  sequences to the console as characters; they are handed over as `ANSI(...)`
+  now. The agent channel's messages had the same fault and the same fix.
+- **Opening the link reported you at your own prompt as an intruder** - twice,
+  once for the tab icon and once for the page. A browser fetches `/favicon.ico`
+  and friends by itself, without the token; those paths answer 404 and are
+  counted as nothing.
+- **A phone that locked its screen printed a stack trace** into the middle of
+  the conversation: `socketserver` reports a handler's exception that way, and
+  a dropped long poll is `ConnectionAbortedError` on Windows. A socket giving
+  way is now the ordinary end of a request, and anything that is not one is a
+  single line at the prompt.
+- **The notice marker was a glyph Windows Terminal cannot draw.** U+26BF, the
+  "squared key", is not in its default font and came out as a box. It is `◆`
+  now, from the Geometric Shapes block everything else in this interface uses.
+- **`/model` from the phone asked the terminal.** `connect` now asks through
+  the same place every other blocking question does, and passes its numbered
+  list along as buttons. An API key is the deliberate exception: it is not
+  typed over plain HTTP, whoever is driving.
+- **The page now knows what may be typed into it.** `/` lists the slash
+  commands with what each does - the table `/help` renders, served as
+  `/commands` - and tapping one inserts it. `!` turns the box amber and says
+  it runs on that machine as you, which is the warning the terminal has had
+  over its own prompt since the shell escape existed.
+- **Eight blank lines sat under the prompt, all the time.**
+  `complete_while_typing=True` is what opens the `/` and `@` menus without a
+  Tab, and it is also what makes prompt_toolkit hold `reserve_space_for_menu`
+  rows free below the cursor - for the whole time somebody is typing an
+  ordinary sentence that will never have a menu. The reservation is read on
+  every render, so it is earned now: a `Condition` says yes for a line that
+  starts with `/` or carries an `@`, and nothing else. Tab still completes
+  anything, any time.
+- **Everything printed above a live prompt lost its escapes**, on every
+  platform - `?[38;2;250;189;47m◆ …` - because `patch_stdout` sanitises what it
+  is handed unless it is opened `raw=True`. It is opened `raw=True` now. The
+  first pass at this blamed the Windows console and special-cased it; a pty
+  said otherwise.
+- **The menu's reserved rows outlived the `/` that earned them.** Deleting the
+  slash left the completion state open, and the reservation answers to either
+  that or the condition, so the band stayed until Escape. The buffer now closes
+  a menu the line has stopped asking for.
+- **A line typed while the model worked could answer a question.** It already
+  reached the next prompt - the terminal buffers it - but a mid-turn approval
+  prompt would take it as its answer, unseen. The keyboard buffer is emptied
+  before a question is asked, and the person is told their line was set aside.
+- **The tool-call-limit prompt asked the terminal even when a phone was
+  driving.** It is the one blocking question that never went through
+  `ask_the_driver`; a remote-driven turn stopped there with nothing on the
+  phone to say why. It goes through it now, with its two answers as buttons.
+- **The page was a wall of grey.** The transcript was stripped of colour on
+  its way out; it now keeps the terminal's `ESC [ … m` and the page paints it.
+  Every other escape is still removed before sending, and text only ever lands
+  as `textContent`, so nothing that arrives can be markup.
+- **The prompt itself was being mirrored.** With a remote open before the
+  prompt was built, prompt_toolkit drew through the mirror, so every render -
+  the bare `❯`, the menu, the redraw after each keystroke - went to the phone.
+  The prompt is pointed at the real stream now and the tee sits inside
+  `patch_stdout`, where it catches what the program prints and not what the
+  renderer draws.
+- **Colour that spanned lines was lost.** The banner opens with one escape and
+  closes four lines later; published by the line, everything between came out
+  white. The page carries the state from line to line, as a terminal does.
+- **`/exit` from the page is refused.** It is the one command the link cannot
+  undo from where it is typed.
+- **A line sent from the page appeared twice** - once echoed locally and once
+  when the harness printed it at the prompt and the mirror carried it back.
+  The local echo is gone; the transcript's own copy is the one you see, exactly
+  as the terminal shows it.
+- **The page now says what the conversation costs**: tokens against the context
+  window and the number of turns, on a strip above the box, with the spinner
+  the terminal turns on the left of it. It is the half of `/usage` that fits on
+  a phone.
+- **The spinner reached the phone as every frame it had ever drawn.** It is one
+  line, rewritten many times a second and never ended with a newline, and the
+  `\r` rule was applied to finished lines but not to the one still being
+  written - so the buffer held the lot, laid end to end. It holds the frame it
+  is on, and nothing once it stops.
+- **Redaction was silent about itself.** A `.env` value that is also an
+  ordinary word - `PROJECT_DIR=aetheris` - is a secret by the only rule
+  that never lets a key through, so `!dir` came back full of
+  `{{env:PROJECT_DIR}}` with nothing to say why. A `!` command whose output was
+  redacted now names what was hidden. README §13a states the three conditions
+  outright.
+
+The transcript is a tee on `sys.stdout` rather than a second rendering, which is
+why what the phone shows is exactly what the terminal shows, tool boxes and all.
+
+New: `/remote` (with `qr` and `forget`), `remote.py`, `qr.py`,
+`tests/test_remote.py`, `tests/test_qr.py`, and `REMOTE_ENABLED`, `REMOTE_HOST`,
+`REMOTE_PORT`, `REMOTE_LINES`, `REMOTE_ASK_TIMEOUT`, `REMOTE_PAIR`,
+`REMOTE_MAX_BAD_TOKENS`, `REMOTE_LOCKOUT`.
+
+### The board the harnesses share
+
+People run three of these at once in one repository, and until now none of them
+knew the others existed: two would read the same file, and the second write
+silently threw the first away. The instances in one working tree now share one
+locked JSON board - who is here, what they have said, and which files each is
+in the middle of changing. A claimed file is refused to the others **by name**,
+so the refusal says who to ask.
+
+Three decisions are what keep it from becoming a chat room:
+
+- **A message is 250 characters and must name a path.** Two 4B models given
+  room for an essay negotiate the problem instead of solving it. It is a
+  physical limit rather than an instruction, for the same reason everything else
+  here is.
+- **There is no message kind meaning "please do this for me."** That absence is
+  the fix for the one thing two small models reliably did to each other: "could
+  you test it?" - "yes, could you test it?" - for a whole run, neither ever
+  running anything. A question about state can always name a file; a delegation
+  never can, so the shape of the message tells the two apart with no guessing at
+  intent.
+- **A question put to a terminal nobody is sitting at is answered.** A message
+  delivered into an idle session is delivered to nothing - the model reads it on
+  the next turn, and the next turn is whenever somebody comes back. So the
+  channel presses Enter, but only for a direct question, only on an empty
+  prompt, and only `CHANNEL_AUTO_TURN_MAX` times between one human line and the
+  next. The budget is spent only by turns that came back with *nothing done*, so
+  two agents genuinely working can go back and forth all day.
+
+New: `CHANNEL_AUTO_TURN`, `CHANNEL_AUTO_TURN_MAX`, `CHANNEL_MAX_IDLE_REPLIES`
+and `CHANNEL_PLAN_NOTE`; `/agents plan`, `/agents clear` and `/agents release`.
 
 ### Aetheris
 
@@ -76,6 +333,8 @@ The major version is 1, so the [Compatibility](#compatibility) table is now a
 guarantee rather than a record, and the 0.x escape clause that said otherwise is
 gone. The state-layout row is the only one the rename touched, and it is the row
 that carries the fallback above.
+
+---
 
 ## 0.6.0 - 2026-09-08
 
@@ -187,7 +446,7 @@ the fourth.
   by typing `@` - completed from what is actually on disk, and behaving the same
   on Windows.
 - **`!command`** at the prompt, and **CLI session resume**.
-- CI now catches a tag that disagrees with `simple_harness.__version__`, before
+- CI now catches a tag that disagrees with `aetheris.__version__`, before
   the upload that cannot be taken back.
 
 ## 0.3.0 - 2026-09-02

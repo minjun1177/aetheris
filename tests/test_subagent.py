@@ -117,6 +117,33 @@ check("the call is refused, not run", refusal and "not available to a sub-agent"
 check("and it is told to carry on", "sub-agent" in report or "assumed" in report,
       repr(report[:60]))
 
+# ...and what it *was* offered, it may use. `withheld(depth)` exists so that the
+# listing, the schemas and the refusal cannot disagree, and the refusal in the
+# loop was the one of the three still reading the raw `DENIED` tuple. With
+# SUBAGENT_MAX_DEPTH raised above 1 - an ordinary `/set` - a depth-1 sub-agent
+# was handed `spawn_agent` in its prompt and in its schemas and then refused it
+# here, so it spent its budget on a tool it had been told it had.
+config.SUBAGENT_MAX_DEPTH = 2
+try:
+    check("with depth to spare, spawn_agent is offered",
+          "spawn_agent" not in subagent.withheld(1)
+          and "spawn_agent" in subagent.prompt(1, native=False),
+          str(subagent.withheld(1)))
+    script = [
+        '<tool_call>\n{"name": "spawn_agent", "arguments": {"task": "count to one"}}\n</tool_call>',
+        "My own sub-agent answered.",
+    ]
+    _report, scripted, _ = with_provider(script + ["done"],
+                                         lambda: subagent.run("delegate again"))
+    results = [m["content"] for m in scripted.seen[-1] if "[Tool Result" in m["content"]]
+    check("it is not then refused by the loop that offered it",
+          results and "not available to a sub-agent" not in results[0],
+          str(results)[:90])
+finally:
+    config.SUBAGENT_MAX_DEPTH = 1
+check("and at the depth limit it is withheld again",
+      "spawn_agent" in subagent.withheld(1), str(subagent.withheld(1)))
+
 print("\n--- it cannot run forever ---")
 loop = ['<tool_call>\n{"name": "git_status", "arguments": {}}\n</tool_call>'] * 8
 report, scripted, _ = with_provider(loop + ["Ran out of turns; here is what I have."],

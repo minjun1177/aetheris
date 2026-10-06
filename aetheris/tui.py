@@ -211,6 +211,12 @@ COMMANDS = (
     ("/agents clear [dm|everyone]", "Wipe messages off the board - it is shared, so for everyone"),
     ("/agents plan [text]", "The one plan every agent here shares; with text, set it"),
     ("/agents [on/off]", "Whether this session appears on the agent board"),
+    ("/remote [on/off]", "Whether this session can be driven from a browser - the "
+                         "transcript, the prompt and the approvals, on your phone. "
+                         "/remote on lan opens it to this machine's network rather "
+                         "than to this machine only"),
+    ("/remote qr", "The link as a QR code, for pointing a phone at"),
+    ("/remote forget", "Drop every browser that has paired; the link still works"),
     ("/vm", "The Python scratch process run_python uses, and where it runs"),
     ("/vm reset", "Throw away every variable the model left in it"),
     ("/vm stop", "End the process; the next run_python starts a new one"),
@@ -659,6 +665,77 @@ def _show_settings(only: str = "") -> None:
     print()
 
 
+def _set_aside_type_ahead() -> bool:
+    """Empty the keyboard buffer before a question. True if it held something.
+
+    Typing while the model works already works: the terminal buffers the line
+    and the next prompt picks it up. What it must not do is *answer* something.
+    A question asked in the middle of a turn - approve this command, pick one
+    of these - would otherwise be handed whatever sentence the person happened
+    to be typing at the moment it appeared, and they would never see it asked.
+
+    So the buffer is emptied first and the caller says so. Losing a half-typed
+    sentence is a small price; approving a `delete_file` with it is not.
+    """
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return False
+    except Exception:
+        return False
+    try:
+        if config.CURRENT_OS == "Windows":
+            import msvcrt
+            found = False
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+                found = True
+            return found
+        import select
+        import termios
+        found = bool(select.select([sys.stdin], [], [], 0)[0])
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+        return found
+    except Exception:
+        return False          # no terminal to flush is not a failure
+
+
+def ask_the_driver(title: str, details, choices, prompt: str,
+                   free_text: bool = False) -> str | None:
+    """One question, put to whoever is actually driving this turn.
+
+    Every blocking question in the harness ends up here, which is the point:
+    a turn started from a phone that then stops at "Allow? [y/n]" on a screen
+    nobody is looking at is a turn that has hung, and there is no good way to
+    find that out from the phone. So the question follows the driver. It is
+    still printed on the terminal either way - the person at this keyboard
+    should see what is being asked and what came back, even when they are not
+    the one answering.
+
+    `None` means nobody answered: end of input, or a remote that let the
+    question expire. Every caller reads that as a no. Ctrl+C is *not* that -
+    it is the person interrupting the program rather than answering it, so it
+    is raised on through and each caller goes on treating it as it did.
+    """
+    from aetheris import remote
+    if remote.driven():
+        print(f"  {S.MUTED}⇢ asked the remote, which is driving this turn…{S.R}")
+        answer = remote.ask(title, details, choices, free_text=free_text)
+        if not answer:
+            print(f"  {S.WARN}⇠ the remote did not answer{S.MUTED} - taking that "
+                  f"as no.{S.R}")
+            return None
+        print(f"  {S.MUTED}⇠ the remote answered {S.GRAY}{answer}{S.R}")
+        return answer
+    if _set_aside_type_ahead():
+        print(f"  {S.MUTED}◆ what you were typing was set aside - this question "
+              f"takes an answer of its own.{S.R}")
+    try:
+        return input(prompt).strip()
+    except EOFError:
+        print()
+        return None
+
+
 def _approval_prompt(action_label: str, details: list[tuple[str, str]], rule: str = "") -> bool:
     from aetheris.renderer import _disp_width
     from aetheris import permissions
@@ -720,11 +797,18 @@ def _approval_prompt(action_label: str, details: list[tuple[str, str]], rule: st
     else:
         choices = f"{S.MUTED}[{S.OK}y{S.MUTED}/{S.ERR}n{S.MUTED}]{S.R}"
 
+    offered = [("y", "Allow"), ("n", "Deny")]
+    if rule:
+        offered.append(("a", f"Always allow {rule}"))
     try:
-        answer = input(f"  {S.WARN}Allow? {choices} {S.WARN}›{S.R} ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
+        answer = ask_the_driver(f"{action_label} - approval required", details, offered,
+                                f"  {S.WARN}Allow? {choices} {S.WARN}›{S.R} ")
+    except KeyboardInterrupt:          # as it always has been: interrupted is denied
         print()
         return False
+    if answer is None:
+        return False
+    answer = answer.strip().lower()
 
     if answer == "a" and rule:
         saved, where = permissions.add_rule(rule, "allow")

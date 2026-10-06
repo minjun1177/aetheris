@@ -49,7 +49,7 @@ jobs:
         # time, so a module-level `import config` anywhere below it stops the
         # whole program from importing. That failure has to be caught here.
         run: |
-          python -c "from aetheris import app, llm_client, tools, toolspec, providers, context, session, permissions, skills, websearch, mcp_client, renderer, tui, deepthink, git_ops, subagent, channel, atomic, sse, shell_session, connect, systemprompt, config, paths, terms, vault, vm"
+          python -c "from aetheris import app, llm_client, tools, toolspec, providers, context, session, permissions, skills, websearch, mcp_client, renderer, tui, deepthink, git_ops, subagent, channel, atomic, sse, shell_session, connect, systemprompt, config, paths, terms, vault, vm, remote, qr"
           python -c "import aetheris.__main__"
 
       - name: Tests

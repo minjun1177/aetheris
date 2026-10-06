@@ -103,10 +103,10 @@ check("no row promises a command that does not exist",
 # Every on/off command reads the same way, or none of them does. Six answered a
 # bare `/x` with "✗ Usage:" and no word about what the switch was even for,
 # while three explained themselves - and the six also skipped the blank line
-# the rest of the loop ends on. `/mcp` and `/agents` take `on`/`off` too but
-# are not only switches: a bare one shows a screen of its own, so they have
-# more than one row for good reason and are checked apart from the rest.
-NOT_ONLY_SWITCHES = ("/mcp", "/agents")
+# the rest of the loop ends on. `/mcp`, `/agents` and `/remote` take `on`/`off`
+# too but are not only switches: a bare one shows a screen of its own, so they
+# have more than one row for good reason and are checked apart from the rest.
+NOT_ONLY_SWITCHES = ("/mcp", "/agents", "/remote")
 switches = [name.split()[0] for name, _ in tui.COMMANDS if "[on/off]" in name]
 check("every switch is spelled the same way in /help", len(switches) >= 8, str(switches))
 

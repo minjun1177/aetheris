@@ -34,12 +34,35 @@ def _print_problem(what: str, error) -> None:
     print()
 
 
-def _ask(prompt: str) -> str:
+def _ask(prompt: str, title: str = "", options=(), keyboard_only: bool = False) -> str:
+    """One answer, from whoever is driving - unless it is a secret.
+
+    `/model` typed on a phone used to put its numbered list on the phone and
+    its "Select (0~20)" on a terminal nobody was sitting at, which is the hang
+    the remote exists to prevent. So this goes through the same place every
+    other blocking question does.
+
+    `keyboard_only` is the exception, and it is exactly one prompt: an API key.
+    The remote is plain HTTP, so a key typed there crosses the network in the
+    clear, and a provider key is not the person's to leak twice. That one is
+    asked at the keyboard or not at all.
+    """
+    from aetheris import remote
+    from aetheris.tui import ask_the_driver
+    if keyboard_only and remote.driven():
+        print(f"  {S.WARN}⚠ An API key is only ever typed at the keyboard.{S.MUTED} "
+              f"This link is plain HTTP; a key sent over it crosses the network "
+              f"in the clear.{S.R}")
+        print(f"  {S.MUTED}Set {S.GRAY}/connect{S.MUTED} again from the terminal, "
+              f"or put the key in the environment.{S.R}\n")
+        return ""
     try:
-        return config.safe_text(input(prompt).strip())
-    except (EOFError, KeyboardInterrupt):
+        answer = ask_the_driver(title or "Aetheris", (), options, prompt,
+                                free_text=True)
+    except KeyboardInterrupt:
         print()
         return ""
+    return config.safe_text((answer or "").strip())
 
 
 def _choose(title: str, rows: list, formatter) -> int:
@@ -48,7 +71,12 @@ def _choose(title: str, rows: list, formatter) -> int:
     for i, row in enumerate(rows, 1):
         print(f"  {S.ACCENT}{i:3}.{S.R} {formatter(row)}")
     print(f"  {S.MUTED}  0.{S.R} {S.GRAY}Cancel{S.R}\n")
-    raw = _ask(f"  {S.INFO}Select{S.R} {S.MUTED}(0~{len(rows)}){S.R} {S.INFO}›{S.R} ")
+    # The same list the terminal just printed, as something to tap on: a phone
+    # cannot see the numbered rows above and has no business guessing them.
+    raw = _ask(f"  {S.INFO}Select{S.R} {S.MUTED}(0~{len(rows)}){S.R} {S.INFO}›{S.R} ",
+               title=title,
+               options=[(str(i), formatter(row)) for i, row in enumerate(rows, 1)]
+                       + [("0", "Cancel")])
     if not raw or raw == "0":
         return -1
     try:
@@ -146,7 +174,8 @@ def _ensure_key(name: str) -> bool:
     print(f"  {S.MUTED}Set {' or '.join(provider.key_env)} in the environment to keep it "
           f"out of a file, or paste it here to save it to{S.R}")
     print(f"  {S.MUTED}{providers.CONFIG_PATH} (owner-only).{S.R}\n")
-    key = _ask(f"  {S.INFO}API key{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ")
+    key = _ask(f"  {S.INFO}API key{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
+               title=f"{provider.label} API key", keyboard_only=True)
     if not key:
         print(f"  {S.GRAY}Cancelled.{S.R}\n")
         return False
@@ -165,11 +194,13 @@ def _pick_model(name: str) -> str:
         # single line - truncating it left the one useful half off the end.
         print("\r\033[K", end="")
         _print_problem("Could not list models", error)
-        return _ask(f"  {S.INFO}Model id{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ")
+        return _ask(f"  {S.INFO}Model id{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
+                    title=f"Which {provider.label} model?")
     print("\r\033[K", end="")
 
     if not models:
-        return _ask(f"  {S.INFO}Model id{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ")
+        return _ask(f"  {S.INFO}Model id{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
+                    title=f"Which {provider.label} model?")
 
     def render(entry):
         detail = f"  {S.GRAY}{entry['detail']}{S.R}" if entry.get("detail") else ""

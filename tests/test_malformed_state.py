@@ -265,6 +265,37 @@ except Exception as error:
     problem = f"{type(error).__name__}: {error}"
 check("a file with holes in it still replays", not problem, problem)
 
+# ...and neither must working out what it had loaded. `_adopt_session` runs
+# *before* the replay and asks `skills.loaded_skill_names` and
+# `mcp_client.loaded_in` which of those the file still carries. The second
+# checked each entry was a dict; the first did not, so one bare string in the
+# list raised AttributeError and killed the whole resume - earlier than, and so
+# in spite of, all the care taken above.
+from aetheris import skills                # noqa: E402
+
+holey = [{"role": "system", "content": "sys"},
+         {"role": "user"},                       # no content
+         {"role": "assistant", "content": None},
+         "not a dict at all",
+         {"content": "no role"}]
+problem = ""
+try:
+    names = skills.loaded_skill_names(holey)
+except Exception as error:
+    names, problem = None, f"{type(error).__name__}: {error}"
+check("reading the loaded skills out of it does not raise", not problem, problem)
+check("and finds none in it", names == [], str(names))
+
+problem = ""
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        adopted = app._adopt_session({"version": 4, "messages": list(holey)})
+except Exception as error:
+    adopted, problem = None, f"{type(error).__name__}: {error}"
+check("so the session is adopted rather than lost", not problem, problem)
+check("with a system message still at the front",
+      bool(adopted) and adopted[0].get("role") == "system")
+
 
 # ---------------------------------------------------------------------------
 print("\n--- a turn cut short hands back an answer ---")

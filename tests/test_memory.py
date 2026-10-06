@@ -21,6 +21,8 @@ What the checks below are actually protecting:
 * resuming re-reads it. A session picked up tomorrow is a session start too,
   and the block saved into its file is yesterday's.
 """
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -150,6 +152,41 @@ try:
           HEADING in messages[0]["content"])
     check("and the conversation itself is untouched",
           [m["role"] for m in messages] == ["system", "user"])
+
+    print("\n--- and so does setting a persona ---")
+    # `/system` wrote the system message by hand - `persona + SYSTEM_PROMPT +
+    # summary` - which is everything `_compose_system_prompt` builds except the
+    # two blocks it adds: the memories marked important, and this project's note
+    # titles. So asking for a persona silently threw away the whole of 5.15
+    # until something else happened to rebuild the prompt. It also read its
+    # argument off the lowercased line the commands are matched against, so the
+    # persona itself came out in lower case.
+    wipe()
+    session.handle_write_memory("Rule", "never push to main", True)
+    config.SYSTEM_PROMPT = app._build_system_prompt()
+    messages = [{"role": "system",
+                 "content": app._compose_system_prompt("\n\n<SUMMARY>kept</SUMMARY>")}]
+    persona = "You are a Korean tutor named Minji."
+    with contextlib.redirect_stdout(io.StringIO()):
+        app._system_command(" " + persona, messages)
+    prompt = messages[0]["content"]
+    check("the persona is stored exactly as it was typed", prompt.startswith(persona),
+          prompt[:60])
+    check("the important memory is still in the prompt", HEADING in prompt)
+    check("and so is the summary", "<SUMMARY>kept</SUMMARY>" in prompt)
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        app._system_command(" reset", messages)
+    prompt = messages[0]["content"]
+    check("reset takes the persona back out", "Minji" not in prompt)
+    check("and leaves the memory where it was", HEADING in prompt)
+    check("and the summary too", "<SUMMARY>kept</SUMMARY>" in prompt)
+    check("config forgets it as well", config.CUSTOM_PERSONA == "")
+
+    with contextlib.redirect_stdout(io.StringIO()) as said:
+        app._system_command("   ", messages)
+    check("a bare /system says how to use it", "Usage:" in said.getvalue(),
+          said.getvalue().strip()[:60])
 
 finally:
     shutil.rmtree(HOME, ignore_errors=True)

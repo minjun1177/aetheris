@@ -116,7 +116,8 @@ async def _work(task: str, context: str, depth: int) -> str:
     nudged = False
 
     use_native = native_enabled()
-    schemas = native_tools(exclude=withheld(depth)) if use_native else None
+    denied = withheld(depth)
+    schemas = native_tools(exclude=denied) if use_native else None
 
     for turn in range(budget):
         calls: list = []
@@ -150,7 +151,14 @@ async def _work(task: str, context: str, depth: int) -> str:
             if NATIVE_ERROR in arguments:
                 result = (f"[Error] Your call to '{name}' could not be read: "
                           f"{arguments[NATIVE_ERROR]}. Nothing was run. Try again.")
-            elif name in DENIED:
+            elif name in denied:
+                # `withheld(depth)`, not `DENIED`: that function exists so the
+                # listing, the schemas and the refusal cannot disagree, and
+                # this was the one of the three still reading the raw tuple.
+                # With SUBAGENT_MAX_DEPTH raised above 1 - it is an ordinary
+                # `/set` - a depth-1 sub-agent was handed `spawn_agent` in its
+                # prompt and in its schemas and then refused it here, so it
+                # spent its budget on a tool it had been told it had.
                 result = (f"[System] '{name}' is not available to a sub-agent. "
                           "Finish the work you were given and write your report; "
                           "the AI that hired you will handle the rest.")

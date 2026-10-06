@@ -68,6 +68,9 @@ try:
     # What lets another agent's message be printed *above* a prompt that is
     # already waiting for a line, instead of on top of what is being typed.
     from prompt_toolkit.patch_stdout import patch_stdout
+    # ...and what lets the prompt be told where to draw, so its own
+    # rendering can be kept out of what the remote mirrors.
+    from prompt_toolkit.output.defaults import create_output
     PROMPT_TOOLKIT_AVAILABLE = True
 
     from prompt_toolkit.completion import merge_completers
@@ -164,6 +167,30 @@ try:
             return get_app().current_buffer.text.lstrip().startswith(SHELL_PREFIX)
         except Exception:
             return False        # no application running: it is not being typed
+
+    from prompt_toolkit.filters import Condition
+
+    def _wants_the_menu() -> bool:
+        """Whether the line being typed is one the completion menu speaks to.
+
+        `complete_while_typing` is what makes `/` and `@` open their menus
+        without anybody pressing Tab, and it is also what makes prompt_toolkit
+        keep `reserve_space_for_menu` rows free *under the prompt at all times*
+        - eight blank lines below the cursor, whether or not a menu is coming,
+        for the whole time you are sitting there typing an ordinary sentence.
+
+        The reservation is read on every render, so it can be earned rather
+        than held: this says yes only for a line that starts with `/` or has an
+        `@` word in it, which is exactly when a menu is about to appear. Tab
+        still completes anything, any time - that is a different path.
+        """
+        try:
+            text = get_app().current_buffer.document.text_before_cursor
+        except Exception:
+            return False
+        return text.lstrip().startswith("/") or bool(_AT_WORD.search(text))
+
+    COMPLETE_WHILE_TYPING = Condition(_wants_the_menu)
 
     class ShellLineLexer(Lexer):
         """Colour the whole line while it is a shell command.
@@ -459,6 +486,34 @@ CHANNEL_MAX_IDLE_REPLIES = 3
 # announced in each of their system prompts. One answer to "what are we all
 # doing", not two waiting to disagree. Empty turns the pointer off.
 CHANNEL_PLAN_NOTE = "plan"
+
+# --- remote control ----------------------------------------------------------
+# `/remote on` opens one door into this session: a token-locked HTTP server on
+# this machine, and anything that can open the URL it prints is at the prompt -
+# it reads the transcript, types lines, and answers the approval prompts that
+# would otherwise wait for somebody who has left the desk. Off by default, and
+# loopback unless `/remote on lan` says otherwise, because it is a door into a
+# shell. The token is made when the server starts and is deliberately not a
+# setting: there is nothing here for `settings.json` to keep. See remote.py.
+REMOTE_ENABLED = False
+REMOTE_HOST = "127.0.0.1"       # `/remote on lan` binds every interface instead
+REMOTE_PORT = 8765              # busy? the next 19 are tried before giving up
+REMOTE_LINES = 500              # transcript lines kept for a phone to scroll
+REMOTE_ASK_TIMEOUT = 300        # seconds a question waits before it counts as no
+REMOTE_PAIR = "lan"             # when a browser must also type a code shown on
+                                # this terminal before it can drive anything:
+                                # "lan" (only when opened to the network),
+                                # "always", or "never". The link crosses the
+                                # network; the terminal does not, which is what
+                                # makes the code a second factor rather than a
+                                # second copy of the first.
+REMOTE_MAX_BAD_TOKENS = 20      # wrong tokens from one address before it is shut out
+REMOTE_LOCKOUT = 300            # ...and for how long. The first wrong one is reported
+                                # at the prompt either way: on a network somebody
+                                # else is on, that is the only warning there is.
+# Changing the host or the port while a remote is open moves it there and prints
+# the new link - a setting that takes effect only after something is turned off
+# and on again is a setting that looks broken.
 
 # --- reasoning ("thinking") models -------------------------------------------
 # Reasoning models wrap their scratch work in <think> tags, or return it in

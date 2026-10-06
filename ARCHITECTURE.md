@@ -12,7 +12,7 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~16,600 lines of Python, no framework. It talks to
+A terminal AI assistant, ~18,600 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
 model 40 tools, and runs them with the user's approval.
 
@@ -572,6 +572,8 @@ app.py            the loop, slash commands, session lifecycle
   └ deepthink.py  the six-stage chain
   └ subagent.py   spawn_agent's own conversation loop
   └ channel.py    the board the harnesses in one project share
+  └ remote.py     the token-locked door a browser drives this session through
+      └ qr.py    a QR encoder, stdlib only, for the link that door prints
       └ vm.py     the Python scratch process behind run_python
       └ providers.py  four wire formats → one event shape
           └ sse.py    server-sent events, read as they arrive
@@ -595,6 +597,8 @@ app.py            the loop, slash commands, session lifecycle
 | `git_ops.py` | Commit, undo, diff. Never raises | Anything not about git |
 | `verify.py` | Which check a project declares, running it, and the wording of a failure | When to run it or how many times - that is `chat_turn` |
 | `channel.py` | Who else is running here, what they said, what they hold | Anything about one conversation |
+| `qr.py` | Byte-mode QR encoding and the half-block drawing of it. Nothing about the remote | What the link *is* - `remote.urls` decides that |
+| `remote.py` | The HTTP server, the token, the transcript mirrored off `sys.stdout`, and the question that follows the driver | Anything about *what* is being approved - it carries the question, it does not read it |
 | `context.py` | Token estimate, trimming, compression, and folding the token history into turns | |
 | `session.py` | Session files, the directory each was worked in, long-term memory, and the block the important ones make (5.15) | Where that block is put - `app` composes |
 | `notes.py` | A project's markdown notes: where they live, the five tools over them, and the block of titles (5.16) | What counts as a project - `channel.workspace` answers that |
@@ -1036,6 +1040,102 @@ tried, with `PYTHONDONTWRITEBYTECODE` set so importing it leaves no
 
 ---
 
+## 8c. Remote control
+
+`remote.py`, behind `/remote`. One HTTP server on this machine, and what is on
+the other side of it is not a view of the session but the session itself: the
+link types lines into the prompt `app.main` is already sitting at.
+
+```
+  the browser                 this process
+  ───────────                 ────────────
+  GET  /            ←  one HTML file, no network, token in the URL
+  GET  /state?wait  ←  held open on a Condition until there is something:
+                       new lines, a question, a change of busy
+  POST /say         →  a line, onto the queue `_read_line` races against
+  POST /answer      →  the answer `ask()` is blocked waiting for
+```
+
+**The transcript is a tee, not a second rendering.** `ensure_mirror` wraps
+`sys.stdout`, so what the remote reads is what the terminal printed - one
+rendering, two places, and no second copy of the formatting to keep in step.
+It is installed at the top of every prompt rather than once, because
+`prompt_toolkit`'s `patch_stdout` replaces `sys.stdout` while a prompt is open
+and puts the original back afterwards; a tee installed underneath that is a
+tee that disappears. Lines go through `vault.redact` on the way in.
+
+**A line typed there is a line typed here.** `_typed_or_remote` runs the
+prompt and a watcher on the queue as two tasks and takes whichever finishes
+first, cancelling the other. The remote winning costs whatever was half-typed
+at the keyboard, which is the right way round: the person who can see that
+happen is the one at the keyboard.
+
+**The question follows the driver.** Every blocking question in the harness
+goes through `tui.ask_the_driver`, which asks `remote.driven()` - did the line
+being worked on come from the remote? - and puts the question wherever that
+person is. `_approval_prompt`, `get_input`, `submit_plan_for_approval` and
+`connect._ask` all reach it; `connect` passes its numbered list along as
+choices, so `/model` on a phone is a list of buttons rather than a prompt
+nobody can see. Its one `keyboard_only=True` is the API key, which does not go
+over plain HTTP whoever is driving. `ask` blocks the main thread on the same `Condition` the server's
+threads notify, so an answer from a phone returns *into* the tool call that
+was waiting for a keystroke. No answer inside `REMOTE_ASK_TIMEOUT` returns
+`""`, and every caller reads that as a no.
+
+**What guards it**, in the order `_refusal` applies it:
+
+1. the `Host` header must name this machine - a page elsewhere that resolved
+   its own name to `127.0.0.1` does not get to spend a guess;
+2. the address must not be shut out - `REMOTE_MAX_BAD_TOKENS` wrong ones costs
+   it `REMOTE_LOCKOUT` seconds;
+3. the token must match, `compare_digest`, `token_urlsafe(16)` on loopback and
+   `(32)` for `lan`. It is made at `start()` and never written to disk: no
+   setting holds it, which is the point;
+4. where `pairing_required()` says so - over `lan` by default - the request
+   must also carry a session key, and the only way to get one is to send back
+   six digits that were printed on *this terminal*. `/` and `/pair` are the
+   two paths exempt, because the page is what asks for the code and cannot ask
+   if it cannot load. The code lives two minutes, survives three wrong
+   guesses, and is bound to the address that asked for it.
+
+That fourth gate is the one that answers "somebody else is on this network".
+The token has to cross it to reach the phone; the terminal does not, so a code
+that only appears there is a factor the wire never carried. `_sessions` holds
+the keys, per address, and dies with the door - `/remote forget` empties it
+without closing anything.
+
+A wrong token, a new address and every pairing attempt each leave a line in
+`_notices`, drained at the prompt by `_show_remote_notices` - never printed
+from a handler thread, for the same reason the channel's messages are not. `stop()` forgets the addresses with
+the door; they were only ever there to be told about.
+
+There is no TLS and no account here on purpose. Over `lan` this is plain HTTP
+on a network you are choosing to trust, and everything else is `ssh -L`, which
+is somebody else's audited code.
+
+**Settings take effect on the door that is open.** `reconfigure()` is called
+after any `/set REMOTE_*`: a changed host or port stops and restarts the server
+(a new token, and the caller prints the new link), and a changed `REMOTE_LINES`
+resizes the ring in place. A setting that needs the feature turned off and on
+again to mean anything is a setting that reads as broken.
+
+**Two things Windows does differently.** A line printed while a prompt is open
+goes out through prompt_toolkit's console writer there, not to a terminal
+interpreting escapes, so raw ANSI arrives as `?[38;2;…m` on screen -
+`app._print_above` hands it over as `ANSI(...)` instead, and everything that
+prints above a prompt (the channel's messages, the remote's notices, the echo
+of a remotely typed line) goes through it. And a connection torn down
+mid-request raises there where it does not elsewhere, which `socketserver`
+answers with a traceback into the middle of the conversation; `_Server.
+handle_error` swallows every `OSError` and turns anything else into one line at
+the prompt.
+
+`stop()` is called from the main thread and never from a handler - `shutdown`
+waits for the serving loop a handler is running inside - and it drops the tee,
+the token and the queue together.
+
+---
+
 ## 9. Recipes
 
 ### Add a tool
@@ -1102,6 +1202,8 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |
+| `test_qr.py` | That a symbol is one a scanner can read: read back through its own format bits, zigzag and blocks, every block still satisfies its parity (§8c) |
+| `test_remote.py` | That no token, a nearly-right token and a foreign `Host` each get nothing, that a `.env` value does not go out over the wire, that a stale question cannot be answered, and that closing the door frees the port (§8c) |
 | `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, that a message sent mid-turn is read inside that turn rather than after it, and that concurrent writes to the board lose nothing (5.11, §8) |
 | `test_hashline_edit.py` | That an anchor reaches the line it names, and that a stale one is refused rather than applied a few lines off (5.12) |
 | `test_vm.py` | That `run_python` takes its code as a raw block, remembers between calls, and says the namespace is gone every way it can die (§8a) |

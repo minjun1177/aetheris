@@ -286,9 +286,18 @@ def loaded_skill_names(messages: list[dict]) -> list[str]:
     """Skills whose full instructions are still present in a message list.
 
     Used to rebuild the loaded-skill state when a saved session is restored.
+
+    Every entry is checked for being a dict before it is asked for a key, the
+    way `mcp_client.loaded_in` does it. This reads a *file*, and a session file
+    written by another version - or repaired after a crash - is allowed to hold
+    something that is not a message: one bare string in the list raised
+    AttributeError out of `app._adopt_session`, which runs before
+    `_replay_session` and so killed the resume outright. Failing to work out
+    which skills were loaded must not be what stops a conversation being
+    reopened.
     """
     blob = "\n".join(m.get("content") for m in messages
-                     if isinstance(m.get("content"), str))
+                     if isinstance(m, dict) and isinstance(m.get("content"), str))
     return [s["name"] for s in list_skills() if f"[Skill: {s['name']}]\nSource:" in blob]
 
 
