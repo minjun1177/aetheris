@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 failures = []
 
@@ -28,14 +28,14 @@ def check(label, ok, extra=""):
 
 
 # Set before `config` is imported: it resolves the session directory at import
-# time, and none of this may touch the real ~/.localchat.
+# time, and none of this may touch the real ~/.aetheris.
 HOME = tempfile.mkdtemp(prefix="resume-home-")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
-from simple_harness import session         # noqa: E402
-from simple_harness import app             # noqa: E402
+from aetheris import session         # noqa: E402
+from aetheris import app             # noqa: E402
 
 WORK = tempfile.mkdtemp(prefix="resume-work-")
 project_a = os.path.join(WORK, "project-a")
@@ -99,7 +99,7 @@ try:
 
     print("\n--- a session from before the format recorded a directory ---")
     old = os.path.join(config.SESSION_DIR, "older-version.json")
-    from simple_harness import atomic
+    from aetheris import atomic
     atomic.write_json(old, {"version": 3, "title": "no cwd here", "model": "m",
                             "messages": [], "token_history": [],
                             "updated_at": "2099-01-01T00:00:00"})

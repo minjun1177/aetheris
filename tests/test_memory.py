@@ -28,16 +28,16 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HOME = tempfile.mkdtemp(prefix="memory-home-")
-os.environ["LOCALCHAT_HOME"] = HOME
+os.environ["AETHERIS_HOME"] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.MEMORY_FILE = os.path.join(HOME, "memory.json")
 
-from simple_harness import app             # noqa: E402
-from simple_harness import session         # noqa: E402
-from simple_harness import toolspec        # noqa: E402
+from aetheris import app             # noqa: E402
+from aetheris import session         # noqa: E402
+from aetheris import toolspec        # noqa: E402
 
 failures = []
 

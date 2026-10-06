@@ -15,15 +15,15 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
 config.NATIVE_TOOLS = False
 
-from simple_harness import deepthink
-from simple_harness import git_ops
-from simple_harness import providers
+from aetheris import deepthink
+from aetheris import git_ops
+from aetheris import providers
 
 failures = []
 
@@ -379,7 +379,7 @@ check("and not to ask for one just to polish",
 print("\n--- the planning stages cannot edit, whatever the model tries ---")
 os.chdir(plain)
 git_ops._repo_root_cache.clear()
-from simple_harness import tools
+from aetheris import tools
 
 config.DEEPTHINK_READONLY = True
 quiet, real = io.StringIO(), sys.stdout
@@ -408,7 +408,7 @@ check("review cannot edit, so it cannot fix instead of finding",
       deepthink.STAGES[3].edits is False)
 
 print("\n--- a model that keeps knocking is stopped ---")
-from simple_harness import llm_client
+from aetheris import llm_client
 knock = ('<tool_call>\n{"name": "edit_file", "arguments": {"filepath": "x.py"}}\n'
          "<old_content>\na\n</old_content>\n<new_content>\nb\n</new_content>\n</tool_call>")
 config.DEEPTHINK_READONLY = True

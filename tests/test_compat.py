@@ -16,37 +16,47 @@ Four of the five surfaces are less obvious than they look:
 - **Setting names are public the moment they exist.** `/set` derives its list
   from the UPPER_CASE names in `config.py` rather than a table (invariant 5.1
   applied to settings), which is the right design and means a rename there is a
-  rename of somebody's `~/.localchat/settings.json` key.
+  rename of somebody's `~/.aetheris/settings.json` key.
 - **Tool names are written into saved sessions**, as `<tool_call>` text, whatever
   protocol produced them. Renaming one does not just change a prompt; it stops an
   old session from replaying.
-- **The state layout is one directory** and `LOCALCHAT_HOME` moves all of it
+- **The state layout is one directory** and `AETHERIS_HOME` moves all of it
   together. Moving one file out on its own splits a memory or a session list in
   two, which is why those paths are not settings.
 - **Project files are read from the working directory first.** That precedence
   is the feature - a repository can carry its own permissions and its own MCP
   servers - so it is pinned, not just the filenames.
 
-While the major version is 0 this is a record rather than a guarantee. It is
-here from 0.6.0 so that 1.0.0 can be a promise this project has already been
-keeping, instead of one it makes on the day.
+From 1.0.0 this is a guarantee rather than a record. It was written down at
+0.6.0 for exactly that reason: the promise is one the project had already been
+keeping for several releases before it was made.
+
+The rename to Aetheris is the one surface that did move, and it moved under
+cover: the state directory and the environment variables are new names for the
+same files, with the pre-1.0.0 ones still read and the pre-1.0.0 directory
+still preferred where it exists. That fallback is itself pinned below, because
+it is the only reason the rename was not a broken promise.
 """
+import contextlib
 import os
 import re
+import shutil
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-import simple_harness
-from simple_harness import mcp_client
-from simple_harness import paths
-from simple_harness import permissions
-from simple_harness import skills
-from simple_harness import toolspec
+import aetheris
+from aetheris import mcp_client
+from aetheris import paths
+from aetheris import permissions
+from aetheris import skills
+from aetheris import terms
+from aetheris import toolspec
 
 failures = []
 
@@ -55,6 +65,42 @@ def check(label, ok, extra=""):
     if not ok:
         failures.append(label)
     print(f"  [{'ok  ' if ok else 'FAIL'}] {label}{f'  {extra}' if extra else ''}")
+
+
+@contextlib.contextmanager
+def env(**values):
+    """Run the block with these variables set, or unset where the value is None."""
+    saved = {name: os.environ.get(name) for name in values}
+    try:
+        for name, value in values.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def home_of_a_user_with(*existing):
+    """`paths.home()` for a fake `~` holding exactly these directories.
+
+    Both home variables are faked: `expanduser` reads HOME on POSIX and
+    USERPROFILE on Windows, and this suite runs on both.
+    """
+    user = tempfile.mkdtemp(prefix="compat-user-")
+    try:
+        for name in existing:
+            os.makedirs(os.path.join(user, name), exist_ok=True)
+        with env(**{paths.ENV_VAR: None, paths.LEGACY_ENV_VAR: None,
+                    "HOME": user, "USERPROFILE": user}):
+            return paths.home()
+    finally:
+        shutil.rmtree(user, ignore_errors=True)
 
 
 def missing(promised, present):
@@ -80,7 +126,7 @@ COMMANDS = (
     "/title", "/undo", "/usage", "/vm",
 )
 
-with open(os.path.join(ROOT, "simple_harness", "app.py"), encoding="utf-8") as f:
+with open(os.path.join(ROOT, "aetheris", "app.py"), encoding="utf-8") as f:
     APP = f.read()
 defined = (set(re.findall(r'cmd == "(/[a-z]+)"', APP))
            | set(re.findall(r'cmd\.startswith\("(/[a-z]+)', APP)))
@@ -172,7 +218,31 @@ under_home = sorted(name for name, path in STATE.items()
                     if os.path.dirname(path) != paths.home())
 check("and all of them in one directory, not scattered", not under_home,
       str(under_home))
-check("the directory is still ~/.localchat", paths.DIR_NAME == ".localchat")
+check("the directory is still ~/.aetheris", paths.DIR_NAME == ".aetheris")
+
+# The rename shipped in 1.0.0 as two new names for one unchanged layout. What
+# is promised is not the old names themselves but that an install predating the
+# rename keeps reading the files it already has, without being asked to move
+# anything - so both halves of the fallback are pinned, not just their presence.
+check("the pre-1.0.0 directory name is still known",
+      paths.LEGACY_DIR_NAME == ".localchat")
+check("and the pre-1.0.0 variable is still read",
+      paths.LEGACY_ENV_VAR == "LOCALCHAT_HOME")
+elsewhere = os.path.join(ROOT, "nowhere-legacy")
+with env(**{paths.ENV_VAR: None, paths.LEGACY_ENV_VAR: elsewhere}):
+    check(f"{paths.LEGACY_ENV_VAR} still moves the whole layout, like the new name",
+          paths.state("sessions") == os.path.join(elsewhere, "sessions"),
+          paths.home())
+check("an existing ~/.localchat is the home when ~/.aetheris is absent",
+      os.path.basename(home_of_a_user_with(paths.LEGACY_DIR_NAME))
+      == paths.LEGACY_DIR_NAME,
+      home_of_a_user_with(paths.LEGACY_DIR_NAME))
+check("and the new name wins once it exists too",
+      os.path.basename(home_of_a_user_with(paths.LEGACY_DIR_NAME, paths.DIR_NAME))
+      == paths.DIR_NAME)
+with env(**{terms.ACCEPT_ENV: None, terms.LEGACY_ACCEPT_ENV: "1"}):
+    check("terms accepted through the pre-1.0.0 variable still count",
+          terms.accepted())
 
 # The whole reason the paths above are not settings: one variable moves the lot,
 # so two profiles stay two profiles instead of half of each.
@@ -208,7 +278,7 @@ check("and the project's skills still beat the user's",
 print("\n--- the changelog accounts for the version being shipped ---")
 with open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8") as f:
     LOG = f.read()
-version = simple_harness.__version__
+version = aetheris.__version__
 check("the version is a release number", re.fullmatch(r"\d+\.\d+\.\d+", version),
       version)
 check("the changelog has a section for it", f"## {version}" in LOG, version)

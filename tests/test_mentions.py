@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 failures = []
 
@@ -27,10 +27,10 @@ def check(label, ok, extra=""):
 HOME = tempfile.mkdtemp(prefix="mentions-home-")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
-from simple_harness import mentions        # noqa: E402
+from aetheris import mentions        # noqa: E402
 
 WORK = tempfile.mkdtemp(prefix="mentions-work-")
 origin = os.getcwd()
@@ -146,7 +146,7 @@ try:
         # The menu used to offer forty bare words with no hint of what any did,
         # and it stopped at the first space - so `/mcp ` and `/set `, where
         # what you cannot remember is exactly what comes next, offered nothing.
-        from simple_harness import tui                              # noqa: E402
+        from aetheris import tui                              # noqa: E402
 
         def shown(text):
             return {display for _, display, _ in tui.complete_command(text)}
@@ -193,7 +193,7 @@ try:
         # One box takes a message for the model and, behind a `!`, a command
         # for this machine. They looked identical while being typed, so the
         # first sign that a line had run as a shell command was it running.
-        from simple_harness import app                               # noqa: E402
+        from aetheris import app                               # noqa: E402
 
         lexer = config.ShellLineLexer(app.SHELL_STYLE)
 

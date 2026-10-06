@@ -34,13 +34,13 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from simple_harness import config
+from aetheris import config
 config.AUTO_ALLOW = True            # a test run cannot answer approval prompts
 config.SAVE_CHAT_HISTORY = False
 config.MCP_ENABLED = False
 
-from simple_harness import shell_session
-from simple_harness import tools
+from aetheris import shell_session
+from aetheris import tools
 
 
 failures = []

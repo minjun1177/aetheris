@@ -26,16 +26,16 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HOME = tempfile.mkdtemp(prefix="images-home-")
-os.environ["LOCALCHAT_HOME"] = HOME
+os.environ["AETHERIS_HOME"] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from simple_harness import images          # noqa: E402
-from simple_harness import mentions        # noqa: E402
-from simple_harness import providers       # noqa: E402
-from simple_harness import toolspec        # noqa: E402
+from aetheris import images          # noqa: E402
+from aetheris import mentions        # noqa: E402
+from aetheris import providers       # noqa: E402
+from aetheris import toolspec        # noqa: E402
 
 failures = []
 
@@ -235,7 +235,7 @@ try:
           all(toolspec.get("view_image").bind({key: png})[0] == png
               for key in ("filepath", "path", "image", "file")))
 
-    from simple_harness import tools        # noqa: E402
+    from aetheris import tools        # noqa: E402
     refused = tools.handle_read_file(png)
     check("read_file refuses an image rather than returning broken bytes",
           refused.startswith(config.TOOL_ERROR_PREFIX), refused[:60])

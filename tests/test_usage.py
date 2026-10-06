@@ -20,7 +20,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
@@ -28,7 +28,7 @@ config.GIT_AUTO_COMMIT = False
 config.PERMISSIONS_ENABLED = False
 config.NATIVE_TOOLS = False
 
-from simple_harness import context, llm_client, providers, tui      # noqa: E402
+from aetheris import context, llm_client, providers, tui      # noqa: E402
 
 # Somewhere with no repository in it: the scripted turn below calls git_status
 # and git_diff, and running those against this checkout prints its whole diff.
@@ -201,7 +201,7 @@ print("\n--- the two counts on that screen are not the same count ---")
 # result, and the harness writes several of those itself. One question answered
 # by deepthink is one turn and seven blocks, and calling both of them "turns"
 # on one screen said the conversation was seven times what it was.
-from simple_harness import deepthink                                # noqa: E402
+from aetheris import deepthink                                # noqa: E402
 one_question = [{"role": "system", "content": "s"},
                 {"role": "user", "content": "만들어줘"}]
 for number, stage in enumerate(deepthink.STAGES, 1):
@@ -229,7 +229,7 @@ check("and the seven are no longer called turns too",
 # never used to say so - it had to be worked out by hand.
 config.NATIVE_TOOLS = False
 config.SYSTEM_PROMPT = __import__(
-    "simple_harness.systemprompt", fromlist=["x"]).systemprompt()
+    "aetheris.systemprompt", fromlist=["x"]).systemprompt()
 with_prompt = [{"role": "system", "content": config.SYSTEM_PROMPT},
                {"role": "user", "content": "x" * 4000}]
 buf, real = io.StringIO(), sys.stdout
@@ -258,7 +258,7 @@ check("and the tool list is most of what makes it big",
 # report about a third of what the request actually costs.
 config.NATIVE_TOOLS = True
 native_prompt = __import__(
-    "simple_harness.systemprompt", fromlist=["x"]).systemprompt()
+    "aetheris.systemprompt", fromlist=["x"]).systemprompt()
 native = [{"role": "system", "content": native_prompt}]
 if llm_client.native_enabled():
     check("a native provider is charged for its schemas too",

@@ -2,7 +2,7 @@
 
 A `.env` is the one file whose contents *are* the secret, and a value the model
 reads does not stay read: it goes to the provider, and it is written into
-`~/.localchat/sessions/*.json` and stays there. One `read_file` and a key is in
+`~/.aetheris/sessions/*.json` and stays there. One `read_file` and a key is in
 two places nobody would think to check.
 
 So the model is shown `STRIPE_KEY={{env:STRIPE_KEY}}` and, when it writes that
@@ -30,11 +30,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HOME = tempfile.mkdtemp(prefix="vault-home-")
-os.environ["LOCALCHAT_HOME"] = HOME
+os.environ["AETHERIS_HOME"] = HOME
 
-from simple_harness import config          # noqa: E402
-from simple_harness import tools           # noqa: E402
-from simple_harness import vault           # noqa: E402
+from aetheris import config          # noqa: E402
+from aetheris import tools           # noqa: E402
+from aetheris import vault           # noqa: E402
 
 failures = []
 
@@ -111,7 +111,7 @@ try:
     check("and so is a command that goes looking for it", KEY not in listed)
 
     # `@.env` reaches read_file directly rather than through dispatch_tool.
-    from simple_harness import mentions          # noqa: E402
+    from aetheris import mentions          # noqa: E402
     attached, notes, _pictures = mentions.expand("what is in @.env")
     check("an @ attachment is redacted as well", KEY not in attached, str(notes))
 

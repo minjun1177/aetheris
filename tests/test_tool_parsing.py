@@ -17,11 +17,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from simple_harness import llm_client
+from aetheris import llm_client
 
 failures = []
 

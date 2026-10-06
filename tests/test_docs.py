@@ -15,12 +15,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from simple_harness import toolspec
-from simple_harness import tools
+from aetheris import toolspec
+from aetheris import tools
 
 failures = []
 
@@ -31,7 +31,7 @@ def check(label, ok, extra=""):
     print(f"  [{'ok  ' if ok else 'FAIL'}] {label}{f'  {extra}' if extra else ''}")
 
 
-PKG = os.path.join(ROOT, "simple_harness")
+PKG = os.path.join(ROOT, "aetheris")
 
 
 def read(name):
@@ -76,7 +76,7 @@ check("README documents every one",
 # longer "do these two hand-written lists agree" but "does that table cover
 # every command app.py answers". `command_names()` is what the menu is built
 # from, so asking it is asking the menu.
-from simple_harness import tui                                      # noqa: E402
+from aetheris import tui                                      # noqa: E402
 
 completable = {insert for insert, _, _ in tui.complete_command("/")}
 check("the tab-completion menu is built from the command table",
@@ -181,7 +181,7 @@ if stated:
           f"doc says {claimed_lines:,}, the package is {real:,}")
 
 # Anything written as `module.function` should resolve.
-from simple_harness import (atomic, context, deepthink, git_ops, llm_client,
+from aetheris import (atomic, context, deepthink, git_ops, llm_client,
                             providers, session, subagent)
 MODULES = {m.__name__: m for m in (atomic, config, context, deepthink, git_ops,
                                    llm_client, providers, session, subagent,
@@ -214,11 +214,11 @@ check("the stage table matches deepthink.STAGES",
 check("it describes the read-only stages correctly",
       [s.edits for s in deepthink.STAGES] == [False, False, True, False, True, True])
 check("toolspec really imports nothing local",
-      not re.search(r"^(?:import|from) (?:simple_harness\b|"
+      not re.search(r"^(?:import|from) (?:aetheris\b|"
                     r"(?:config|tools|providers|app|systemprompt)\b)",
                     read("toolspec.py"), re.M))
 check("config really imports systemprompt at module level",
-      "from simple_harness.systemprompt import" in read("config.py"))
+      "from aetheris.systemprompt import" in read("config.py"))
 
 print("\n--- every test file the docs list exists ---")
 listed = set(re.findall(r"`(test_[a-z_]+\.py)`", ARCH)) | set(

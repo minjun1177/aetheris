@@ -21,12 +21,12 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from simple_harness import paths
+from aetheris import paths
 
 HOME = tempfile.mkdtemp(prefix="tdd-home-")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
@@ -34,7 +34,7 @@ config.GIT_AUTO_COMMIT = False
 config.CHANNEL_ENABLED = False
 config.AUTO_VERIFY = False
 
-from simple_harness import app, llm_client, permissions, tools, verify   # noqa: E402
+from aetheris import app, llm_client, permissions, tools, verify   # noqa: E402
 
 failures = []
 

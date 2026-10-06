@@ -14,8 +14,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import atomic
-from simple_harness import context
+from aetheris import atomic
+from aetheris import context
 
 failures = []
 
@@ -77,7 +77,7 @@ atomic.write_json(victim, {"kept": "original"})
 script = f'''
 import os, sys, time
 sys.path.insert(0, {os.path.dirname(os.path.dirname(os.path.abspath(__file__)))!r})
-from simple_harness import atomic
+from aetheris import atomic
 real = atomic.write_text
 def slow(path, data, private=False):
     # Stall between writing the temporary file and swapping it in.
@@ -167,7 +167,7 @@ print("\n--- trimming happens because of the budget, not on principle ---")
 # a 65536 context and 49,000 tokens spare, reading a 12,000-character file
 # returned a quarter of it and threw the rest away for good.
 import asyncio                                                     # noqa: E402
-from simple_harness import config as cfg                           # noqa: E402
+from aetheris import config as cfg                           # noqa: E402
 
 BIG = "[Tool Result for 'read_file']:\n" + "x = 1\n" * 1600      # ~9600 chars
 

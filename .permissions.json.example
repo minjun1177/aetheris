@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Copy to .permissions.json (project) or ~/.localchat/permissions.json (personal).",
+    "Copy to .permissions.json (project) or ~/.aetheris/permissions.json (personal).",
     "deny wins over allow, and anything unmatched falls through to the approval",
     "prompt as before - so an empty file changes nothing.",
     "A rule is a tool name, optionally followed by a pattern in parentheses that",

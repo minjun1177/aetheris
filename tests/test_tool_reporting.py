@@ -18,18 +18,18 @@ import warnings
 from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".reporting-test-home")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
-from simple_harness import tui             # noqa: E402
-from simple_harness import tools           # noqa: E402
-from simple_harness import llm_client      # noqa: E402
-from simple_harness import websearch       # noqa: E402
+from aetheris import tui             # noqa: E402
+from aetheris import tools           # noqa: E402
+from aetheris import llm_client      # noqa: E402
+from aetheris import websearch       # noqa: E402
 
 failures = []
 

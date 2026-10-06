@@ -15,7 +15,7 @@ import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 failures = []
 
@@ -27,15 +27,15 @@ def check(label, ok, extra=""):
 
 
 # The override has to be set before `config` is imported: it reads the paths at
-# import time, and this must not touch the real ~/.localchat.
+# import time, and this must not touch the real ~/.aetheris.
 HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".paths-test-home")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
-from simple_harness import mcp_client, permissions, providers, skills   # noqa: E402
+from aetheris import config          # noqa: E402
+from aetheris import mcp_client, permissions, providers, skills   # noqa: E402
 
 print("--- the override decides where everything goes ---")
-check("home() follows LOCALCHAT_HOME", paths.home() == os.path.abspath(HOME),
+check("home() follows AETHERIS_HOME", paths.home() == os.path.abspath(HOME),
       paths.home())
 check("state() builds inside it",
       paths.state("x.json") == os.path.join(os.path.abspath(HOME), "x.json"))
@@ -82,6 +82,49 @@ try:
           os.path.exists("memory.json") and os.path.isdir("sessions"))
 finally:
     os.chdir(origin)
+
+print("\n--- a pre-1.0.0 install keeps the directory it already has ---")
+# The rename to Aetheris is not allowed to cost anyone their sessions, so
+# `~/.localchat` still wins where it exists and `~/.aetheris` does not. Both
+# home variables are faked: `expanduser` reads HOME on POSIX and USERPROFILE on
+# Windows, and this suite runs on both.
+fake = os.path.join(HOME, "fake-user")
+os.makedirs(fake, exist_ok=True)
+saved = {name: os.environ.get(name)
+         for name in (paths.ENV_VAR, paths.LEGACY_ENV_VAR, "HOME", "USERPROFILE")}
+try:
+    os.environ.pop(paths.ENV_VAR, None)
+    os.environ.pop(paths.LEGACY_ENV_VAR, None)
+    os.environ["HOME"] = os.environ["USERPROFILE"] = fake
+
+    check("with neither directory present, the new name is the home",
+          paths.home() == os.path.join(fake, paths.DIR_NAME), paths.home())
+
+    legacy = os.path.join(fake, paths.LEGACY_DIR_NAME)
+    os.makedirs(legacy, exist_ok=True)
+    check("an existing ~/.localchat is used as it stands",
+          paths.home() == legacy, paths.home())
+
+    os.makedirs(os.path.join(fake, paths.DIR_NAME), exist_ok=True)
+    check("once both exist, the new name wins",
+          paths.home() == os.path.join(fake, paths.DIR_NAME), paths.home())
+    check("and the old directory is never moved or removed", os.path.isdir(legacy))
+
+    # An unattended job that exports the old variable must keep working.
+    os.environ[paths.LEGACY_ENV_VAR] = os.path.join(HOME, "from-legacy-var")
+    check(f"{paths.LEGACY_ENV_VAR} still moves the home",
+          paths.home() == os.path.abspath(os.path.join(HOME, "from-legacy-var")),
+          paths.home())
+    os.environ[paths.ENV_VAR] = os.path.join(HOME, "from-new-var")
+    check(f"and {paths.ENV_VAR} wins when both are set",
+          paths.home() == os.path.abspath(os.path.join(HOME, "from-new-var")),
+          paths.home())
+finally:
+    for name, value in saved.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 shutil.rmtree(HOME, ignore_errors=True)
 

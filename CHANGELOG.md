@@ -1,11 +1,15 @@
 # Changelog
 
 What changed, and why it was worth changing. Versions follow [semantic
-versioning](https://semver.org), with the qualification every 0.x project owes
-its users: **while the major version is 0, the surface named in
-[Compatibility](#compatibility) can still move.** It is written down and pinned
-by a test from 0.6.0 onwards so that by 1.0.0 the promise is one this project
-has already been keeping for a while, rather than one it makes on the day.
+versioning](https://semver.org), and from 1.0.0 the surface named in
+[Compatibility](#compatibility) is a promise rather than a record: it moves on a
+major version and nowhere else. It was written down and pinned by a test from
+0.6.0 onwards for exactly that reason - the promise is one this project had
+already been keeping for several releases before it was made.
+
+Releases before 1.0.0 were published as **simple-harness**, and the entries
+below say so where they said so at the time. Nothing in the history has been
+rewritten to use the new name.
 
 ## Compatibility
 
@@ -18,14 +22,60 @@ file - which is the point.
 | Slash commands | A command that exists keeps its name and keeps meaning what it meant |
 | `/set` settings | A setting name in `config.py` is public the moment it exists, because `/set` derives its list from there |
 | Tool names | Model-facing, and written into saved sessions - a rename breaks replay, not just a prompt |
-| State layout | `~/.localchat/`: `sessions/`, `memory.json`, `settings.json`, `permissions.json`, `mcp.json`, `history`, `skills/` - and `LOCALCHAT_HOME` to move all of them |
+| State layout | `~/.aetheris/`: `sessions/`, `memory.json`, `settings.json`, `permissions.json`, `mcp.json`, `history`, `skills/` - and `AETHERIS_HOME` to move all of them. `~/.localchat` and `LOCALCHAT_HOME` are still read, and the old directory still wins where it exists |
 | Project files | `.permissions.json`, `.mcp.json`, `skills/<name>/SKILL.md`, read from the working directory first |
 
-Not promised: anything inside `simple_harness.*`. The modules are an
+Not promised: anything inside `aetheris.*`. The modules are an
 implementation, not an API, and the reusable pieces are meant to leave for
 packages of their own rather than be imported from here.
 
 ---
+
+## 1.0.0 - 2026-10-06
+
+The release where the project took its own name. Nothing about what it does
+changed; everything about what it is called did.
+
+### Aetheris
+
+`simple-harness` described the shape of the thing rather than the thing, and it
+described it as a stopgap - which it stopped being several releases ago. So:
+
+| Was | Is |
+|:---|:---|
+| `pip install simple-harness` | `pip install aetheris` |
+| `simple-harness` | `aetheris` |
+| `python -m simple_harness` | `python -m aetheris` |
+| `from simple_harness import ...` | `from aetheris import ...` |
+| `~/.localchat/` | `~/.aetheris/` |
+| `LOCALCHAT_HOME` | `AETHERIS_HOME` |
+| `SIMPLE_HARNESS_ACCEPT_TERMS` | `AETHERIS_ACCEPT_TERMS` |
+| `github.com/minjun1177/simple_harness` | `github.com/minjun1177/aetheris` |
+
+### Nobody loses a session to it
+
+A rename is a bad reason to lose a year of conversations, so the state
+directory is the one thing that does not move:
+
+- **`~/.localchat` is still the home where it already exists** and
+  `~/.aetheris` does not. It is read in place - not copied, not migrated, not
+  moved. Upgrading changes nothing on disk, and a person who prefers the new
+  name moves the directory themselves, once.
+- **`LOCALCHAT_HOME` is still read** when `AETHERIS_HOME` is unset, so a shell
+  profile or a CI job that exports the old one keeps pointing where it pointed.
+- **`SIMPLE_HARNESS_ACCEPT_TERMS` still counts as agreement**, so an unattended
+  job does not start asking a question nobody is there to answer.
+
+Both halves of that fallback are pinned in `tests/test_compat.py`, next to the
+surface they are the exception to. The old names are read and never written: a
+fresh install only ever sees the new ones.
+
+### The promise stops being provisional
+
+The major version is 1, so the [Compatibility](#compatibility) table is now a
+guarantee rather than a record, and the 0.x escape clause that said otherwise is
+gone. The state-layout row is the only one the rename touched, and it is the row
+that carries the fallback above.
 
 ## 0.6.0 - 2026-09-08
 

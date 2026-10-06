@@ -17,18 +17,18 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".settings-test-home")
 shutil.rmtree(HOME, ignore_errors=True)
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from simple_harness import connect, providers, tui      # noqa: E402
+from aetheris import connect, providers, tui      # noqa: E402
 
 failures = []
 
@@ -122,9 +122,9 @@ def in_subprocess(code: str) -> str:
                           text=True, env=environment, cwd=ROOT).stdout.strip()
 
 check("a saved setting survives a restart",
-      in_subprocess("from simple_harness import config; print(config.VM_TIMEOUT)") == "60")
+      in_subprocess("from aetheris import config; print(config.VM_TIMEOUT)") == "60")
 check("and the one put back to its default does not",
-      in_subprocess("from simple_harness import config; print(config.NUM_CTX)")
+      in_subprocess("from aetheris import config; print(config.NUM_CTX)")
       == str(config.defaults()["NUM_CTX"]))
 
 # The harness has to start when its settings file is broken. A file that will
@@ -132,13 +132,13 @@ check("and the one put back to its default does not",
 with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
     handle.write("{ this is not json")
 check("a settings file that will not parse leaves every default alone",
-      in_subprocess("from simple_harness import config; "
+      in_subprocess("from aetheris import config; "
                     "print(config.VM_TIMEOUT, config.SETTINGS_APPLIED)") == "20 []")
 
 with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
     json.dump({"VM_TIMEOUT": 45, "GONE_IN_THIS_VERSION": 1, "NUM_CTX": "lots"}, handle)
 check("an entry this version cannot use is skipped, and the rest applied",
-      in_subprocess("from simple_harness import config; "
+      in_subprocess("from aetheris import config; "
                     "print(config.VM_TIMEOUT, config.NUM_CTX)")
       == f"45 {config.defaults()['NUM_CTX']}")
 
@@ -213,7 +213,7 @@ print("\n--- /set groups by subject, and says when it has stopped ---")
 import contextlib                                                   # noqa: E402
 import io                                                           # noqa: E402
 import re                                                           # noqa: E402
-from simple_harness import tui                                      # noqa: E402
+from aetheris import tui                                      # noqa: E402
 
 buffer = io.StringIO()
 with contextlib.redirect_stdout(buffer):

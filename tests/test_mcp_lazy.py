@@ -26,16 +26,16 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from simple_harness import paths
+from aetheris import paths
 
 HOME = tempfile.mkdtemp(prefix="mcplazy-home-")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.SAVE_CHAT_HISTORY = False
 config.MCP_ENABLED = True
 
-from simple_harness import context, mcp_client          # noqa: E402
+from aetheris import context, mcp_client          # noqa: E402
 
 failures = []
 

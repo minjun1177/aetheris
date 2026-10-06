@@ -10,17 +10,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 # The local model may or may not support native tool calling, and this file is
 # about the text prompt, so the protocol is pinned rather than assumed.
 config.NATIVE_TOOLS = False
 
-from simple_harness import systemprompt
-from simple_harness import toolspec
-from simple_harness import tools
-from simple_harness import permissions
+from aetheris import systemprompt
+from aetheris import toolspec
+from aetheris import tools
+from aetheris import permissions
 
 failures = []
 
@@ -104,10 +104,29 @@ cases = [
      ["a.py", "a", "b"]),
     ("use_skill", {"skill": "design"}, ["design"]),
     ("get_user_input", {"questions": [{"question": "q"}]}, ["", [], [{"question": "q"}]]),
+    # Ordered kind-first, and the handler's signature has to agree: `_run_tool`
+    # calls `handler(*tool.bind(arguments))`, so a spec that lists its
+    # parameters in a different order from the function silently hands every
+    # argument to the one next door. `_check_registry` counts parameters and
+    # cannot see that - both were three - so it is pinned here instead.
+    ("send_agent_message", {"kind": "claim", "message": "taking parser.py", "to": "a2"},
+     ["claim", "taking parser.py", "a2"]),
+    ("send_agent_message", {"kind": "question", "message": "done with it?"},
+     ["question", "done with it?", ""]),
 ]
 for name, arguments, expected in cases:
     got = toolspec.get(name).bind(arguments)
     check(f"{name}({', '.join(arguments)})", got == expected, f"got {got}")
+
+# And the binding actually reaching the handler, which is the half the table
+# above cannot see: a spec and a signature that disagree on order pass every
+# check in this file and then mis-assign every argument at runtime.
+import inspect                                          # noqa: E402
+_spec = toolspec.get("send_agent_message")
+_taken = list(inspect.signature(tools.handle_send_agent_message).parameters)
+check("send_agent_message's handler takes them in the spec's order",
+      _taken == [p.name for p in _spec.params], f"{_taken} vs "
+      f"{[p.name for p in _spec.params]}")
 
 check("an alias resolves to the real tool", toolspec.get("skill").name == "use_skill")
 check("an unknown tool is None", toolspec.get("no_such_tool") is None)

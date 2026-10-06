@@ -21,7 +21,7 @@ Skills are searched in this order, and the first match on a name wins:
 | Source    | Path                          |
 | :-------- | :---------------------------- |
 | `project` | `./skills/`                   |
-| `user`    | `~/.localchat/skills/`        |
+| `user`    | `~/.aetheris/skills/`        |
 
 ## SKILL.md
 

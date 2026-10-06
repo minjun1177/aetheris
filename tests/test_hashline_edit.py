@@ -20,19 +20,19 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from simple_harness import paths
+from aetheris import paths
 
 HOME = tempfile.mkdtemp(prefix="hashline-home-")
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
 config.GIT_AUTO_COMMIT = False
 config.CHANNEL_ENABLED = False             # the board is tested in test_channel.py
 
-from simple_harness import tools           # noqa: E402
+from aetheris import tools           # noqa: E402
 
 failures = []
 
@@ -292,7 +292,7 @@ print("\n--- a <content> block on an edit_file call ---")
 # `content` is write_file's block name, and a model that has just used it
 # reaches for it again. Without the alias the block is dropped on the floor and
 # the model is told old_content was empty, which is true and unhelpful.
-from simple_harness import toolspec          # noqa: E402
+from aetheris import toolspec          # noqa: E402
 check("content binds to new_content",
       toolspec.get("edit_file").bind({"filepath": "x", "content": "y"}) == ["x", "", "y"],
       str(toolspec.get("edit_file").bind({"filepath": "x", "content": "y"})))

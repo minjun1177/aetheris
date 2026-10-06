@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "simple-harness"
-# One source of truth: `simple_harness.__version__`. Two copies of a version
+name = "aetheris"
+# One source of truth: `aetheris.__version__`. Two copies of a version
 # drift, and the one that ends up wrong is always the one users are told.
 dynamic = ["version"]
 description = "A terminal AI assistant that works with small local models - two tool protocols, one tool table, and an undo for everything it writes."
@@ -44,7 +44,7 @@ dependencies = [
 [project.optional-dependencies]
 # Tree-sitter powers `get_code_skeleton` and `query_ast_node` only. Ten grammars
 # is a lot of wheels to pull for two tools, and `config.py` already runs without
-# them, so they are opt-in: pip install "simple-harness[ast]"
+# them, so they are opt-in: pip install "aetheris[ast]"
 ast = [
     "tree-sitter>=0.26.0,<0.27",
     "tree-sitter-python>=0.25.0,<0.26",
@@ -59,15 +59,15 @@ ast = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/minjun1177/simple_harness"
-Repository = "https://github.com/minjun1177/simple_harness"
-Issues = "https://github.com/minjun1177/simple_harness/issues"
+Homepage = "https://github.com/minjun1177/aetheris"
+Repository = "https://github.com/minjun1177/aetheris"
+Issues = "https://github.com/minjun1177/aetheris/issues"
 
 [project.scripts]
-simple-harness = "simple_harness.app:cli"
+aetheris = "aetheris.app:cli"
 
 [tool.setuptools]
-packages = ["simple_harness"]
+packages = ["aetheris"]
 
 [tool.setuptools.dynamic]
-version = { attr = "simple_harness.__version__" }
+version = { attr = "aetheris.__version__" }

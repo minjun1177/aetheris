@@ -24,12 +24,12 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("LOCALCHAT_HOME", tempfile.mkdtemp(prefix="malformed-home-"))
+os.environ.setdefault("AETHERIS_HOME", tempfile.mkdtemp(prefix="malformed-home-"))
 
-from simple_harness import config          # noqa: E402
-from simple_harness import context         # noqa: E402
-from simple_harness import session         # noqa: E402
-from simple_harness import tools           # noqa: E402
+from aetheris import config          # noqa: E402
+from aetheris import context         # noqa: E402
+from aetheris import session         # noqa: E402
+from aetheris import tools           # noqa: E402
 
 failures = []
 
@@ -151,7 +151,7 @@ value, problem = config.parse_setting("MAX_TOOL_CALLS", "0")
 check("nought is an accepted value", value == 0 and not problem, problem)
 
 import inspect                             # noqa: E402
-from simple_harness import llm_client      # noqa: E402
+from aetheris import llm_client      # noqa: E402
 
 # Read out of the source rather than by running a turn, which would want a
 # provider and a terminal. What is asserted is the modulo itself: whatever it
@@ -235,7 +235,7 @@ print("\n--- the approval prompt is not what raises ---")
 # It is the one place every tool's arguments are shown, so it sees whatever the
 # model sent. The gate in front of `run_cmd` and `delete_file` must not be the
 # thing that falls over.
-from simple_harness import tui               # noqa: E402
+from aetheris import tui               # noqa: E402
 
 config.AUTO_ALLOW = False
 problem = ""
@@ -252,7 +252,7 @@ check("it renders a value of any type", not problem, problem)
 # ---------------------------------------------------------------------------
 print("\n--- replaying a session written by something else ---")
 # Failing to *replay* a conversation must not be what stops it being resumed.
-from simple_harness import app               # noqa: E402
+from aetheris import app               # noqa: E402
 
 problem = ""
 try:
@@ -271,7 +271,7 @@ print("\n--- a turn cut short hands back an answer ---")
 # `messages[-2]` at that point in the loop is whatever tool result happens to
 # sit there, so declining to continue used to return "[Tool Result for ...]"
 # to the user as though the model had said it.
-from simple_harness import llm_client        # noqa: E402
+from aetheris import llm_client        # noqa: E402
 
 cut_short = [{"role": "system", "content": "system"},
              {"role": "assistant",
@@ -293,7 +293,7 @@ print("\n--- a provider refusing a request says why ---")
 # status line and throws the body away: "401 Client Error: Unauthorized", with
 # no mention of a key. The streaming path kept the body and cut it at 400
 # characters, and `/connect` cut whatever survived that to 160.
-from simple_harness import providers        # noqa: E402
+from aetheris import providers        # noqa: E402
 
 
 class FakeResponse:

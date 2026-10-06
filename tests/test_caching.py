@@ -21,11 +21,11 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from simple_harness import providers, systemprompt, toolspec       # noqa: E402
+from aetheris import providers, systemprompt, toolspec       # noqa: E402
 
 failures = []
 seen = {}
@@ -187,7 +187,7 @@ for pattern, what in [(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", "a timestamp"),
 
 # ---------------------------------------------------------------------------
 print("\n--- the report says what happened, not what was intended ---")
-from simple_harness import context, tui                            # noqa: E402
+from aetheris import context, tui                            # noqa: E402
 import io                                                          # noqa: E402
 
 config.token_history[:] = [

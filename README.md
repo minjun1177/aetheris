@@ -1,13 +1,13 @@
-# Simple Harness
+# Aetheris
 
-[![CI](https://github.com/minjun1177/simple_harness/actions/workflows/ci.yml/badge.svg)](https://github.com/minjun1177/simple_harness/actions/workflows/ci.yml)
+[![CI](https://github.com/minjun1177/aetheris/actions/workflows/ci.yml/badge.svg)](https://github.com/minjun1177/aetheris/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
-[![PyPI](https://img.shields.io/pypi/v/simple-harness.svg)](https://pypi.org/project/simple-harness/)
+[![PyPI](https://img.shields.io/pypi/v/aetheris.svg)](https://pypi.org/project/aetheris/)
 
 ```bash
-pip install simple-harness
-simple-harness
+pip install aetheris
+aetheris
 ```
 
 ## 1. What It Does
@@ -30,7 +30,7 @@ exists to make small models genuinely usable rather than nearly usable.
 - **Deepthink**: `/deepthink on` turns one request into plan → argue with the plan → build → review the real diff → run it. The planning stages *cannot* edit, the harness reports what the final check actually ran, and a check that says the work is not done sends the whole chain back to the plan.
 - **Undo**: every file an AI tool changes is committed on its own, so `/undo` takes it back. It commits only what the tool named, and refuses to undo over work it did not create.
 - **Auto-verify**: a turn that changes a file has the project's own check run against it - `pytest`, `npm test`, `cargo test`, `go test` - and a failure goes straight back to the model as the error it has to fix. Only a check the project already declares is ever run, four edits in one reply are one run of the suite, and after three failures in a row the harness stops guessing and asks the model to explain. This is most of the difference between a small model that needs checking and one that tells you when it is wrong.
-- **Several harnesses in one project**: people run three of these at once and, until now, none of them knew the others existed - two would read the same file and the second write would silently throw the first away. The instances working in one project now share a board: they can see each other, message each other, and a file one of them is in the middle of changing is refused to the others by name. See *The Agent Channel*.
+- **Several harnesses in one project**: people run three of these at once and, until now, none of them knew the others existed - two would read the same file and the second write would silently throw the first away. The instances working in one project now share a board: they know which agent they are, they can see each other, they message each other *mid-job* rather than only between turns - and a question put to a terminal nobody is sitting at is answered rather than left until somebody comes back. A file one of them is in the middle of changing is refused to the others by name. See *The Agent Channel*.
 - **Sub-agents**: `spawn_agent` hires a second model for one self-contained job. It works in its own context and hands back only its report, so a twenty-tool-call search never enters the conversation.
 - **Crash-safe writes**: sessions, memory, permission rules and saved API keys are written to a temporary file and renamed into place, so being killed mid-write cannot empty one.
 - **ANSI Terminal User Interface**: Provides an ANSI-colored TUI with streaming text responses, live token-per-second (TPS) calculation, custom spinner animations, markdown rendering, syntax code blocks, and ASCII tables.
@@ -38,10 +38,10 @@ exists to make small models genuinely usable rather than nearly usable.
 - **Dynamic Context Compression**: Monitors active token counts and conversation length to automatically condense conversation history when nearing model limits, tailored to model size.
 - **Persistent Memory Storage**: Long-term key-value memory storage system backed by `memory.json` to store user preferences, facts, and instructions across sessions. A memory saved with `important` set does not wait to be looked up: it is written into the system prompt, so the model has it before the first message of every session - a fresh one and a resumed one alike. That is the difference between a store the model *can* read and one it *has* read.
 - **Images**: A model that can see is shown the picture. `@shot.png` in a typed message attaches it instead of pasting broken bytes into the prompt, and `view_image` lets the model look at one it found by itself - a screenshot in the repository, a chart it just produced. All four providers are covered, each in its own wire format. A photograph too large for any API is resized rather than refused. Whether the model can see at all is checked *before* the request: Ollama reports `vision` in a model's capabilities, and a model without it has the image dropped silently and answers about a picture it never saw, which is the one failure worth a probe to avoid.
-- **Per-Project Notes**: Markdown notes about one repository, kept apart from memory because memory is about *you* and follows you everywhere, while a note is about *this* project and is wrong anywhere else - why something is built the way it is, the order a job has to be done in, what is still open. One note is one `.md` file under `~/.localchat/notes/<project>/`, so the directory opens in any editor and nothing appears inside your repository. The git working tree decides what a project is, so a terminal in `src/` sees what one at the root sees. Only the titles reach the system prompt; `read_note` fetches a body when the model recognises one it needs.
+- **Per-Project Notes**: Markdown notes about one repository, kept apart from memory because memory is about *you* and follows you everywhere, while a note is about *this* project and is wrong anywhere else - why something is built the way it is, the order a job has to be done in, what is still open. One note is one `.md` file under `~/.aetheris/notes/<project>/`, so the directory opens in any editor and nothing appears inside your repository. The git working tree decides what a project is, so a terminal in `src/` sees what one at the root sees. Only the titles reach the system prompt; `read_note` fetches a body when the model recognises one it needs.
 - **Session & History Management**: Save, list, load, record, and export conversation transcripts in JSON or Markdown format.
 - **Named Sessions**: Sessions are filed under a readable title instead of a timestamp. The model names each new session after its first exchange (`/autotitle off` to stop it), `/title <name>` renames it by hand, and `/load` accepts either the title or the id.
-- **Resuming from the command line**: `simple-harness --resume <id or title>` reopens a saved conversation, and `-c` reopens the newest one you were last working on *in this directory* - a session records where it was worked, so `-c` in a project picks up that project's thread rather than whatever you did most recently anywhere.
+- **Resuming from the command line**: `aetheris --resume <id or title>` reopens a saved conversation, and `-c` reopens the newest one you were last working on *in this directory* - a session records where it was worked, so `-c` in a project picks up that project's thread rather than whatever you did most recently anywhere.
 - **Commands that preview themselves**: Typing `/` opens the command list with what each one does beside it, and typing a space asks the other question - `/mcp ` offers `tools`, `reload`, `connect`, `on`, `off`; `/set ` offers every setting with its current value; `/connect ` offers each provider and whether its key works. What you cannot remember is what comes next, so that is what the menu shows.
 - **`@` file attachments**: Typing `@` opens a list of what is in the directory you are standing in - arrow keys to move, Tab to insert, `/` to descend into a folder. `@src/main.py` sends that file with your message instead of spending a round trip on the model asking for it. Directories arrive as their listing, a path that does not exist is reported without stopping the turn, and one mention cannot swallow the context window (`MENTION_MAX_CHARS`).
 - **`!` shell escape**: A line starting with `!` runs as a shell command - yours, not the model's, so no approval prompt - and its output joins the conversation, so the next question can be about what it printed.
@@ -104,17 +104,17 @@ is.
 
 1. **Install it**:
    ```bash
-   pip install simple-harness
+   pip install aetheris
    ```
-   That puts the `simple-harness` command on your PATH; run it in any
-   directory you want to work in. `python -m simple_harness` does the same
+   That puts the `aetheris` command on your PATH; run it in any
+   directory you want to work in. `python -m aetheris` does the same
    thing if you would rather not rely on the PATH.
 
    To work on the harness itself, install the checkout instead, so an edit
    takes effect without reinstalling:
    ```bash
-   git clone https://github.com/minjun1177/simple_harness
-   cd simple_harness
+   git clone https://github.com/minjun1177/aetheris
+   cd aetheris
    pip install -e .
    ```
    Or, to run it straight from the checkout without installing:
@@ -122,7 +122,7 @@ is.
    pip install -r requirements.txt
    ```
    `get_code_skeleton` and `query_ast_node` need Tree-sitter, which is ten
-   grammar wheels for two tools and so is opt-in: `pip install "simple-harness[ast]"`
+   grammar wheels for two tools and so is opt-in: `pip install "aetheris[ast]"`
    (or `pip install -e ".[ast]"` from a checkout). Everything else runs
    without it.
 
@@ -133,14 +133,14 @@ is.
 
 3. **Launch it**:
    ```bash
-   simple-harness            # if you installed it
-   python -m simple_harness   # if you did not
+   aetheris            # if you installed it
+   python -m aetheris   # if you did not
    ```
 
    To carry on where you left off instead of starting fresh:
    ```bash
-   simple-harness -c                     # the newest session worked on in this directory
-   simple-harness --resume <id or title>  # a particular one, by either name
+   aetheris -c                     # the newest session worked on in this directory
+   aetheris --resume <id or title>  # a particular one, by either name
    ```
    `-resume` and `-continue` are accepted too. Both stop with an error rather
    than opening a blank session when there is nothing to resume, and `--resume`
@@ -432,7 +432,7 @@ that says what went wrong.
 - `delete_memory`: Remove a memory entry from disk.
 
 ### Project Note Tools
-Markdown notes about *this* project, kept separately from memory - memory is about you and follows you everywhere, a note is about one repository and is wrong anywhere else. One note is one `.md` file under `~/.localchat/notes/<project>/`, so the directory can be opened in any editor. Only the titles go into the system prompt; a body is read when it is asked for.
+Markdown notes about *this* project, kept separately from memory - memory is about you and follows you everywhere, a note is about one repository and is wrong anywhere else. One note is one `.md` file under `~/.aetheris/notes/<project>/`, so the directory can be opened in any editor. Only the titles go into the system prompt; a body is read when it is asked for.
 - `write_note`: Save a markdown note about this project - why something is built the way it is, the order a job has to be done in, what is still open. The body arrives in a `<content>` raw block, never JSON-escaped. Writing under an id that already exists replaces it whole.
 - `read_note`: Read one note in full by its id.
 - `list_notes`: List this project's notes - id, size and when each was last written.
@@ -523,21 +523,232 @@ So every harness started in a project joins one board:
      2m ago    a2 → everyone: I am only touching tests/, parser.py is yours
 ```
 
-**Where the board is.** `~/.localchat/channel/<project>-<digest>.json`, one file
+**Where the board is.** `~/.aetheris/channel/<project>-<digest>.json`, one file
 per workspace, never in the project itself - it is a note about who is running
 right now, not something to commit. The workspace is the git working tree, so a
 terminal opened in `src/` and one opened at the top are the same workspace and
 see each other.
 
-**Talking.** `send_agent_message` posts to one agent or to all of them. The
-message reaches the other agent at the start of its next turn, and reaches the
-person in front of that terminal as soon as their prompt is free - it is printed
-above whatever they are typing, so a question asked while they are idle does not
-sit unread until they press Enter. You can join in yourself with
+**Talking.** `send_agent_message` posts to one agent or to all of them. It
+reaches the person in front of that terminal as soon as their prompt is free -
+printed above whatever they are typing, so a question asked while they are idle
+does not sit unread until they press Enter. You can join in yourself with
 `/agents say <text>`.
 
+**And it reaches the other model without waiting for its turn to end.** That is
+the part worth saying plainly, because the turn is where all the time is. An
+agent twenty tool calls into a refactor is working for minutes, and it is
+exactly the one somebody needs to reach; a message held until its *next* turn is
+held until the person at that keyboard types something, which may be after
+lunch. So the note goes in at the next gap between two requests instead. The
+longer the job, the sooner the message lands in it - and "I am holding
+parser.py" is only worth sending while parser.py is still intact.
+
+What arrives mid-job is framed as what it is:
+
+```
+[Channel] This arrived from another AI agent in this project while you were
+working:
+  a2 → you: I am holding parser.py, do not write it
+It is newer than anything else you have read this turn. Answer anything
+addressed to you with send_agent_message, and do not write a file they have
+just said they are holding. Otherwise carry on with the job you are in the
+middle of - this is not a new request.
+```
+
+That last sentence is the whole difference between delivering a message and
+derailing a turn. And a question asked mid-turn is chased at the end of it by
+the same nudge as one asked at the start, for the same reason - a reply written
+into the model's own answer reaches nobody.
+
 It is a message, not a call: nothing blocks waiting for a reply. Say what you
-need, carry on with something else, and the answer arrives on a later turn.
+need, carry on with something else, and the answer arrives while you are still
+working, or on a later turn.
+
+**And if nobody is at that keyboard, the channel presses Enter.** This is the
+other half of the same problem and the more embarrassing one. Delivering a
+message into a session that is sitting at its prompt delivers it to nothing: the
+model reads it on its *next* turn, and the next turn happens when a person comes
+back and types. So "are you finished with shared.py?" waited for somebody's
+lunch to end, and the agent that asked waited with it.
+
+Now a direct question to an idle terminal starts a turn by itself:
+
+```
+  ✉ a2 → you: are you finished with shared.py?
+  ◆ a2 asked something and nobody is here; answering it (1/3)
+```
+
+Three things keep that from being a nuisance, and they are the whole design:
+
+- **only a direct message.** A broadcast is news. In a project with six agents
+  every one of them would wake up and answer the same one;
+- **only an empty prompt.** A half-typed line is yours. It is never thrown away
+  to make room for somebody else's question;
+- **only three turns that came back with nothing done** - `CHANNEL_AUTO_TURN_
+  MAX`, where **0 means no ceiling**. What is counted is not exchanges but
+  *fruitless* ones: a turn that read a file, made a change or ran a test refills
+  the budget, so two agents genuinely working can go back and forth all day and
+  two agents only talking stop after three. Typing anything at the prompt
+  refills it too, a bare Enter included.
+
+What the model is handed is a request to *answer*, not a new job - "do what they
+asked only where it concerns files you are holding, then stop: this is somebody
+else's question, and nobody is here to approve one". An unattended turn that
+decides to start refactoring is not the feature. `CHANNEL_AUTO_TURN = False`
+turns it off entirely, and without `prompt_toolkit` it never happens at all:
+`input()` cannot be interrupted, so the message waits for the next Enter as it
+always did.
+
+**Two small models will not do the work.** This is the failure that showed up
+the moment it was tried for real. `gemma4:e4b` and `qwen2.5:3b`, put on one job
+together, spent the entire run being polite to each other - *could you test it?*
+- *yes, could you test it?* - and round again. Neither ever ran anything. Both
+wrote down that the other was handling it, so the transcripts filled with work
+that had never happened.
+
+It is obvious once seen: replying is one tool call and doing the job is twenty,
+and a model told to answer its messages has been told to take the cheap one. So
+the note now names the move it must not make - *if they asked you to do
+something, DO IT yourself; do not ask them to do it, and never say something is
+done that you have not done* - and then, because asking is never enough here,
+the loop is closed:
+
+```
+[System] That is 3 messages to a2 in a row with nothing done in between. This
+is the loop where two agents ask each other to do the work and neither does
+it. Stop messaging and do the job yourself now - read the file, make the
+change, run the test. If you genuinely cannot, say so in your answer to the
+user and stop; do not say it is done when it is not.
+```
+
+After `CHANNEL_MAX_IDLE_REPLIES` messages to the same agent with **nothing done
+in between**, `send_agent_message` is refused until something is. Anything
+counts - even `read_file`, because a model reading the file to answer the
+question is engaging with the job rather than handing it back. Only
+`list_agents` and `send_agent_message` are talk. It is a `[System]` refusal, so
+a model that keeps knocking ends its turn after three tries instead of spending
+the whole budget on it. `0` removes the limit.
+
+The same measure is what the auto-Enter budget above counts, which is why
+setting it to unlimited is a reasonable thing to do rather than a way to lose an
+evening's tokens.
+
+**And the boat goes up the mountain.** The loop above was *neither of them does
+the work*. This is the other failure, and the subtler one: they do talk, and the
+topic drifts - a bit of coordination, a suggestion, a counter-suggestion, and
+twenty minutes later two agents are busily solving a different problem than the
+one anybody asked for.
+
+Three things cause it, and none of them is the model being stupid.
+
+*The peer quietly becomes the user.* The history is a flat `{role, content}`
+list for every provider, so there is no role that means "another agent" -
+`[Channel]` is a marker in the text of a `user` message. A peer's passing idea
+therefore arrives with exactly the authority of the person's own request, and
+arrives *newer*. So every message silently re-points the agent. The fix is one
+sentence, and it is the last thing the model reads before it acts:
+
+```
+You do not work for them. They are peers working in the same project; the
+person you work for asked you: "fix the CSV parser so quoted commas survive".
+That is still your job, and nothing above changes it.
+```
+
+That anchor is taken only from a line a *person* typed - never from a turn the
+channel started by itself, which would let a peer's question install itself as
+the job and steer the boat uphill by design.
+
+*The channel carried essays.* `MAX_TEXT` was 2000 characters. You cannot drift
+in one sentence; you can drift comfortably in 2000. It is 250 now - a physical
+limit rather than an instruction, for the same reason as everything else here.
+
+*There was nothing to drift **from***. The board held who is here, what they
+said and what they hold - nothing that said what anybody was trying to achieve.
+Drift you cannot measure is drift you cannot correct.
+
+**So a message has to be one of the moves there are.** `send_agent_message`
+takes a `kind`, and there are six: `question`, `answer`, `claim`, `release`,
+`done`, `warn`. Coordination is always about something on disk, so there is no
+kind meaning *let us rethink the parser* - and that absence is the whole point.
+**A `question` has to be about a file somebody else is holding.** Not merely
+about a named file - that was the first version, and two live agents walked
+straight through it with *"who should run and test server.js?"*: a delegation
+wearing a filename so it looks like coordination. The sharper rule comes from
+something the claim system already guarantees - **you never have to ask
+permission to touch a free file.** Writing it takes the claim for you, and a
+file another agent holds refuses your write by name and tells you who to ask. So
+a question about an *unclaimed* file asks for something that could not have been
+denied, and a question about no file at all is answered by `list_agents`. Which
+leaves exactly one thing it can be.
+
+A `claim`, `release`, `question` or `warn` that names no file is refused,
+because a claim that names no file is a mood - and because that one rule is what
+catches the original failure. **There is deliberately no kind meaning "please do
+this for me".** A question about *state* can always name its file ("are you
+finished with server.js?"); a delegation never does ("could you test it?"). So
+the shape of the message tells them apart with no guessing at intent:
+
+```
+[System] That is not a question, it is asking another agent to do your work -
+and there is no way to send that, because there is no kind for it. A question
+here asks about the state of a file you name: "are you finished with
+server.js?". If what you wanted was for somebody to write, run or test
+something: do it yourself, now. Testing above all - this harness runs the
+project's own check after your edits by itself, so asking another agent to
+test your work asks for something that already happens. And if you only wanted
+to know who is here or who holds what, that is list_agents, not a message.
+```
+
+Free prose gets this back:
+
+```
+[Error] '(none)' is not a kind of message. Send it again with kind set to one
+of: question = a specific question about a file or a claim; answer = the reply
+to one; claim = I am taking this file (name it); ... If what you wanted to say
+is none of these - debating an approach, agreeing a plan, dividing up the work
+- it does not belong on this channel at all. Do your own part and say what you
+did when it is done.
+```
+
+You are not held to any of it: `/agents say` still posts whatever you like.
+People do not drift the way two small models talking to each other do.
+
+The kinds earn their keep twice, because they also say what is worth waking an
+idle terminal for. A `question`, `claim`, `release` or `warn` means somebody is
+blocked or about to be; a `done` is news, and waking a terminal nobody is
+sitting at to read news is how an unattended session ends up holding a
+conversation instead of doing a job.
+
+An `answer` is the one that took a real run to get right. It wakes **the agent
+that asked, and nobody else** - because the reply to your own question is not
+information, it is the thing you stopped for. The first version classed every
+answer as news, and two live agents showed exactly what that costs: a2 asked a1
+whether it was still working on `server.js`, a1 answered, and a2 - idle, its
+question hanging - slept through the reply, timed out and left. An agent that
+asks and then misses the answer has asked nothing at all.
+
+**One plan, and it is not on the board.** `~/.aetheris/notes/` is already a
+per-project markdown store filed under the same workspace the board is, already
+shared by every agent in the project, and its titles are already in every one of
+their system prompts. The place that says what everyone is working towards
+exists; inventing a second one would be two answers waiting to disagree. So
+`/agents plan <text>` writes the note, `/agents plan` shows it, and every channel
+note ends by pointing at it - *read_note 'plan' - it is the one plan you all
+share. Do not re-invent it in messages.* `CHANNEL_PLAN_NOTE` names it, and an
+empty setting turns the pointer off.
+
+**Clearing it.** `/agents clear` wipes the messages, `/agents clear dm` only
+what was addressed to somebody, `/agents clear everyone` only what was said to
+the room. The board is shared, so this clears it for every agent in the project
+and says so - and like `/agents release`, no tool reaches it. The person at the
+keyboard is the only one here who can see every terminal.
+
+**It knows which one it is.** `a1, are you finished with parser.py?` is
+addressed to nobody a model recognises unless it has been told that it is a1,
+and there is no question it can ask that comes back *you* - `list_agents` says
+who is here, not who you are. So one line of the system prompt says it, once a
+session is actually on a board, and nothing is said in a session that is alone.
 
 **And a question that goes unanswered is chased, once.** Two `gemma4:e4b`
 instances were run against each other to see whether any of this holds up. It
@@ -617,7 +828,7 @@ speaks the same protocol - a local vLLM or llama.cpp server, OpenRouter, Groq,
 Together.
 
 Keys are read from the environment first. A key typed at the `/connect` prompt
-is written to `~/.localchat/providers.json` - never into the project directory,
+is written to `~/.aetheris/providers.json` - never into the project directory,
 which is a place people commit from. On Linux and macOS the file is owner-only
 (0600) from the moment it is created. Windows has no POSIX mode bits, so there
 the file takes whatever ACL its directory gives it; `%USERPROFILE%` is
@@ -775,7 +986,7 @@ skills/
   quick-skill.md      <- one-file skill
 ```
 
-Skills are searched in `./skills/` first, then `~/.localchat/skills/`; the first
+Skills are searched in `./skills/` first, then `~/.aetheris/skills/`; the first
 match on a name wins, so a project skill overrides a personal one.
 
 `SKILL.md` opens with YAML frontmatter:
@@ -800,13 +1011,13 @@ Two skills ship with the repo: `git-commit` and `code-review`. See
 `skills/README.md` for the full format reference.
 
 They are *in the repository*, not in the installed package - skills are looked
-for in the working directory and in `~/.localchat/skills/`, never next to the
+for in the working directory and in `~/.aetheris/skills/`, never next to the
 code, so that a project's own skills win and an install cannot quietly add
 instructions you did not write. From a `pip install`, copy the two you want:
 
 ```bash
-git clone https://github.com/minjun1177/simple_harness
-cp -r simple_harness/skills/* ~/.localchat/skills/
+git clone https://github.com/minjun1177/aetheris
+cp -r aetheris/skills/* ~/.aetheris/skills/
 ```
 
 ---
@@ -819,7 +1030,7 @@ Declare a server once and its tools appear alongside the built-in ones.
 
 ### Declaring a server
 
-Servers are read from `./.mcp.json` first, then `~/.localchat/mcp.json`; a
+Servers are read from `./.mcp.json` first, then `~/.aetheris/mcp.json`; a
 project entry wins over a personal one with the same name. Copy
 `.mcp.json.example` to get started.
 
@@ -1052,7 +1263,7 @@ Four things it does that `run_cmd python3 -c "..."` does not:
   under `python -c`; here it comes back as `=> 1024`. A model reaches for a
   calculator far more readily when the calculator answers.
 - **It is a scratchpad, not the project.** The process runs in
-  `~/.localchat/vm`, so a stray `open(..., "w")` lands there rather than in the
+  `~/.aetheris/vm`, so a stray `open(..., "w")` lands there rather than in the
   repository - and never in an auto-commit. The project is still on its
   `PYTHONPATH`, so a function that has just been written can be imported and
   tried; nothing is written back to it, not even a `__pycache__`.
@@ -1345,7 +1556,7 @@ Until now the only gate was the approval prompt, and `/automode on` turned it
 off for everything at once - including `run_cmd` and `delete_file`. Rules give
 the middle ground.
 
-Rules are read from `./.permissions.json` and `~/.localchat/permissions.json`;
+Rules are read from `./.permissions.json` and `~/.aetheris/permissions.json`;
 rules from both files apply. Copy `.permissions.json.example` to start.
 
 ```json
@@ -1409,7 +1620,7 @@ by hand, and `/perms reload` re-reads the files.
 A `.env` is the one file in a project whose *contents* are the secret, and a
 value the model reads does not stay read: it goes to the provider, so a hosted
 model means the key is now their problem too, and it is written into
-`~/.localchat/sessions/*.json` and stays there. One `read_file` puts a key in
+`~/.aetheris/sessions/*.json` and stays there. One `read_file` puts a key in
 two places nobody would think to check.
 
 So the harness reads the file and the model does not. What it is handed is
@@ -1478,7 +1689,7 @@ session. **`/set` changes what it starts as, without editing any source.**
 /set NUM_CTX default      put it back to what config.py says
 ```
 
-What was changed is written to `~/.localchat/settings.json` and applied over
+What was changed is written to `~/.aetheris/settings.json` and applied over
 `config.py` at startup. **Only the deviations are recorded**, so a default that
 improves in a later version still reaches you if you never overrode it - writing
 all sixty out would freeze this release's values the first time you changed one.
@@ -1489,7 +1700,7 @@ What is *not* settable is named rather than listed, and it is a short list: the
 system prompt and the model (they have commands of their own), live state such
 as the session title, facts about the machine, the two tool-result markers
 (invariant 5.9 - a protocol, not a preference), and the paths under
-`~/.localchat`, which `LOCALCHAT_HOME` moves together.
+`~/.aetheris`, which `AETHERIS_HOME` moves together.
 
 Values are checked against the type the setting already has - `on`/`off` for a
 switch, a number for a number, commas for a list - and a negative number is
@@ -1557,28 +1768,40 @@ them are listed by `/set`.
 
 State that outlives a session lives outside `config.py`:
 
-| Path | Holds |
-| :--- | :--- |
-Everything about *you* lives in one directory, `~/.localchat`. Everything about
+Everything about *you* lives in one directory, `~/.aetheris`. Everything about
 *a project* is read from that project's own directory first, and from
-`~/.localchat` second - so a repository can carry its own rules, servers and
+`~/.aetheris` second - so a repository can carry its own rules, servers and
 skills, and they win.
 
 | Path | Holds |
 | :--- | :--- |
-| `~/.localchat/providers.json` | The connected provider and any API keys typed at `/connect`. Owner-only on POSIX |
-| `~/.localchat/sessions/*.json` | Conversation transcripts, named after the session title, each recording the directory it was last worked in so `-c` can find it |
-| `~/.localchat/memory.json` | The long-term key-value memory |
-| `~/.localchat/history` | Input history for the prompt |
-| `~/.localchat/channel/*.json` | One board per project: which harnesses are running in it, what they have said to each other, and which files each is holding |
-| `~/.localchat/vm/` | The `run_python` scratch directory - where the VM runs, and where anything it writes ends up |
-| `~/.localchat/settings.json` | The settings `/set` changed - only those, never the whole table |
-| `./.permissions.json`, then `~/.localchat/permissions.json` | Allow and deny rules |
-| `./.mcp.json`, then `~/.localchat/mcp.json` | MCP server declarations |
-| `./skills/`, then `~/.localchat/skills/` | Skills |
+| `~/.aetheris/providers.json` | The connected provider and any API keys typed at `/connect`. Owner-only on POSIX |
+| `~/.aetheris/sessions/*.json` | Conversation transcripts, named after the session title, each recording the directory it was last worked in so `-c` can find it |
+| `~/.aetheris/memory.json` | The long-term key-value memory |
+| `~/.aetheris/history` | Input history for the prompt |
+| `~/.aetheris/channel/*.json` | One board per project: which harnesses are running in it, what they have said to each other, and which files each is holding |
+| `~/.aetheris/vm/` | The `run_python` scratch directory - where the VM runs, and where anything it writes ends up |
+| `~/.aetheris/settings.json` | The settings `/set` changed - only those, never the whole table |
+| `./.permissions.json`, then `~/.aetheris/permissions.json` | Allow and deny rules |
+| `./.mcp.json`, then `~/.aetheris/mcp.json` | MCP server declarations |
+| `./skills/`, then `~/.aetheris/skills/` | Skills |
 
-Set `LOCALCHAT_HOME` to put that directory somewhere else - two profiles, or a
+Set `AETHERIS_HOME` to put that directory somewhere else - two profiles, or a
 throwaway one for trying something out.
+
+**Upgrading from simple-harness.** The directory was `~/.localchat` before
+1.0.0, and the rename does not move it. If `~/.localchat` is there and
+`~/.aetheris` is not, that stays the home and is read exactly where it is -
+your sessions, memory and saved keys carry over because nothing happens to
+them. Move it yourself if you would rather have the new name:
+
+```bash
+mv ~/.localchat ~/.aetheris        # optional, and only once
+```
+
+`LOCALCHAT_HOME` is still read when `AETHERIS_HOME` is unset, and
+`SIMPLE_HARNESS_ACCEPT_TERMS` still counts as agreeing to the terms, so a shell
+profile or an unattended job that sets either one keeps working untouched.
 
 Before 0.2.0 the sessions, the memory and the input history were written into
 whatever directory the harness started in. If you have those, they are not read
@@ -1707,9 +1930,9 @@ The codebase is organized cleanly around the following components:
 - **`renderer.py`** / **`tui.py`**: Markdown rendering and the terminal chrome.
 - **`session.py`**: Session save/load/list, the persistent memory store, and the block of `important` memories that goes into every session's system prompt.
 - **`systemprompt.py`**: The system prompt - the assistant's own instructions, plus the tool-protocol rules that `subagent.py` shares. The tool schemas themselves come from `toolspec.py`.
-- **`skills/`**: Project-level skills. Personal skills live in `~/.localchat/skills/`.
-- **`.permissions.json`**: Project-level tool permission rules (see `.permissions.json.example`). Personal ones live in `~/.localchat/permissions.json`.
-- **`.mcp.json`**: Project-level MCP server declarations (see `.mcp.json.example`). Personal ones live in `~/.localchat/mcp.json`.
+- **`skills/`**: Project-level skills. Personal skills live in `~/.aetheris/skills/`.
+- **`.permissions.json`**: Project-level tool permission rules (see `.permissions.json.example`). Personal ones live in `~/.aetheris/permissions.json`.
+- **`.mcp.json`**: Project-level MCP server declarations (see `.mcp.json.example`). Personal ones live in `~/.aetheris/mcp.json`.
 - **`images.py`**: Recognising an image, resizing one that is too big, and the base64 a provider sends. Images ride on a message as paths, so a saved session never carries a screenshot around.
 - **`notes.py`**: Markdown notes about one project - where a project's notes live, the five tools over them, and the block of titles that goes into the system prompt.
 - **`memory.json`**: Key-value JSON storage backing the long-term memory system. Each record carries its content, when it was written, and whether it was marked `important`.
@@ -1722,12 +1945,12 @@ The codebase is organized cleanly around the following components:
 
 Most terminal AI harnesses - Claude Code, Cursor, Aider, Continue, OpenHands -
 are built against one or two hosted, native-tool-calling models and treat
-anything smaller as an afterthought, if they support it at all. Simple Harness
+anything smaller as an afterthought, if they support it at all. Aetheris
 was built the other way: for a model too small to be trusted, with the hosted
 providers added on top of the same code path rather than the other way round.
 That ordering is where most of the differences below come from.
 
-| Feature | Simple Harness | Claude Code | Cursor | Aider |
+| Feature | Aetheris | Claude Code | Cursor | Aider |
 | :--- | :--- | :--- | :--- | :--- |
 | Text-protocol fallback for models with no native tool-calling | ✅ per-model, automatic | ❌ | ❌ | ❌ (assumes JSON tool-calls) |
 | Raw content blocks instead of JSON-escaped file bodies | ✅ | ❌ | ❌ | ❌ |
@@ -1753,7 +1976,7 @@ not just connectable.** Aider and Continue can point at an Ollama endpoint,
 but they hand it the same prompt and the same JSON tool-call contract a hosted
 model gets, and a 4B model fails that contract constantly - a bare quote inside
 `print("hi")`, an uncounted brace, and the whole generation is thrown away.
-Simple Harness detects per-model whether Ollama actually reports a native
+Aetheris detects per-model whether Ollama actually reports a native
 `tools` interface and, when it does not, switches to a text protocol where a
 file body is a raw block (`<content>...</content>`) instead of a JSON string -
 the one thing small models get wrong most often stops being asked of them at
@@ -1776,7 +1999,7 @@ perfectly.
 **Multiple instances in one project actually know about each other.** Run
 Claude Code, Cursor, and Aider in three terminals against the same working
 tree and none of them knows the others exist - two agents editing the same
-file is a silent last-write-wins. Simple Harness keeps a shared board per
+file is a silent last-write-wins. Aetheris keeps a shared board per
 workspace (`channel.py`): every instance sees who else is running and what
 they are doing, can message them, and a file one instance is mid-edit on is
 refused to the others *by name*, with the holder named back. The claim is
@@ -1788,7 +2011,7 @@ so a crashed terminal cannot lock a file for the afternoon.
 Several harnesses offer a plan-then-execute mode, but the planning stage is
 still handed the tools and simply told not to use them - which a small model
 does not reliably respect (a local 4B model tried to edit fifteen times in
-planning before this was enforced here). Simple Harness's six-stage chain
+planning before this was enforced here). Aetheris's six-stage chain
 switches the editing tools off at the dispatcher level during plan, check and
 review stages, so "cannot" rather than "was asked not to." It also gives the
 review stage the real `git diff` of what changed rather than asking the model
@@ -1854,15 +2077,15 @@ sections 7 and 8 of the licence are the ones that say this properly.
 Because a licence file nobody opens is a poor way to tell someone that the
 program they just installed runs shell commands on their computer at a language
 model's suggestion, the first run says so on screen and asks. The answer is kept
-in `~/.localchat/accepted-terms.json` and not asked again. Refusing starts
+in `~/.aetheris/accepted-terms.json` and not asked again. Refusing starts
 nothing. With no terminal to ask - a pipe, a cron job, a container - it refuses
-rather than assuming, and `SIMPLE_HARNESS_ACCEPT_TERMS=1` answers for it.
+rather than assuming, and `AETHERIS_ACCEPT_TERMS=1` answers for it.
 
 Agreeing adds nothing to the licence and refusing takes nothing away. What it
 adds is that the disclaimer is read.
 
-`pyproject.toml` holds the packaging metadata under the name `simple-harness`.
-The modules live in `simple_harness/`, and the distribution installs that one
+`pyproject.toml` holds the packaging metadata under the name `aetheris`.
+The modules live in `aetheris/`, and the distribution installs that one
 package rather than twenty-two top-level modules - which would otherwise put
 `config`, `tools` and `session` in the importable root of every environment that
 took it.

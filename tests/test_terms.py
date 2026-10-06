@@ -1,7 +1,7 @@
 """The terms are shown before the harness can act, and asked only once.
 
 Apache-2.0 governs whether or not anyone reads it. What this gate is for is
-that somebody who just ran `pip install simple-harness` is told, before the
+that somebody who just ran `pip install aetheris` is told, before the
 first turn, that the thing they installed runs shell commands on their computer
 at a language model's suggestion.
 
@@ -15,13 +15,13 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 HOME = tempfile.mkdtemp(prefix="terms-")
 os.environ[paths.ENV_VAR] = HOME
-os.environ.pop("SIMPLE_HARNESS_ACCEPT_TERMS", None)
+os.environ.pop("AETHERIS_ACCEPT_TERMS", None)
 
-from simple_harness import terms          # noqa: E402
+from aetheris import terms          # noqa: E402
 
 failures = []
 

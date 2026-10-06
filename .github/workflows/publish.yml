@@ -37,7 +37,7 @@ jobs:
 
       - name: The tag must be the version being published
         # An upload cannot be taken back, so a tag that disagrees with
-        # `simple_harness.__version__` stops the release here rather than
+        # `aetheris.__version__` stops the release here rather than
         # putting the wrong number on PyPI for good.
         env:
           # Empty on a branch, so a dry run from main still builds. A hand-run

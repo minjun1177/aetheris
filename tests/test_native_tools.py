@@ -15,14 +15,14 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import config
+from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
 
-from simple_harness import providers
-from simple_harness import systemprompt
-from simple_harness import toolspec
+from aetheris import providers
+from aetheris import systemprompt
+from aetheris import toolspec
 
 failures = []
 received = {}
@@ -249,7 +249,7 @@ check("a nameless call is dropped",
 check("a chunk with no calls yields none", providers._ollama_calls({}) == [])
 
 print("\n--- broken arguments are reported, not run ---")
-from simple_harness import llm_client
+from aetheris import llm_client
 broken = providers._decode_call({"name": "delete_file", "id": "x", "json": '{"file'})
 check("unparseable JSON becomes an error, not empty arguments",
       broken["tool_call"].get("error") and broken["tool_call"]["arguments"] == {},

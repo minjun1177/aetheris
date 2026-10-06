@@ -21,15 +21,15 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from simple_harness import paths
+from aetheris import paths
 
 # Before `config` is imported: it reads the paths at import time, and the VM's
-# scratch directory must not be the real ~/.localchat/vm.
+# scratch directory must not be the real ~/.aetheris/vm.
 HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".vm-test-home")
 shutil.rmtree(HOME, ignore_errors=True)
 os.environ[paths.ENV_VAR] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.AUTO_ALLOW = True
@@ -38,7 +38,7 @@ config.PERMISSIONS_ENABLED = False
 config.NATIVE_TOOLS = False
 config.VM_TIMEOUT = 4
 
-from simple_harness import llm_client, tools, vm      # noqa: E402
+from aetheris import llm_client, tools, vm      # noqa: E402
 
 failures = []
 
@@ -168,7 +168,7 @@ check("so a file it writes lands there",
       os.path.isfile(os.path.join(vm.scratch_dir(), "scribble.txt")))
 check("and not in the project", not os.path.isfile(os.path.join(here, "scribble.txt")))
 check("the project is still importable, so a real function can be tried",
-      "'.localchat'" in run("import simple_harness.paths as p\np.DIR_NAME"))
+      "'.aetheris'" in run("import aetheris.paths as p\np.DIR_NAME"))
 # ...and importing it leaves nothing behind. A __pycache__ the model never
 # asked for turning up in `git status` is a small thing that costs a real
 # conversation to explain.

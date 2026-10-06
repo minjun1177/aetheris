@@ -48,6 +48,9 @@ app.main()                                      app.py
    │
    │  loop until the model stops calling tools:
    │
+   ├─ channel.turn_note(mid_turn=True)  → anything said since the last
+   │  request, appended before this one. Not on the first pass: what
+   │  the person typed has to stay last there.            channel.py → §8
    ├─ tools = native_tools() if the provider supports it else None
    ├─ text = await stream_reply(messages, tools=..., calls_out=[])
    │  │
@@ -248,7 +251,7 @@ another `manage_context` over the same conversation.
 
 **5.7a State that is about the person goes in `paths.home()`; state that is
 about a project stays with the project.** Sessions, memory, input history and
-the saved keys are the person's, and resolve under `~/.localchat` - never to a
+the saved keys are the person's, and resolve under `~/.aetheris` - never to a
 relative path. `.permissions.json`, `.mcp.json` and `skills/` are the
 project's, and are read from the working directory first so a repository can
 carry its own and win.
@@ -395,7 +398,7 @@ protection cannot depend on the model having thought to ask for it.
 It fails open, everywhere. A board that will not parse, a lock that cannot be
 taken, a home directory that cannot be written - each of those lets the write
 through. Coordination is worth a refusal; it is not worth a harness that cannot
-edit a file because a JSON file in `~/.localchat` is malformed.
+edit a file because a JSON file in `~/.aetheris` is malformed.
 
 Answering is chased the same way the rest is enforced. `turn_note` records the
 agents that addressed this one directly (`awaiting_reply`), a successful
@@ -407,7 +410,7 @@ never sets it: news needs no answer.
 
 **5.14 The public surface only grows.** Five things belong to the people using
 this and not to whoever is editing it: slash command names, `/set` setting
-names, tool names, the `~/.localchat` layout, and the project files
+names, tool names, the `~/.aetheris` layout, and the project files
 (`.permissions.json`, `.mcp.json`, `skills/<name>/SKILL.md`) that are read from
 the working directory first. `tests/test_compat.py` lists all five and fails
 when one disappears; adding is free and reported, never failed.
@@ -418,7 +421,7 @@ rather than a table - so a rename there renames a key in somebody's saved
 `settings.json`. A **tool name** is written into the history as `<tool_call>`
 text whatever protocol produced it (§2), so renaming one does not just change a
 prompt: it stops an old session from replaying. Nothing inside
-`simple_harness.*` is covered - the modules are an implementation, and the
+`aetheris.*` is covered - the modules are an implementation, and the
 reusable pieces are meant to leave for packages of their own.
 
 While the major version is 0 this is a record rather than a guarantee, and
@@ -479,7 +482,7 @@ sees; `paths.workspace_slug` names the directory, and it is the same name the
 channel board is filed under, so the two cannot come to different conclusions
 about where a project ends.
 
-One note is one file - `~/.localchat/notes/<project>/<id>.md` - and the file is
+One note is one file - `~/.aetheris/notes/<project>/<id>.md` - and the file is
 the whole record: its name is the id, its mtime is when it was written, its
 bytes are the content. There is deliberately no index beside it. An index is a
 second place for "which notes exist" to be true in, and this one could disagree
@@ -553,10 +556,10 @@ same arrangement `verify` uses for a check it wants run after the turn.
 
 ## 6. Module map
 
-Every module lives in `simple_harness/`, and imports it by the package name:
-`from simple_harness import config`, `from simple_harness.tui import _hr`. The
+Every module lives in `aetheris/`, and imports it by the package name:
+`from aetheris import config`, `from aetheris.tui import _hr`. The
 tree below leaves that prefix off for readability; on disk `app.py` is
-`simple_harness/app.py`. Tests and the two documents sit outside the package.
+`aetheris/app.py`. Tests and the two documents sit outside the package.
 
 Layered by what may import what. A module may import anything above it.
 
@@ -731,7 +734,7 @@ conversation can tell you the others exist. Two of them read the same file, both
 write, and the second write throws the first one's work away with nothing on
 either screen to say so.
 
-One JSON file per workspace, in `~/.localchat/channel/`, holds three things:
+One JSON file per workspace, in `~/.aetheris/channel/`, holds three things:
 
 ```
 agents    who is running here: id (a1, a2, ...), pid, model, what they are on
@@ -757,6 +760,181 @@ last. `shown` is the person's: `_watch_channel` polls while the prompt is
 waiting and prints arrivals *above* it through `patch_stdout`. Without that
 second one, a question asked of an idle terminal sits unread until somebody
 presses Enter - which is exactly the terminal you most need to reach.
+
+**The model's cursor is also read from inside the turn.** Once per pass of the
+tool loop, `chat_turn` asks for `turn_note(mid_turn=True)` and appends it before
+the next request. The top of the turn is not often enough: the turn is where the
+time goes - twenty tool calls is minutes - and a message delivered only at the
+next one waits for the person to type again. "I am holding parser.py" read after
+the file was written over is the message the board exists to prevent.
+
+Three details make that safe rather than merely eager. It is skipped on the
+first pass, where `app.py` has just put the board's messages in *ahead* of the
+line the person typed so the request stays last, and appending would undo
+exactly that. It is skipped for a sub-agent (`SUBAGENT_DEPTH`), which is
+somebody's errand and has no standing to answer the room. And the wording
+differs: a note arriving mid-turn tells the model to answer and to respect a
+claim it has just been told about, but to carry on with the job it is in the
+middle of - it is news, not a new request.
+
+`chat_turn` beats on the same pass, with no label. Nothing else says this agent
+is alive while a long turn runs, and an agent presumed gone (`CHANNEL_STALE`)
+has its claims dropped - the files it is in the middle of writing, while it
+writes them. `heartbeat("")` is therefore a keepalive and not a rename: an empty
+label leaves `_last_label` alone, or the loop and the prompt would clear each
+other's and write the board on every beat.
+
+A question asked mid-turn is chased by the same end-of-turn nudge as one asked
+at the top of it - `turn_note` records the sender in `_asked_by` whenever it is
+read, so the two arrive at the same place.
+
+**And an idle prompt is exited, not waited on.** `app._maybe_auto_turn`. The
+mid-turn delivery above covers a session that is *working*; a session sitting at
+its prompt is the opposite problem and the worse one, because a message put into
+its context is put into nothing until a person comes back and types. So the
+watcher calls `prompt_app.exit(result=...)` and `prompt_async` returns a line
+nobody typed. `_auto_woke` distinguishes it from a real one on the way out of
+`_read_line`.
+
+The result is deliberately *not* the message. The message is already going in
+ahead of it, through `turn_note` and the model's own cursor; what the synthesised
+line adds is the part a typed line carries and a delivered message does not -
+that an answer is wanted now, and how far the turn may go ("do what they asked
+only where it concerns files you are holding, then stop").
+
+Four bounds, and they are the design:
+
+| Bound | Why |
+|:---|:---|
+| Direct messages only (`channel.is_direct`) | A broadcast is news; six agents would all wake and answer the same one |
+| Empty input buffer only | A half-typed line is that person's, and exiting the prompt would discard it unseen |
+| `CHANNEL_AUTO_TURN_MAX` per human line | Two idle agents are a loop, and on a hosted model a loop costs money all night |
+| `prompt_toolkit` only | `input()` cannot be interrupted; without it the message waits for the next Enter, as before |
+
+`_auto_asked_by` holds a question across the one boundary where it would
+otherwise be lost: arrivals are drained just *before* the prompt opens, when
+there is no running application to exit out of, so a message that landed between
+the last turn ending and this prompt opening is queued there and fired by the
+watcher's first poll.
+
+**Talking is measured against working.** `channel.note_tool`, called from
+`dispatch_tool` past every refusal, sets `_worked` for any tool that is not
+`list_agents` or `send_agent_message` and clears every talk streak. That one
+signal answers two questions that turned out to be the same question.
+
+The failure it exists for is not hypothetical. Two 4B models on one job spent
+the whole run handing it back and forth - *could you test it?* / *yes, could you
+test it?* - neither running anything, both recording that the other was on it.
+Replying is one tool call and doing the job is twenty, so the loop is the cheap
+path, and a model told to answer its messages has been told to take it.
+
+- `handle_send_agent_message` refuses after `CHANNEL_MAX_IDLE_REPLIES` messages
+  to one peer with nothing done between them. `[System]`, so §4's refusal
+  counter ends a turn that keeps knocking. `0` disables it.
+- `app._auto_turns` counts only auto-turns that came back with nothing done -
+  `_read_line` reads `channel.worked()` before opening the next prompt and
+  refills the budget if the turn did anything. That is what makes
+  `CHANNEL_AUTO_TURN_MAX = 0` (no ceiling, as in `MAX_TOOL_CALLS`) a sane thing
+  to set: unbounded *work* is fine, unbounded *chat* is what costs money.
+
+`app` calls `channel.reset_work()` as each turn begins, so the reckoning is
+per-turn. The note's wording carries the same instruction - *if they asked you
+to do something, DO IT yourself; never say something is done that you have not
+done* - but the wording is the hint and the refusal is the mechanism, in that
+order, as everywhere else here.
+
+**Drift, which is a different failure from the loop.** The loop was *neither
+agent does the work*. Drift is *both of them do work, on the wrong thing* - a
+suggestion, a counter-suggestion, and two agents solving a problem nobody asked
+for. It has three causes and each gets a mechanism, because none of them is
+fixable by wording alone.
+
+| Cause | Mechanism |
+|:---|:---|
+| A peer's message arrives as `role: "user"` - the flat history (§3) has no role meaning "another agent" - and mid-turn it is the *newest* message. Same badge as the person's request, later in the list, so the peer becomes the user. | `channel._job` + the anchor `turn_note` ends every note on. `app` sets it from each human line and, crucially, **not** when `_auto_woke` - letting a peer's question install itself as the job is the drift, mechanised. |
+| `MAX_TEXT` was 2000 characters, which is room to negotiate the problem instead of solving it. | 250. A physical limit, not an instruction. |
+| Nothing anywhere said what the joint goal was, so drift was unmeasurable and therefore uncorrectable. | `channel.plan_note()` - see below. |
+
+**`send_agent_message` takes a `kind`.** `channel.KINDS`: question, answer,
+claim, release, done, warn. Coordination is always about something on disk, so
+no kind means "let us rethink the parser", and that absence is the mechanism -
+a model made to classify its own move has nowhere to put a design debate.
+`channel.NEEDS_PATH` requires claim, release, question and warn to name a file.
+That last rule carries the most weight, and `question` is tightened further by
+`channel.mentions_held_file`: it must name a file that another agent currently
+*holds*. Naming a file alone was the first version and it did not survive
+contact - two gemma4:e4b instances both sent "who should run and test
+server.js?", a delegation wearing a filename, and it passed. The claim system
+supplies the sharper test: you never have to ask permission to touch a free
+file, because writing takes the claim for you and a held file refuses your write
+by name. So a question about an unclaimed file asks for something that could not
+have been denied, and a question about no file is a `list_agents` query. Neither
+is coordination. A fileless `question` gets a `[System]` refusal naming it as delegation,
+pointing at `list_agents` for who-holds-what, and at `AUTO_VERIFY` for the
+specific case that started all this - asking another agent to test your work
+asks for something the harness already does after every edit. An unknown or
+missing kind is `[Error]`, not `[System]`: the call was malformed and remaking
+it correctly is exactly what should happen next. `/agents say` posts with no
+kind, because a person is not what this guards against.
+
+> The parameter order in `toolspec` is load-bearing. `_run_tool` calls
+> `handler(*tool.bind(arguments))` - **positional** - so a spec listing its
+> parameters in a different order from the function hands every argument to the
+> one next door. `_check_registry` compares parameter *counts* and cannot see
+> it; names cannot be compared either, since thirteen tools deliberately differ
+> (`id` → `memory_id`). `tests/test_registry.py` pins this tool's order
+> explicitly instead.
+
+`channel.wakes(entry)` is the kinds' second job: question, claim, release and
+warn mean somebody is blocked or about to be, so they may start a turn on an
+idle terminal; `done` is news, and waking an unattended terminal to read news is
+how it ends up holding a conversation. A missing kind wakes - that is a person
+on `/agents say`.
+
+`answer` wakes **only the agent that asked** - `channel._asked_of`, the mirror
+of `_asked_by`, filled by `note_message` when a `question` goes to one named
+agent and emptied in `turn_note` when the reply reaches the model. This was
+found by running it: with every answer classed as news, a2 asked a1 about
+`server.js`, a1 answered, and a2 slept through the reply and left. The reply to
+your own question is not information; it is what you stopped for.
+
+**The shared plan is a note, not a board field.** `channel.plan_note()`.
+`notes.project_dir()` is keyed by `channel.workspace()` (`notes.py:64`) - the
+very function the board is filed under - so every agent that can see another on
+the board is already reading the same notes, and their titles are already in
+every system prompt. A `goal` field on the board would be a second answer to
+"what are we all doing", waiting to disagree with the first. `notes` imports
+`channel` for `workspace()`, so `plan_note` imports `notes` *inside the
+function*; the dependency only goes one way at import time. `/agents plan [text]`
+reads and writes it.
+
+**Clearing.** `channel.clear_messages(kind)` - `dm`, `everyone`, or everything
+including the board's own arrival notices. Reached only from `/agents clear`,
+never from a tool, for the same reason as `force_release`: the board is shared,
+so clearing it clears it for every agent in the project, and the person at the
+keyboard is the only one who can see every terminal. Clearing direct messages
+drops `_asked_by` with them - a question nobody can read any more is not still
+outstanding.
+
+**The agent's own id is in the system prompt.** `channel.prompt_section()`,
+composed in `app._compose_system_prompt` alongside memory and notes - not in
+`systemprompt()`, because `config` builds that at import time and this session
+has not joined a board yet. `main` calls `_refresh_system_prompt` once, straight
+after `channel.join`, while nothing has been sent. Everything else about the
+board is a tool call away; an id is the one fact with no question that returns
+it, and without it `a1, are you done with parser.py?` is addressed to a name the
+model has never been given.
+
+**What reaches a screen is not what another process wrote.** Two halves. A
+message has its control characters stripped on the way *onto* the board
+(`channel._clean`, keeping tab and newline), because it is printed straight onto
+another terminal above a prompt somebody is typing at, and an escape sequence
+there would move their cursor from another process entirely. And the prompt is
+patched with `patch_stdout(raw=True)`: the default routes printed text through
+`Output.write()`, documented as "removes vt100 escape codes" and implemented as
+`data.replace("\x1b", "?")`, which is what turned an arrival into a literal
+`?[38;2;211;134;155m✉ a2 joined this workspace` on screen. Raw is safe here
+precisely because of the first half.
 
 Nothing is pushed on a quiet turn. A roster repeated every turn would cost
 context in every solo session; what is pushed is what changed - an arrival, a
@@ -850,7 +1028,7 @@ does with it - macOS CI is what told the difference, and `test_vm.py` now
 asserts what each platform actually provides rather than what was asked for.
 
 **The scratch directory is the person's, not the project's** (5.7a):
-`~/.localchat/vm`, and the process runs there, so a stray write lands in the
+`~/.aetheris/vm`, and the process runs there, so a stray write lands in the
 scratchpad instead of the repository and never in an auto-commit. The working
 directory is on the child's `PYTHONPATH` so project code can be imported and
 tried, with `PYTHONDONTWRITEBYTECODE` set so importing it leaves no
@@ -918,13 +1096,13 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
 | `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said |
-| `test_paths.py` | That state resolves under `~/.localchat` and never into the working directory |
+| `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |
-| `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, and that concurrent writes to the board lose nothing (5.11, §8) |
+| `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, that a message sent mid-turn is read inside that turn rather than after it, and that concurrent writes to the board lose nothing (5.11, §8) |
 | `test_hashline_edit.py` | That an anchor reaches the line it names, and that a stale one is refused rather than applied a few lines off (5.12) |
 | `test_vm.py` | That `run_python` takes its code as a raw block, remembers between calls, and says the namespace is gone every way it can die (§8a) |
 | `test_usage.py` | That a turn's requests are counted as one turn, that a resumed session carries on past its own, and that a session recorded before turns existed still renders |

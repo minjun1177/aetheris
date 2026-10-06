@@ -32,19 +32,19 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HOME = tempfile.mkdtemp(prefix="notes-home-")
-os.environ["LOCALCHAT_HOME"] = HOME
+os.environ["AETHERIS_HOME"] = HOME
 
-from simple_harness import config          # noqa: E402
+from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.NOTES_DIR = os.path.join(HOME, "notes")
 
-from simple_harness import app             # noqa: E402
-from simple_harness import channel         # noqa: E402
-from simple_harness import git_ops         # noqa: E402
-from simple_harness import llm_client      # noqa: E402
-from simple_harness import notes           # noqa: E402
-from simple_harness import toolspec        # noqa: E402
+from aetheris import app             # noqa: E402
+from aetheris import channel         # noqa: E402
+from aetheris import git_ops         # noqa: E402
+from aetheris import llm_client      # noqa: E402
+from aetheris import notes           # noqa: E402
+from aetheris import toolspec        # noqa: E402
 
 failures = []
 

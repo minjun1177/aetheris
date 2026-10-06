@@ -16,12 +16,12 @@ import pathlib
 import re
 import sys
 
-init = pathlib.Path("simple_harness/__init__.py").read_text(encoding="utf-8")
+init = pathlib.Path("aetheris/__init__.py").read_text(encoding="utf-8")
 found = re.search(r'^__version__ = "([^"]+)"', init, re.M)
 if not found:
-    sys.exit("simple_harness/__init__.py has no __version__")
+    sys.exit("aetheris/__init__.py has no __version__")
 version = found.group(1)
-print(f"simple_harness.__version__ = {version}")
+print(f"aetheris.__version__ = {version}")
 
 # Empty unless the caller is on a tag, so a push to a branch says the version
 # out loud and passes - there is nothing to disagree with yet.
@@ -31,5 +31,5 @@ if not tag:
 
 if tag != version:
     sys.exit(f"tag '{tag}' does not match __version__ '{version}' - "
-             f"bump simple_harness/__init__.py and move the tag onto that commit")
+             f"bump aetheris/__init__.py and move the tag onto that commit")
 print(f"tag matches: {tag}")

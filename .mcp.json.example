@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Copy this file to .mcp.json (project) or ~/.localchat/mcp.json (personal).",
+    "Copy this file to .mcp.json (project) or ~/.aetheris/mcp.json (personal).",
     "Every enabled server is started when the app launches; its tools show up as",
     "mcp__<server>__<tool> and are called exactly like the built-in tools.",
     "${VAR} and ${env:VAR} are replaced with the matching environment variable,",
