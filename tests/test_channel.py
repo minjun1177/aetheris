@@ -514,6 +514,22 @@ print("\n--- a question to an idle terminal presses Enter by itself ---")
 # empty prompt, a bounded number of times.
 from aetheris import app                    # noqa: E402
 import types                                      # noqa: E402
+# Built against a dummy terminal on purpose, the same way `test_mentions.py`
+# builds its `PromptSession`. `_read_line` enters `patch_stdout()`, which asks
+# the app session for an output as it is entered, and the Windows runner's job
+# shell is not a console to give it - `NoConsoleScreenBufferError`, raised
+# before any of these checks run. Nothing below needs a screen: what is being
+# checked is which line comes back, and that is the same with nowhere to draw.
+from prompt_toolkit.application.current import create_app_session   # noqa: E402
+from prompt_toolkit.input import DummyInput                         # noqa: E402
+from prompt_toolkit.output import DummyOutput                       # noqa: E402
+
+
+def read_line(session_pt, timeout=10):
+    """`_read_line`, run against a terminal that is not this machine's."""
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        return asyncio.run(
+            asyncio.wait_for(app._read_line(session_pt), timeout=timeout))
 
 
 class FakePromptApp:
@@ -573,7 +589,7 @@ as_agent(a2)
 channel.send("are you finished with shared.py?", to=a1)
 as_agent(a1)
 idle = FakeSession()
-line = asyncio.run(asyncio.wait_for(app._read_line(idle), timeout=10))
+line = read_line(idle)
 check("an idle prompt returns a line nobody typed", bool(line), repr(line)[:60])
 check("and it names who is waiting", a2 in line, line[:70])
 check("and says to answer on the channel, not into the void",
@@ -619,7 +635,7 @@ check("it answers by itself three times and then stops",
 check("the fourth question is still delivered to the screen",
       app._auto_turns == 3, str(app._auto_turns))
 # A person typing anything is the signal that somebody is here again.
-typed = asyncio.run(asyncio.wait_for(app._read_line(TypedSession()), timeout=10))
+typed = read_line(TypedSession())
 check("a line somebody typed comes back as they typed it",
       typed == "refactor the parser", repr(typed))
 check("and it refills the budget", app._auto_turns == 0, str(app._auto_turns))
@@ -713,7 +729,7 @@ saved_patch = getattr(config, "patch_stdout", None)
 config.patch_stdout = lambda **kwargs: FakePatch(**kwargs)
 try:
     rearm()
-    asyncio.run(asyncio.wait_for(app._read_line(TypedSession()), timeout=10))
+    read_line(TypedSession())
 finally:
     if saved_patch is not None:
         config.patch_stdout = saved_patch
@@ -864,7 +880,7 @@ check("but a turn that did something refills it before the next prompt",
 as_agent(a2)
 channel.send("and now?", to=a1)
 as_agent(a1)
-woken = asyncio.run(asyncio.wait_for(app._read_line(FakeSession()), timeout=10))
+woken = read_line(FakeSession())
 check("so the question is answered rather than left", "[Channel]" in woken,
       woken[:50])
 check("and the budget starts again from there", app._auto_turns == 1,
