@@ -352,10 +352,13 @@ class Session:
 # registry
 # ---------------------------------------------------------------------------
 
-def start(command: str):
-    """Launch a command with its pipes wired up. Raises OSError on failure."""
+def start(command: str, env: dict | None = None):
+    """Launch a command with its pipes wired up. Raises OSError on failure.
+
+    `env` None inherits this process's environment as it is.
+    """
     process = subprocess.Popen(
-        command, shell=True,
+        command, shell=True, env=env,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=(os.name != "nt"),
     )

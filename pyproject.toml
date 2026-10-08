@@ -66,6 +66,13 @@ attacca = [
     "websockets>=16.1.1,<18.0",
     "msgpack>=1.2.3,<2.0",
 ]
+# API keys in the OS keyring (Keychain, Credential Manager, Secret Service)
+# instead of in providers.json. Without it - or on a machine with no keyring,
+# like WSL or a server - keys stay in the file, owner-only, as before:
+# pip install "aetheris[keyring]"
+keyring = [
+    "keyring>=25.7.0,<26.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/minjun1177/aetheris"

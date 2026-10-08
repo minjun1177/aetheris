@@ -74,6 +74,29 @@ That last one was wrong at first - attacca.cc reports the session's state the
 moment a stream opens, which is "not running" before the message goes in - and
 `tests/test_attacca.py` now plays exactly that.
 
+### The harness's own keys, out of the model's reach
+
+`providers.json` held every API key in plaintext, and nothing kept a model
+with `read_file`, `cat` or `env` away from it - one call and the key was in the
+conversation, at the provider and in a session file.
+
+- **Hidden in everything a model is shown.** Saved keys, keyring keys and the
+  provider variables in the environment read as `[hidden: anthropic key]` in
+  every tool result, `@` attachment and `!` output. Never filled back in, so
+  it cannot be sent anywhere; `SECRET_REDACT` does not switch it off.
+- **`providers.json` refused to every tool**, ahead of the permission rules
+  and `/automode`, by any path that resolves to it. A write would otherwise be
+  the way round: a `base_url` pointed elsewhere sends the key there.
+- **The model's commands start without the provider keys** in their
+  environment (`run_cmd`, `run_python`). A `!` command keeps the whole shell.
+- **The OS keyring, optionally.** `pip install "aetheris[keyring]"` keeps
+  saved keys in the Keychain, the Credential Manager or the Secret Service,
+  and moves existing ones out of the file at the next start. No keyring, or
+  `AETHERIS_KEYRING=off`: the file at 0600, as before.
+- **Closed to other accounts.** The home directory is created 0700, an
+  existing default one is closed at startup, and sessions are written 0600.
+  They used to be 0644 in a 0755 directory.
+
 ### A reply nobody counted is not a line of zeros
 
 `stream_reply` used to record and print a token line for every reply, counted

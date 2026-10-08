@@ -28,6 +28,7 @@ import time
 from aetheris import paths
 
 from aetheris import atomic
+from aetheris import keystore
 from aetheris.sse import iter_sse
 
 
@@ -1197,17 +1198,112 @@ def load_state(force: bool = False) -> dict:
         data = {}
     data.setdefault("active", "ollama")
     data.setdefault("providers", {})
+    if not isinstance(data["providers"], dict):
+        data["providers"] = {}
+    # A key kept in the keyring is read back into memory here, so everything
+    # downstream goes on finding it in `settings["api_key"]` as it always has.
+    # One kept there that cannot be read now (the package was removed, the
+    # keyring is locked) leaves the provider keyless, and its marker in place
+    # so the key comes back with the keyring.
+    for name, settings in data["providers"].items():
+        if (isinstance(settings, dict) and settings.get("key_store") == "keyring"
+                and not settings.get("api_key")):
+            key = keystore.get(name, CONFIG_PATH)
+            if key:
+                settings["api_key"] = key
     _state = data
     return _state
 
 
+def _for_the_file(state: dict) -> dict:
+    """`state` as it is written: each key moved to the keyring where it can be.
+
+    The keyring first, the file only when the keyring will not take it. A key
+    that has just been put in the file - because the keyring is gone, or was
+    switched off - loses its marker, so the next load reads the file and not a
+    stale keyring entry.
+    """
+    written = json.loads(json.dumps(state))
+    for name, settings in written.get("providers", {}).items():
+        if not isinstance(settings, dict):
+            continue
+        key = settings.get("api_key")
+        if key and keystore.put(name, CONFIG_PATH, key):
+            settings.pop("api_key")
+            settings["key_store"] = "keyring"
+        elif key:
+            settings.pop("key_store", None)
+        live = state["providers"].get(name)
+        if isinstance(live, dict):
+            if settings.get("key_store"):
+                live["key_store"] = settings["key_store"]
+            else:
+                live.pop("key_store", None)
+    return written
+
+
 def save_state() -> str:
-    """Write the config with owner-only permissions - it holds API keys."""
-    os.makedirs(CONFIG_DIR, exist_ok=True)
+    """Write the config, its keys in the keyring where there is one.
+
+    Owner-only either way: a key the keyring would not take is in this file.
+    """
+    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
     # `private` keeps the key owner-only for the whole write. Creating the file
     # and chmodding it afterwards leaves a moment where the key is readable.
-    atomic.write_json(CONFIG_PATH, _state, private=True)
+    atomic.write_json(CONFIG_PATH, _for_the_file(load_state()), private=True)
     return CONFIG_PATH
+
+
+def key_home() -> str:
+    """Where a pasted key goes, in words - for the prompts that ask for one."""
+    kept_in = keystore.backend_name()
+    return kept_in if kept_in else f"{CONFIG_PATH} (owner-only)"
+
+
+def has_saved_key(name: str) -> bool:
+    settings = load_state()["providers"].get(name)
+    return isinstance(settings, dict) and bool(settings.get("api_key")
+                                               or settings.get("key_store"))
+
+
+def key_variables() -> list:
+    """Every environment variable a provider reads its key from."""
+    return [variable for factory in PROVIDERS.values() for variable in factory.key_env]
+
+
+def credentials() -> dict:
+    """Every credential this harness holds, as {label: value}.
+
+    For `vault.redact`, which keeps them out of anything a model is shown. The
+    environment counts as much as the file: `env` prints a key from either.
+    """
+    found = {}
+    for variable in key_variables():
+        value = os.environ.get(variable, "").strip()
+        if value:
+            found.setdefault(value, f"${variable}")
+    for name, settings in load_state()["providers"].items():
+        if isinstance(settings, dict):
+            value = str(settings.get("api_key") or "").strip()
+            if value:
+                found.setdefault(value, f"{name} key")
+    return {label: value for value, label in found.items()}
+
+
+def child_environment() -> dict:
+    """`os.environ` without the provider keys - for what a model gets to run.
+
+    A command the model runs inherits this process's environment, and `env`
+    or `os.environ` would hand it every key set there. The output is redacted
+    anyway; this is so there is nothing in it to redact, including in a form
+    the redaction cannot recognise - base64, reversed, split across lines.
+    A project that needs a key in its commands keeps it in `.env`, where the
+    vault fills it in by name.
+    """
+    environment = dict(os.environ)
+    for variable in key_variables():
+        environment.pop(variable, None)
+    return environment
 
 
 @contextlib.contextmanager
@@ -1270,7 +1366,11 @@ def forget_key(name: str) -> tuple:
     if name not in PROVIDERS:
         return False, f"unknown provider '{name}' - try {', '.join(PROVIDERS)}"
     settings = settings_for(name)
-    if not settings.pop("api_key", None):
+    had_key = bool(settings.pop("api_key", None))
+    if settings.pop("key_store", None):
+        keystore.delete(name, CONFIG_PATH)
+        had_key = True
+    if not had_key:
         return False, ""
     save_state()
     # The live provider was built around the dict that just changed, but a
@@ -1344,7 +1444,20 @@ def status_line() -> str:
 
 
 def apply_startup() -> None:
-    """Restore the last connection when the app starts."""
+    """Restore the last connection when the app starts.
+
+    A key still in plaintext in `providers.json` moves into the keyring now
+    that there is one, rather than waiting for the next /connect to do it.
+    """
+    state = load_state()
+    if keystore.available() and any(
+            isinstance(settings, dict) and settings.get("api_key")
+            and settings.get("key_store") != "keyring"
+            for settings in state["providers"].values()):
+        try:
+            save_state()
+        except OSError:
+            pass        # still in the file, still owner-only; tried again next start
     _sync_config(current())
 
 

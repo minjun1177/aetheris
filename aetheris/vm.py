@@ -313,7 +313,11 @@ class Kernel:
             kernel = self._kernel_source(runtime)
             self.capture = os.path.join(runtime, f"out-{os.getpid()}.txt")
 
-            environment = dict(os.environ)
+            # Not the provider keys: `os.environ` in the model's own code would
+            # otherwise hand it every one set in the shell (see
+            # `providers.child_environment`).
+            from aetheris import providers
+            environment = providers.child_environment()
             # The project is importable, so a function that has just been
             # written can be tried - but nothing is written back into it. In
             # particular no __pycache__: that would put files the model never

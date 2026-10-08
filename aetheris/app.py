@@ -168,7 +168,9 @@ def _run_user_command(command: str) -> str:
     """
     config.POLICY_AUTO_ALLOW = True
     try:
-        return tools.safe_run_cmd(command)
+        # Their command, so their environment - keys included. What it
+        # prints is still redacted on the way into the conversation.
+        return tools.run_user_cmd(command)
     finally:
         config.POLICY_AUTO_ALLOW = False
 
@@ -1248,6 +1250,7 @@ async def main(resume_id: str = "") -> None:
         os.system("")
 
     print("\033[2J\033[H", end="")
+    paths.close_home()
     providers.apply_startup()
     failed_mcp = _connect_mcp_servers()
     if providers.current().drives_turns and providers.current().api_key:
@@ -1388,10 +1391,14 @@ async def main(resume_id: str = "") -> None:
                 # value that is also an ordinary word - a project directory, a
                 # user name - matches everywhere it appears, which is the
                 # price of never letting one through.
-                names = ", ".join(vault.used_in({"v": hidden})) or "something"
-                print(f"  {S.MUTED}◆ {names} from .env {'is' if names.count(',') == 0 else 'are'} "
-                      f"hidden in the copy the model gets. {S.GRAY}/set SECRET_REDACT off"
-                      f"{S.MUTED} stops that.{S.R}\n")
+                names = ", ".join(vault.used_in({"v": hidden}))
+                if names:
+                    print(f"  {S.MUTED}◆ {names} from .env {'is' if names.count(',') == 0 else 'are'} "
+                          f"hidden in the copy the model gets. {S.GRAY}/set SECRET_REDACT off"
+                          f"{S.MUTED} stops that.{S.R}\n")
+                if vault.hide_own(kept) != kept:
+                    print(f"  {S.MUTED}◆ an API key this harness uses is hidden in the "
+                          f"copy the model gets.{S.R}\n")
             messages.append({"role": "user", "content": hidden})
             current_session_id = save_session(messages, current_session_id)
             continue

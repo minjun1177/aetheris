@@ -205,14 +205,51 @@ def names() -> list:
 # out to the model, and back
 # ---------------------------------------------------------------------------
 
+# How one of the harness's own keys reads once it is hidden. Deliberately not
+# `{{env:...}}`: that form is filled back in by `restore`, and the model has no
+# use for the key that pays for it - only a way to send it somewhere.
+OWN = "[hidden: %s]"
+
+
+def own() -> dict:
+    """The harness's own credentials, as {label: value}.
+
+    Provider API keys, saved or from the environment, and the Attacca
+    credential among them. Not `.env` values, and not switched off by
+    `SECRET_REDACT`: that setting is about the project's secrets, which the
+    model may need to use; these are the harness's, which it never does.
+    """
+    try:
+        from aetheris import providers
+        found = providers.credentials()
+    except Exception:
+        return {}
+    return {label: value for label, value in found.items() if len(value) >= MIN_LENGTH}
+
+
+def hide_own(text):
+    """Replace the harness's own keys in `text`. Never put back by `restore`."""
+    if not isinstance(text, str) or not text:
+        return text
+    for label, value in sorted(own().items(), key=lambda item: -len(item[1])):
+        if value in text:
+            text = text.replace(value, OWN % label)
+    return text
+
+
 def redact(text):
     """Replace every known secret in `text` with the placeholder for its name.
 
     Longest first, so a value that contains another - a URL holding a password -
     is replaced whole rather than left with a placeholder embedded in it.
+
+    The harness's own keys go first and go always (`hide_own`), whatever
+    `SECRET_REDACT` says: `cat ~/.aetheris/providers.json`, `env`, a grep over
+    the home directory - whatever a tool printed, the key is not in it.
     """
     if not isinstance(text, str) or not text:
         return text
+    text = hide_own(text)
     secrets = known()
     if not secrets:
         return text

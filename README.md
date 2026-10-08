@@ -132,6 +132,9 @@ is.
    opt-in the same way: `pip install "aetheris[attacca]"`. `/connect attacca`
    says so, before any pairing code is shown, if they are missing.
 
+   `pip install "aetheris[keyring]"` keeps API keys in the OS keyring instead
+   of a file - see *Where keys are kept*.
+
 2. **Pull an Ollama Model**:
    ```bash
    ollama pull gemma4:e4b
@@ -1012,6 +1015,43 @@ which is a place people commit from. On Linux and macOS the file is owner-only
 (0600) from the moment it is created. Windows has no POSIX mode bits, so there
 the file takes whatever ACL its directory gives it; `%USERPROFILE%` is
 per-user, but if that matters to you, keep the key in the environment instead.
+
+### Where keys are kept
+
+**With `aetheris[keyring]` and a keyring to put them in**, a saved key goes to
+the macOS Keychain, the Windows Credential Manager or the Secret Service on a
+Linux desktop, and `providers.json` keeps only `"key_store": "keyring"` in its
+place. A key already in the file moves the next time the harness starts.
+Without the package, or with no keyring to use - WSL, a server, a container -
+or with `AETHERIS_KEYRING=off`, keys stay in the file at 0600 as before, and a
+key the keyring refuses is written there rather than lost.
+
+**What a keyring does not do** is keep out a program running as you: it can
+ask the keyring through the same API, and on most desktops gets an answer
+without a prompt. What it removes is the plaintext sitting in a well-known
+file - the one a script, a backup or another assistant finds first.
+
+**The model never sees a key either way.** That does not depend on the keyring:
+
+- **Hidden in everything it is shown.** A key the harness holds - saved, from
+  the keyring, or from `ANTHROPIC_API_KEY` and the rest - is replaced in every
+  tool result, `@` attachment and `!` output by `[hidden: anthropic key]`.
+  Unlike a `.env` placeholder it is never filled back in, so it cannot be sent
+  anywhere either. `SECRET_REDACT` does not switch this off.
+- **`providers.json` is off limits to every tool.** Reading, copying, moving or
+  writing it is refused before the permission rules, so no allow rule and no
+  `/automode` reaches it, and a symlink to it is the same file. A write is the
+  one redaction could not undo: a `base_url` pointed elsewhere would send the
+  key there with the next request.
+- **Not in the model's environment.** `run_cmd` and `run_python` start without
+  the provider key variables, so `env` has nothing to print. A command you type
+  with `!` keeps your whole shell. A project whose commands need a key keeps it
+  in `.env`, where the vault fills it in by name.
+- **Closed to other accounts.** `~/.aetheris` is created 0700, and an existing
+  `~/.aetheris` or `~/.localchat` is closed at startup - sessions and the input
+  history used to be readable by anyone who could reach the directory.
+  Sessions are written 0600. A directory named with `AETHERIS_HOME` is created
+  closed but never changed under you.
 
 ### Attacca
 
@@ -2053,7 +2093,7 @@ skills, and they win.
 
 | Path | Holds |
 | :--- | :--- |
-| `~/.aetheris/providers.json` | The connected provider and any API keys typed at `/connect`. Owner-only on POSIX |
+| `~/.aetheris/providers.json` | The connected provider and any API keys typed at `/connect` - unless a keyring holds them (*Where keys are kept*). Owner-only on POSIX, and no tool may touch it |
 | `~/.aetheris/sessions/*.json` | Conversation transcripts, named after the session title, each recording the directory it was last worked in so `-c` can find it |
 | `~/.aetheris/memory.json` | The long-term key-value memory |
 | `~/.aetheris/history` | Input history for the prompt |
@@ -2065,7 +2105,8 @@ skills, and they win.
 | `./skills/`, then `~/.aetheris/skills/` | Skills |
 
 Set `AETHERIS_HOME` to put that directory somewhere else - two profiles, or a
-throwaway one for trying something out.
+throwaway one for trying something out. Set `AETHERIS_KEYRING=off` to keep keys
+in `providers.json` even where a keyring is available.
 
 **Upgrading from simple-harness.** The directory was `~/.localchat` before
 1.0.0, and the rename does not move it. If `~/.localchat` is there and
@@ -2186,7 +2227,8 @@ The codebase is organized cleanly around the following components:
 - **`git_ops.py`**: A commit per AI edit, and the undo that makes it worth having.
 - **`atomic.py`**: Writing a file so a crash cannot leave half of it behind. Used for sessions, memory, permission rules and the saved API keys.
 - **`terms.py`**: What the harness does to the machine it runs on, shown once before it does it.
-- **`vault.py`**: The `.env` values the model is never told, and the placeholder the harness expands on its way to a tool.
+- **`vault.py`**: The `.env` values the model is never told, and the placeholder the harness expands on its way to a tool - and the harness's own keys, hidden from every tool result and never filled back in.
+- **`keystore.py`**: Saved API keys in the OS keyring when `aetheris[keyring]` is installed and there is one to use; `providers.json` otherwise.
 - **`tests/test_platform.py`**: Checks the waiting-for-input detection on the machine it is run on. Worth running on any new machine, and especially on Windows - see below.
 - **`tests/test_registry.py`**: Fails if the tool table, the system prompt and the handlers stop describing the same tools.
 - **`tests/test_durability.py`**: Atomic writes (including killing a writer mid-write) and the token estimate.
@@ -2212,6 +2254,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_images.py`**: That an image is detected by extension and by its first bytes, that one too large is resized rather than refused and relabelled as whatever it became, that each of the four providers is handed the shape it asks for with the cache breakpoint still on the text, that `@shot.png` attaches a picture instead of a wall of bytes, and that a model which cannot see is found out before the request rather than after.
 - **`tests/test_notes.py`**: That a note is one markdown file whose name is its id and whose bytes are its content, that two projects do not share notes while one project is the same project from any directory inside it, that a note id the model chose cannot write outside the notes directory, and that the prompt gets the titles only - capped, sorted, and identical between builds.
 - **`tests/test_memory.py`**: That a memory marked `important` is in the system prompt a session opens on - a new one and a resumed one - that the mark survives a later rewrite of the memory's text, that the block is capped in both directions and says when it cut something, and that a hand-edited `memory.json` cannot break the prompt.
+- **`tests/test_keys.py`**: That a key the harness holds never reaches the model - hidden in what tools print and never filled back in, `providers.json` refused to every tool even through a symlink, and absent from the environment the model's commands run in - that a keyring takes the key out of the file without losing one it refuses, and that the home directory is closed to other accounts.
 - **`tests/test_vault.py`**: That a `.env` value never reaches the model - not through `read_file`, not through a command that prints it, not through an `@` attachment - that the placeholder reaches the shell as the real key, and that a file is neither how a secret gets out nor how it gets lost.
 - **`tests/test_malformed_state.py`**: What happens when the state is not the shape the code assumed - a message whose content is `null`, a `memory.json` somebody edited by hand, a setting typed as nought - and that `write_file` and `edit_file` replace a file in one step rather than truncating it first, without rewriting its line endings on the way past.
 - **`requirements-lock.txt`**: The exact dependency set the harness was tested against. `requirements.txt` gives the tested floors and a ceiling before the next breaking release.

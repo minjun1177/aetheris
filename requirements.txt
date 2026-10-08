@@ -33,3 +33,6 @@ tree-sitter-c-sharp>=0.23.5,<0.24
 # 16.1.1 is the newest that installs on Python 3.10; 17 needs 3.11.
 websockets>=16.1.1,<18.0
 msgpack>=1.2.3,<2.0
+# Keyring only (`aetheris[keyring]`): API keys in the OS keyring instead of
+# providers.json. Without it, or without a usable backend, keys stay in the file.
+keyring>=25.7.0,<26.0

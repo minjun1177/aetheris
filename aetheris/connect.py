@@ -109,7 +109,7 @@ def show_status() -> None:
                   f"   {S.MUTED}{provider.key_help}{S.R}")
         print(f"  {S.MUTED}╰─{S.R}")
     print(f"\n  {S.GRAY}Keys are read from the environment first, then "
-          f"{S.MUTED}{providers.CONFIG_PATH}{S.GRAY}.{S.R}")
+          f"{S.MUTED}{providers.key_home()}{S.GRAY}.{S.R}")
     print(f"  {S.GRAY}Connect with {S.ACCENT}/connect <provider> [model]{S.GRAY}, "
           f"delete a saved key with {S.ACCENT}/connect forget <provider>{S.GRAY}.{S.R}\n")
 
@@ -117,8 +117,7 @@ def show_status() -> None:
 def forget(name: str) -> None:
     """`/connect forget <provider>` - take a saved API key back out."""
     if not name:
-        saved = [n for n in providers.PROVIDERS
-                 if providers.settings_for(n).get("api_key")]
+        saved = [n for n in providers.PROVIDERS if providers.has_saved_key(n)]
         if not saved:
             print(f"  {S.GRAY}No API key is saved for any provider.{S.R}\n")
             return
@@ -186,7 +185,7 @@ def _ensure_key(name: str) -> bool:
     print(f"  {S.MUTED}{provider.key_help}{S.R}")
     print(f"  {S.MUTED}Set {' or '.join(provider.key_env)} in the environment to keep it "
           f"out of a file, or paste it here to save it to{S.R}")
-    print(f"  {S.MUTED}{providers.CONFIG_PATH} (owner-only).{S.R}\n")
+    print(f"  {S.MUTED}{providers.key_home()}.{S.R}\n")
     key = _ask(f"  {S.INFO}API key{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
                title=f"{provider.label} API key", keyboard_only=True)
     if not key:

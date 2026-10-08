@@ -579,6 +579,7 @@ app.py            the loop, slash commands, session lifecycle
       └ qr.py    a QR encoder, stdlib only, for the link that door prints
       └ vm.py     the Python scratch process behind run_python
       └ providers.py  four wire formats → one event shape
+          └ keystore.py  saved keys in the OS keyring, when there is one
   └ attacca.py     a hosted agent's turn, and the tools it calls back for
       └ zyris.py    the websocket both ways, on a reader thread of its own
           └ sse.py    server-sent events, read as they arrive
@@ -604,6 +605,7 @@ app.py            the loop, slash commands, session lifecycle
 | `channel.py` | Who else is running here, what they said, what they hold | Anything about one conversation |
 | `qr.py` | Byte-mode QR encoding and the half-block drawing of it. Nothing about the remote | What the link *is* - `remote.urls` decides that |
 | `remote.py` | The HTTP server, the token, the transcript mirrored off `sys.stdout`, and the question that follows the driver | Anything about *what* is being approved - it carries the question, it does not read it |
+| `keystore.py` | The OS keyring as a home for saved keys: whether one is usable, one entry per provider and home. Imports `keyring` only when used | Deciding what to store - `providers.save_state` does, and keeps the file as the fallback |
 | `zyris.py` | The Zyris wire: framing, the handshake, calls both ways, streams and credit, reconnecting. Imports `websockets`/`msgpack` only when used | Anything about Attacca - it is one deployment of the protocol |
 | `attacca.py` | Pairing, the announced capability, the session, and the turn: segments for `stream_reply`, calls served through `dispatch_tool` | A second dispatcher - every call goes through `dispatch_tool` |
 | `context.py` | Token estimate, trimming, compression, and folding the token history into turns | |
@@ -1297,6 +1299,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_memory.py` | That a memory marked `important` reaches the prompt a session opens on, that the mark survives being saved over, and that the block is capped and byte-stable (5.15) |
 | `test_images.py` | That an image is recognised by extension and by its bytes, that a large one is resized and relabelled as what it became, that all four wire shapes are right with the cache breakpoint still on the text, and that a model which cannot see is found out before the request (5.17) |
 | `test_notes.py` | That a note is one markdown file whose name is its id, that projects do not share notes while a subdirectory shares one, that a model-chosen id cannot write outside the notes directory, and that the prompt gets sorted titles only (5.16) |
+| `test_keys.py` | The harness's own keys: hidden in every tool result and never filled back in, `providers.json` refused to every tool by any path, absent from the model's environment, moved into a (fake) keyring with the file as fallback, and the home closed to other accounts |
 | `test_vault.py` | That a `.env` value never reaches the model by any route, that a placeholder reaches the shell as the real key, and that a file is neither how it gets out nor how it is lost (§8b) |
 | `test_docs.py` | That this file and `README.md` still describe the program that exists |
 | `test_compat.py` | That the commands, settings, tool names and files people build habits on are still there under the same names (5.14) |
