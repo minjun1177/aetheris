@@ -1024,7 +1024,10 @@ Linux desktop, and `providers.json` keeps only `"key_store": "keyring"` in its
 place. A key already in the file moves the next time the harness starts.
 Without the package, or with no keyring to use - WSL, a server, a container -
 or with `AETHERIS_KEYRING=off`, keys stay in the file at 0600 as before, and a
-key the keyring refuses is written there rather than lost.
+key the keyring refuses is written there rather than lost. **A keyring that
+does not answer within 10 seconds** - gnome-keyring on WSL or over SSH, waiting
+on an unlock prompt with no screen to show it - is skipped for the rest of the
+run, and the start says so; set `AETHERIS_KEYRING=off` to skip the wait.
 
 **What a keyring does not do** is keep out a program running as you: it can
 ask the keyring through the same API, and on most desktops gets an answer

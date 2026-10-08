@@ -1257,7 +1257,10 @@ def save_state() -> str:
 def key_home() -> str:
     """Where a pasted key goes, in words - for the prompts that ask for one."""
     kept_in = keystore.backend_name()
-    return kept_in if kept_in else f"{CONFIG_PATH} (owner-only)"
+    if kept_in:
+        return kept_in
+    why = keystore.trouble()
+    return f"{CONFIG_PATH} (owner-only{f'; {why}' if why else ''})"
 
 
 def has_saved_key(name: str) -> bool:

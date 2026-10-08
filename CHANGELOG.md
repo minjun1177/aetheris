@@ -92,7 +92,10 @@ conversation, at the provider and in a session file.
 - **The OS keyring, optionally.** `pip install "aetheris[keyring]"` keeps
   saved keys in the Keychain, the Credential Manager or the Secret Service,
   and moves existing ones out of the file at the next start. No keyring, or
-  `AETHERIS_KEYRING=off`: the file at 0600, as before.
+  `AETHERIS_KEYRING=off`: the file at 0600, as before. A keyring that does
+  not answer within 10 seconds - gnome-keyring on WSL, waiting on an unlock
+  prompt it has nowhere to show - is skipped for the rest of the run, with a
+  warning at startup, instead of hanging it.
 - **Closed to other accounts.** The home directory is created 0700, an
   existing default one is closed at startup, and sessions are written 0600.
   They used to be 0644 in a 0755 directory.

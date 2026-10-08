@@ -28,6 +28,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -171,6 +173,37 @@ try:
     check("forgotten", removed)
     check("the keyring entry is gone", ("aetheris", f"gemini @ {HOME}") not in backend.entries)
     check("and the marker", "key_store" not in on_disk()["providers"].get("gemini", {}))
+
+    print("\n--- a keyring that never answers: a bounded wait, then the file ---")
+    # gnome-keyring on WSL: on the bus, so it looks usable, but every call waits
+    # on an unlock prompt that has no screen to appear on.
+    stuck = threading.Event()
+    answering = (fake.get_password, fake.set_password)
+    fake.get_password = lambda service, user: stuck.wait()
+    fake.set_password = lambda service, user, value: stuck.wait()
+    keystore.TIMEOUT = 0.3
+    started = time.monotonic()
+    fresh_state()
+    check("a start is not held up by it", time.monotonic() - started < 2,
+          f"{time.monotonic() - started:.1f}s")
+    check("the key it holds is missing this run, its marker kept for later",
+          providers.build("anthropic").api_key == ""
+          and on_disk()["providers"]["anthropic"].get("key_store") == "keyring")
+    check("and the reason is kept to be shown", "did not answer" in keystore.trouble())
+    started = time.monotonic()
+    providers.connect("gemini", model="gemini-x", api_key="AIzaSTUCKkey0123456789")
+    check("after one wait it is not asked again", time.monotonic() - started < 0.2,
+          f"{time.monotonic() - started:.2f}s")
+    check("a key saved meanwhile goes to the file, not lost",
+          on_disk()["providers"]["gemini"].get("api_key") == "AIzaSTUCKkey0123456789")
+    check("/connect says where it went, and why", providers.CONFIG_PATH in providers.key_home()
+          and "did not answer" in providers.key_home(), providers.key_home())
+    stuck.set()
+    fake.get_password, fake.set_password = answering
+    keystore.TIMEOUT = 10.0
+    keystore._usable, keystore._trouble = None, ""
+    fresh_state()
+    check("answering again, the keyring key is back", providers.build("anthropic").api_key == KEY)
 
     print("\n--- whatever a tool prints, the harness's own key is not in it ---")
     os.environ["ATTACCA_CREDENTIAL"] = "zc_ENVcredential0123456789"

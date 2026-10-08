@@ -61,7 +61,7 @@ jobs:
           # to the locale code page.
           PYTHONIOENCODING: utf-8
           # The runners have a real keyring (Keychain, Credential Manager), and
-          # a test's throwaway keys have no business in it. test_keystore.py
+          # a test's throwaway keys have no business in it. test_keys.py
           # switches it back on against a fake one.
           AETHERIS_KEYRING: "off"
         run: |

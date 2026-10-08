@@ -22,18 +22,33 @@ the package, with no usable backend (WSL, a server, a container), or with
 before. A key the keyring refuses to store is written to the file rather than
 lost.
 
+**Never waited on for long.** A Secret Service can be on the bus and still
+unable to answer: on WSL or over SSH, gnome-keyring with no `login` collection
+asks to create or unlock one, and the prompt has no screen to appear on - so
+the call blocks forever, at every start. Each call gets `TIMEOUT` seconds; one
+that runs out gives up on the keyring for the rest of the run, and `trouble()`
+says why.
+
 One entry per provider and per Aetheris home, so a second home set with
 `AETHERIS_HOME` - a test run, a portable install - never reads or overwrites
 the first one's keys.
 """
 
 import os
+import threading
 
 SERVICE = "aetheris"
 ENV_VAR = "AETHERIS_KEYRING"
 INSTALL_HINT = 'pip install "aetheris[keyring]"'
 
+# Long enough for a person to type a password into a desktop unlock prompt,
+# short enough that a prompt nobody can see does not look like a hung start.
+TIMEOUT = 10.0
+
 _OFF = ("off", "0", "no", "false")
+
+# Why the keyring was given up on in this run, "" while it has not been.
+_trouble = ""
 
 # The module once it has been found usable, False once it has been found not
 # to be, None before anybody asked. Asking is not free: the Secret Service is a
@@ -58,7 +73,7 @@ def _keyring():
     if _usable is None:
         try:
             import keyring
-            backend = keyring.get_keyring()
+            backend = _call(keyring.get_keyring)
             # Priority below 1 is the failure backend (nothing found) or one of
             # the plaintext-file backends from `keyrings.alt` - neither is
             # better than the 0600 file this would be replacing.
@@ -66,6 +81,40 @@ def _keyring():
         except Exception:
             _usable = False
     return _usable or None
+
+
+def _call(function, *arguments):
+    """`function(*arguments)`, given at most `TIMEOUT` seconds.
+
+    A call still running then is left behind on a daemon thread - there is no
+    taking back a D-Bus request - and the keyring is not asked again this run,
+    so the wait is paid once rather than on every save.
+    """
+    global _usable, _trouble
+    outcome = {}
+
+    def run():
+        try:
+            outcome["value"] = function(*arguments)
+        except BaseException as error:      # handed to the caller as it is
+            outcome["error"] = error
+
+    worker = threading.Thread(target=run, name="aetheris-keyring", daemon=True)
+    worker.start()
+    worker.join(TIMEOUT)
+    if worker.is_alive():
+        _usable = False
+        _trouble = (f"the keyring did not answer within {TIMEOUT:g}s - it may be "
+                    f"waiting on an unlock prompt with no screen to show it on")
+        raise TimeoutError(_trouble)
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
+
+
+def trouble() -> str:
+    """Why keys are in the file this run although a keyring was found, or ""."""
+    return _trouble
 
 
 def available() -> bool:
@@ -94,7 +143,7 @@ def get(provider: str, where: str) -> str:
         return ""
     entry = _entry(provider, where)
     try:
-        value = module.get_password(SERVICE, entry) or ""
+        value = _call(module.get_password, SERVICE, entry) or ""
     except Exception:
         return ""
     if value:
@@ -111,7 +160,7 @@ def put(provider: str, where: str, key: str) -> bool:
     if _known.get(entry) == key:
         return True
     try:
-        module.set_password(SERVICE, entry, key)
+        _call(module.set_password, SERVICE, entry, key)
     except Exception:
         return False
     _known[entry] = key
@@ -125,7 +174,7 @@ def delete(provider: str, where: str) -> bool:
     if module is None:
         return False
     try:
-        module.delete_password(SERVICE, entry)
+        _call(module.delete_password, SERVICE, entry)
         return True
     except Exception:
         return False        # nothing stored there is the usual reason

@@ -17,6 +17,7 @@ from aetheris import skills
 from aetheris import mcp_client
 from aetheris import permissions
 from aetheris import providers
+from aetheris import keystore
 from aetheris import connect
 from aetheris import remote
 from aetheris import qr
@@ -282,6 +283,20 @@ def _report_strays() -> None:
     print(f"  {S.MUTED}  It now lives in {paths.home()}. Nothing has been moved; "
           f"to move it:{S.R}")
     print(f"  {S.GRAY}    mv {' '.join(strays)} {paths.home()}/{S.R}\n")
+
+
+def _report_keyring() -> None:
+    """Say so when the keyring hung at startup and keys fell back to the file.
+
+    Otherwise all anybody sees is a start that took ten seconds longer, every
+    time, and a key that may be missing.
+    """
+    why = keystore.trouble()
+    if not why:
+        return
+    print(f"  {S.WARN}⚠ Keyring skipped: {why}.{S.R}")
+    print(f"  {S.MUTED}  Keys stay in {providers.CONFIG_PATH} (owner-only) this run. "
+          f"Set {S.ACCENT}{keystore.ENV_VAR}=off{S.MUTED} to stop asking it.{S.R}\n")
 
 
 def _agent_label() -> str:
@@ -1273,6 +1288,7 @@ async def main(resume_id: str = "") -> None:
     _welcome()
     _report_mcp_problems(failed_mcp)
     _report_strays()
+    _report_keyring()
     agent_id = channel.join(_agent_label())
     _report_agents(agent_id)
     if agent_id:
