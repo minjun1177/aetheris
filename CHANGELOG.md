@@ -60,6 +60,10 @@ step aside for it; what stays is everything that touches this machine.
   outside, meets the same rules, and gives back whatever was half-typed.
 - **Stopping is honest.** Ctrl+C stops the turn on Attacca too, keeping only as
   much of the answer as reached the screen.
+- **`/usage` asks Attacca.** Context, input, output and credits for the
+  session, as Attacca meters them. The local graph had nothing to draw and its
+  context estimate counted only the questions and final answers kept here:
+  "no data" and ~8,700 tokens for a session Attacca had metered at 864,077.
 
 `pip install "aetheris[attacca]"` - two packages, `websockets` and `msgpack`,
 that nothing imports until Attacca is the provider.

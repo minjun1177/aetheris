@@ -729,13 +729,17 @@ async def _drive(turn: Turn, messages: list, user_line: str) -> None:
         raise
 
 
+def _usage(live: zyris.Link, session: str) -> dict:
+    try:
+        return live.call("attacca_api.session_usage", {"session_id": session},
+                         timeout=5) or {}
+    except Exception:
+        return {}         # a deployment that does not meter, or a slow one
+
+
 def _report_usage(live: zyris.Link, session: str) -> None:
     """What the session has cost, once per turn - Attacca counts per session."""
-    try:
-        usage = live.call("attacca_api.session_usage", {"session_id": session},
-                          timeout=5) or {}
-    except Exception:
-        return            # a deployment that does not meter, or a slow one
+    usage = _usage(live, session)
     # `ZUsage` (zyris-attacca): every field optional, credits a string because
     # the unit and precision are the deployment's business, not ours.
     parts = []
@@ -749,6 +753,55 @@ def _report_usage(live: zyris.Link, session: str) -> None:
         parts.append(f"credits used {usage['credits_used']}")
     if parts:
         print(f"\n  {S.MUTED}─ Attacca · {' · '.join(parts)}{S.R}\n")
+
+
+def show_usage() -> None:
+    """`/usage` while Attacca drives the turns: the session as Attacca counts it.
+
+    Nothing here can count it. The stream carries no token counts, and what
+    Attacca's model reads - its own prompt, the tool table, every tool result,
+    every round of every turn - stays on Attacca; the message list here holds
+    the questions and the final answers. The local graph and context estimate
+    said "no data" and ~8,000 tokens of a session Attacca had metered at
+    864,077.
+    """
+    print(f"\n  {S.BOLD}Attacca Session Usage{S.R}")
+    session = session_id()
+    if not session:
+        print(f"  {S.GRAY}No Attacca session yet - it starts with the first message.{S.R}\n")
+        return
+    try:
+        live = link()
+    except Exception as error:
+        print(f"  {S.ERR}{error}{S.R}\n")
+        return
+    usage = _usage(live, session)
+    if not usage:
+        print(f"  {S.GRAY}Attacca did not say what this session has used.{S.R}\n")
+        return
+
+    def count(key):
+        try:
+            return f"{int(usage[key]):,}"
+        except (KeyError, TypeError, ValueError):
+            return "-"
+    if usage.get("model"):
+        print(f"  {S.GRAY}model{S.R}    {S.WHITE}{usage['model']}{S.R}")
+    if usage.get("context_tokens") is not None:
+        print(f"  {S.GRAY}context{S.R}  {S.WHITE}{count('context_tokens')}{S.R} "
+              f"{S.MUTED}tokens the agent reads with its next request{S.R}")
+    if any(usage.get(key) is not None for key in
+           ("input_tokens", "output_tokens", "total_tokens")):
+        # Summed over every request: one question is a request after each tool
+        # result, each re-reading the whole context, so input dwarfs context.
+        print(f"  {S.GRAY}tokens{S.R}   {S.GRAY}input{S.R} {S.WHITE}{count('input_tokens')}{S.R}  "
+              f"{S.GRAY}output{S.R} {S.WHITE}{count('output_tokens')}{S.R}  "
+              f"{S.GRAY}total{S.R} {S.BOLD}{S.WHITE}{count('total_tokens')}{S.R}")
+        print(f"  {S.MUTED}         every request of every turn, tool rounds included{S.R}")
+    if usage.get("credits_used"):
+        print(f"  {S.GRAY}credits{S.R}  {S.WHITE}{usage['credits_used']}{S.R} {S.MUTED}used{S.R}")
+    print(f"  {S.MUTED}Counted by Attacca: the conversation, its prompt and the tool "
+          f"results live there, not here.{S.R}\n")
 
 
 if __name__ == "__main__":

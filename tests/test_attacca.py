@@ -193,7 +193,8 @@ class FakeAttacca:
                 result = None
             elif method == "attacca_api.session_usage":
                 result = {"model": "qwen3-32b", "context_tokens": 1234,
-                          "credits_used": "0.05%"}
+                          "input_tokens": 852281, "output_tokens": 11796,
+                          "total_tokens": 864077, "credits_used": "0.05%"}
             elif method == "attacca_api.cancel_turn":
                 self.cancelled.append(params)
                 steps = [("item", {"type": "cancelled"}),
@@ -422,6 +423,20 @@ check("and none is recorded", config.token_history == [], str(config.token_histo
 check("what the session cost is reported once, from Attacca",
       "Attacca · qwen3-32b · 1,234 tokens in context · credits used 0.05%" in shown)
 check("the session is remembered for the next turn", config.ATTACCA_SESSION == "s1")
+
+print("\n--- /usage shows what Attacca counted, not a local estimate ---")
+_, shown = quietly(attacca.show_usage)
+check("the session's totals, as Attacca sent them",
+      "input 852,281" in shown and "output 11,796" in shown and "total 864,077" in shown,
+      shown)
+check("with the context the agent reads now, and the credits",
+      "context  1,234" in shown and "credits  0.05%" in shown, shown)
+check("and not the local graph's 'no data'", "No token usage data" not in shown)
+kept, config.ATTACCA_SESSION = config.ATTACCA_SESSION, ""
+_, shown = quietly(attacca.show_usage)
+check("before the first message, it says there is no session yet",
+      "No Attacca session yet" in shown, shown)
+config.ATTACCA_SESSION = kept
 
 print("\n--- the same rules: refused, and never offered ---")
 server.scripts["run something"] = [

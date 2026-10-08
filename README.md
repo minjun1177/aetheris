@@ -1070,6 +1070,13 @@ Attacca keeps its own context and names its own sessions. A message sent while
 another turn is already running on the same Attacca session waits for that one
 to finish first.
 
+**`/usage` asks Attacca.** The stream carries no token counts, and what the
+agent reads - Attacca's prompt, the tool table, every tool result - never
+passes through here. So `/usage` shows the session as Attacca meters it: the
+context the agent holds now, input and output summed over every request of
+every turn, and the credits used. Input runs far ahead of context, because each
+tool round re-reads the whole conversation.
+
 ### Prompt caching
 
 Every request re-sends the same ~6,000 tokens of system prompt and tool

@@ -1406,7 +1406,11 @@ async def main(resume_id: str = "") -> None:
             print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
             break
         if cmd == "/usage":
-            display_usage_graph(messages)
+            if providers.current().drives_turns:
+                from aetheris import attacca
+                attacca.show_usage()
+            else:
+                display_usage_graph(messages)
             continue
         if cmd == "/help":
             _show_help()
