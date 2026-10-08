@@ -290,6 +290,9 @@ NOTE_MAX_CHARS = 20000
 # the model name a new session after its first exchange; /title overrides it.
 AUTO_TITLE = True
 SESSION_TITLE = ""
+# The Attacca session this conversation continues, when Attacca is the
+# provider. Saved with the session file, so /resume picks the same one up.
+ATTACCA_SESSION = ""
 SESSION_TITLE_MAX_LEN = 60
 SESSION_SLUG_MAX_LEN = 48
 
@@ -722,7 +725,7 @@ _NOT_A_SETTING = frozenset({
     "SYSTEM_PROMPT", "MODEL", "SESSION_TITLE", "CUSTOM_PERSONA",
     # Live state that happens to be spelled in capitals.
     "LOADED_SKILLS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
-    "TDD_LOCK", "LOADED_MCP_SERVERS",
+    "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION",
     # Where the person's own files live. `AETHERIS_HOME` moves all of them
     # together; moving one by hand splits a memory or a session list in two.
     "MEMORY_FILE", "HISTORY_FILE", "SESSION_DIR", "NOTES_DIR",

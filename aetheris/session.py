@@ -241,7 +241,7 @@ def save_session(messages: list[dict], session_id: str) -> str:
     if not config.SAVE_CHAT_HISTORY:
         return session_id
     if not os.path.exists(config.SESSION_DIR):
-        os.makedirs(config.SESSION_DIR)
+        os.makedirs(config.SESSION_DIR, mode=0o700)
     if not session_id:
         # An untitled session starts on a timestamp id; the title (from the model
         # or from /title) renames the file as soon as there is one.
@@ -258,9 +258,14 @@ def save_session(messages: list[dict], session_id: str) -> str:
         "messages": config.repair_messages(messages),
         "updated_at": datetime.datetime.now().isoformat()
     }
+    if config.ATTACCA_SESSION:
+        # Only when there is one, so a session that never went near Attacca is
+        # written byte for byte as it always was.
+        data["attacca_session"] = config.ATTACCA_SESSION
 
     try:
-        atomic.write_json(filepath, data)
+        # Owner-only: a conversation holds whatever was pasted into it.
+        atomic.write_json(filepath, data, private=True)
     except Exception as e:
         print(f"  {S.ERR}✗ Failed to save session: {e}{S.R}")
     return session_id
@@ -283,7 +288,7 @@ def rename_session(session_id: str, new_title: str) -> str:
             data = json.load(f)
         if isinstance(data, dict):
             data["title"] = new_title
-            atomic.write_json(old_path, data)
+            atomic.write_json(old_path, data, private=True)
         if new_id != session_id:
             os.replace(old_path, os.path.join(config.SESSION_DIR, f"{new_id}.json"))
         return new_id

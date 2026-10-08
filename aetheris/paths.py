@@ -73,13 +73,50 @@ def state(*parts: str) -> str:
 
 
 def ensure_home() -> str:
-    """`home()`, created if it is not there yet. Returns it either way."""
+    """`home()`, created if it is not there yet. Returns it either way.
+
+    Created owner-only. Everything in it is somebody's: conversations, the
+    command history, notes, and the API keys when there is no keyring.
+    """
     directory = home()
     try:
-        os.makedirs(directory, exist_ok=True)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
     except OSError:
         pass          # the writer will report it with the file it was writing
     return directory
+
+
+def close_home() -> bool:
+    """Make an existing home owner-only. True when it is, or needs no closing.
+
+    Sessions and the history were written 0644, and the directory 0755, so on
+    a machine whose home directories are open to each other - many are - every
+    conversation could be read by every account. The directory is what is
+    closed: whatever its files' modes, nobody else can reach them through it.
+
+    Only the default homes, `~/.aetheris` and `~/.localchat`. A directory named
+    with `AETHERIS_HOME` is the person's to set up; it is created closed, and
+    an existing one is not changed under them. Not on Windows, where a profile
+    directory is already private and modes do not apply.
+    """
+    if os.name == "nt":
+        return True
+    directory = home()
+    try:
+        status = os.stat(directory)
+    except OSError:
+        return True             # nothing there yet; `ensure_home` makes it closed
+    if not status.st_mode & 0o077:
+        return True
+    user = os.path.expanduser("~")
+    defaults = (os.path.join(user, DIR_NAME), os.path.join(user, LEGACY_DIR_NAME))
+    if os.path.abspath(directory) not in defaults or status.st_uid != os.getuid():
+        return False
+    try:
+        os.chmod(directory, 0o700)
+    except OSError:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

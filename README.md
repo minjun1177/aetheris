@@ -26,6 +26,7 @@ exists to make small models genuinely usable rather than nearly usable.
 ## 2. Features
 
 - **Any Provider**: `/connect` points the harness at Ollama, Anthropic, OpenAI (or anything OpenAI-compatible), or Google Gemini. No vendor SDKs - four wire formats normalised into one event shape.
+- **Attacca**: `/connect attacca` pairs this machine with [Attacca](https://attacca.cc) by a code, and turns go to an agent hosted there - for a machine that cannot run a model of its own. The agent runs on Attacca; the tools run here, through the same permission rules, approval prompts and undo log a local model's calls go through. See *Attacca*.
 - **Two Tool Protocols, One Tool Table**: A model with a real function-calling interface gets the tools through it; one without gets them as `<tool_call>` text with a JSON repair engine behind it. For Ollama this is decided per model. Both come from the same table, and both end up as the same call.
 - **Deepthink**: `/deepthink on` turns one request into plan → argue with the plan → build → review the real diff → run it. The planning stages *cannot* edit, the harness reports what the final check actually ran, and a check that says the work is not done sends the whole chain back to the plan.
 - **Undo**: every file an AI tool changes is committed on its own, so `/undo` takes it back. It commits only what the tool named, and refuses to undo over work it did not create.
@@ -127,6 +128,13 @@ is.
    (or `pip install -e ".[ast]"` from a checkout). Everything else runs
    without it.
 
+   Attacca speaks a websocket protocol that needs two more packages, so it is
+   opt-in the same way: `pip install "aetheris[attacca]"`. `/connect attacca`
+   says so, before any pairing code is shown, if they are missing.
+
+   `pip install "aetheris[keyring]"` keeps API keys in the OS keyring instead
+   of a file - see *Where keys are kept*.
+
 2. **Pull an Ollama Model**:
    ```bash
    ollama pull gemma4:e4b
@@ -162,6 +170,10 @@ especially on Windows: it checks what that machine can tell you about a command
 waiting for input. `tests/test_vm.py` starts and kills real Python processes,
 so it is the slowest of them - about ten seconds, most of it waiting out a
 deliberate `VM_TIMEOUT`.
+
+`tests/test_zyris.py` and `tests/test_attacca.py` need the `attacca` extra
+and say `skipped` without it. They still need no network: Attacca is played
+by a server on a loopback port.
 
 ---
 
@@ -991,6 +1003,7 @@ moves it:
 | `anthropic` | `api.anthropic.com` | `ANTHROPIC_API_KEY` |
 | `openai` | `api.openai.com/v1`, or any compatible `base_url` | `OPENAI_API_KEY` |
 | `gemini` | `generativelanguage.googleapis.com` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `attacca` | `wss://attacca.cc`, or `ATTACCA_SERVER_URL` | a pairing code, or `ATTACCA_CREDENTIAL` |
 
 Because `base_url` is settable, the `openai` entry also reaches anything that
 speaks the same protocol - a local vLLM or llama.cpp server, OpenRouter, Groq,
@@ -1002,6 +1015,107 @@ which is a place people commit from. On Linux and macOS the file is owner-only
 (0600) from the moment it is created. Windows has no POSIX mode bits, so there
 the file takes whatever ACL its directory gives it; `%USERPROFILE%` is
 per-user, but if that matters to you, keep the key in the environment instead.
+
+### Where keys are kept
+
+**With `aetheris[keyring]` and a keyring to put them in**, a saved key goes to
+the macOS Keychain, the Windows Credential Manager or the Secret Service on a
+Linux desktop, and `providers.json` keeps only `"key_store": "keyring"` in its
+place. A key already in the file moves the next time the harness starts.
+Without the package, or with no keyring to use - WSL, a server, a container -
+or with `AETHERIS_KEYRING=off`, keys stay in the file at 0600 as before, and a
+key the keyring refuses is written there rather than lost.
+
+**What a keyring does not do** is keep out a program running as you: it can
+ask the keyring through the same API, and on most desktops gets an answer
+without a prompt. What it removes is the plaintext sitting in a well-known
+file - the one a script, a backup or another assistant finds first.
+
+**The model never sees a key either way.** That does not depend on the keyring:
+
+- **Hidden in everything it is shown.** A key the harness holds - saved, from
+  the keyring, or from `ANTHROPIC_API_KEY` and the rest - is replaced in every
+  tool result, `@` attachment and `!` output by `[hidden: anthropic key]`.
+  Unlike a `.env` placeholder it is never filled back in, so it cannot be sent
+  anywhere either. `SECRET_REDACT` does not switch this off.
+- **`providers.json` is off limits to every tool.** Reading, copying, moving or
+  writing it is refused before the permission rules, so no allow rule and no
+  `/automode` reaches it, and a symlink to it is the same file. A write is the
+  one redaction could not undo: a `base_url` pointed elsewhere would send the
+  key there with the next request.
+- **Not in the model's environment.** `run_cmd` and `run_python` start without
+  the provider key variables, so `env` has nothing to print. A command you type
+  with `!` keeps your whole shell. A project whose commands need a key keeps it
+  in `.env`, where the vault fills it in by name.
+- **Closed to other accounts.** `~/.aetheris` is created 0700, and an existing
+  `~/.aetheris` or `~/.localchat` is closed at startup - sessions and the input
+  history used to be readable by anyone who could reach the directory.
+  Sessions are written 0600. A directory named with `AETHERIS_HOME` is created
+  closed but never changed under you.
+
+### Attacca
+
+[Attacca](https://attacca.cc) is not a model, and this is not one more API to
+send a conversation to. It runs the agent loop on its own servers - its own
+prompt, its own context, its own model; Qwen among them - and reaches back into
+this machine whenever the agent wants a file read or a command run. That makes
+it the way to use the harness on a machine that cannot run a model at all.
+
+```
+/connect attacca          pair this machine (once), then pick an agent
+/connect forget attacca   drop the saved credential
+```
+
+**Pairing.** The first `/connect attacca` shows an eight-character code and the
+page to type it on - from any device with a browser - plus a QR code of that
+page. Approve all four scopes it asks for: `agents:read`, `sessions:read`,
+`sessions:write`, `events:read`. That is everything a turn uses and nothing
+more: jobs, works, files and peers are never touched, so they are never asked
+for. What comes back is a long-lived `zc_` credential, saved owner-only in
+`providers.json` like an API key; `ATTACCA_CREDENTIAL` supplies one from the
+environment instead. Revoking it from Attacca's settings ends it everywhere:
+the next connection is refused, and the harness forgets it and says to pair
+again.
+
+**The agent list is the model list.** `/connect attacca` lists your agents with
+the model each runs on, and `/models` does the same. The choice is kept by name
+and never quietly swapped for another: an agent that has since been deleted is
+an error that names it.
+
+**A turn.** Your line goes to an Attacca session, and the reply streams back
+through the same renderer every reply goes through. The session's cost is
+shown once at the end, as Attacca reports it. `/clear` starts a new session
+there too; `/resume` picks the old one back up, because its id is saved with
+the session file. Ctrl+C stops the turn on Attacca as well, keeping only as
+much of the answer as was actually on your screen.
+
+**The tools run here, under your rules.** The agent sees this harness's own
+tool table as the capability `aetheris` - the same tools, MCP ones included,
+described the same way - and every call it makes is run by the same dispatcher
+a local model's calls are: permission rules, approval prompts, the `.env` vault,
+`/undo`, and the file claims on the agent channel all see it the same way. Two
+tools are left out, because they only mean something to the local loop:
+`spawn_agent` and `view_image`.
+
+**Calls nobody here made.** The machine stays reachable while the prompt is
+waiting, so an agent you are talking to in Attacca's web app can use it too.
+Such a call closes the prompt for as long as it runs - whatever you had
+half-typed comes back when it reopens - and is marked as coming from outside
+this terminal. It meets exactly the same rules and prompts; Ctrl+C at its
+approval prompt refuses that call rather than quitting.
+
+**What does not apply.** `/deepthink`, the context compaction and the session
+titles all work by asking a model this harness drives, and there is none here:
+Attacca keeps its own context and names its own sessions. A message sent while
+another turn is already running on the same Attacca session waits for that one
+to finish first.
+
+**`/usage` asks Attacca.** The stream carries no token counts, and what the
+agent reads - Attacca's prompt, the tool table, every tool result - never
+passes through here. So `/usage` shows the session as Attacca meters it: the
+context the agent holds now, input and output summed over every request of
+every turn, and the credits used. Input runs far ahead of context, because each
+tool round re-reads the whole conversation.
 
 ### Prompt caching
 
@@ -1979,7 +2093,7 @@ skills, and they win.
 
 | Path | Holds |
 | :--- | :--- |
-| `~/.aetheris/providers.json` | The connected provider and any API keys typed at `/connect`. Owner-only on POSIX |
+| `~/.aetheris/providers.json` | The connected provider and any API keys typed at `/connect` - unless a keyring holds them (*Where keys are kept*). Owner-only on POSIX, and no tool may touch it |
 | `~/.aetheris/sessions/*.json` | Conversation transcripts, named after the session title, each recording the directory it was last worked in so `-c` can find it |
 | `~/.aetheris/memory.json` | The long-term key-value memory |
 | `~/.aetheris/history` | Input history for the prompt |
@@ -1991,7 +2105,8 @@ skills, and they win.
 | `./skills/`, then `~/.aetheris/skills/` | Skills |
 
 Set `AETHERIS_HOME` to put that directory somewhere else - two profiles, or a
-throwaway one for trying something out.
+throwaway one for trying something out. Set `AETHERIS_KEYRING=off` to keep keys
+in `providers.json` even where a keyring is available.
 
 **Upgrading from simple-harness.** The directory was `~/.localchat` before
 1.0.0, and the rename does not move it. If `~/.localchat` is there and
@@ -2054,6 +2169,7 @@ Two prefixes act on the message itself rather than being commands:
 | `@<path>` | Attach a file (or a directory's listing) to this message. Typing `@` opens a completion menu of the current directory - arrows to move, Tab to insert |
 | `!<command>` | Run a shell command yourself. It skips the approval prompt, because you typed it, and its output is added to the conversation |
 | `/connect [provider] [model]` | Connect a provider, or pick one interactively |
+| `/connect attacca` | Pair this machine with Attacca by a code (once), then pick an agent |
 | `/connect status` | Show every provider and whether it is usable |
 | `/connect forget <provider>` | Delete the API key saved for a provider. An environment variable is left alone, and said so |
 | `/perms` | Show the active tool permission rules |
@@ -2100,7 +2216,9 @@ The codebase is organized cleanly around the following components:
 - **`channel.py`**: The board the harnesses running in one project share - who is here, what they have said, and which files each is in the middle of changing.
 - **`subagent.py`**: `spawn_agent` - a second model, hired for one self-contained job, working in its own context and handing back only its report.
 - **`skills.py`**: Skill discovery, frontmatter parsing, and on-demand loading.
-- **`providers.py`**: The provider abstraction - Ollama, Anthropic, OpenAI, Gemini - and the saved connection.
+- **`providers.py`**: The provider abstraction - Ollama, Anthropic, OpenAI, Gemini, Attacca - and the saved connection.
+- **`zyris.py`**: The Zyris wire - one websocket, msgpack envelopes, calls in both directions, streams with credit, and the reconnecting reader thread that keeps it up while a prompt waits on a person.
+- **`attacca.py`**: Attacca as the provider - pairing by code, this machine's tool table announced as a capability, and the turn that streams an agent's reply and runs the tools it calls back for.
 - **`connect.py`**: The `/connect` flow.
 - **`sse.py`**: Reading server-sent events without waiting for data that has not been sent. Shared by the providers and the MCP client.
 - **`permissions.py`**: Permission rule loading, matching, and the allow/deny/ask decision.
@@ -2109,7 +2227,8 @@ The codebase is organized cleanly around the following components:
 - **`git_ops.py`**: A commit per AI edit, and the undo that makes it worth having.
 - **`atomic.py`**: Writing a file so a crash cannot leave half of it behind. Used for sessions, memory, permission rules and the saved API keys.
 - **`terms.py`**: What the harness does to the machine it runs on, shown once before it does it.
-- **`vault.py`**: The `.env` values the model is never told, and the placeholder the harness expands on its way to a tool.
+- **`vault.py`**: The `.env` values the model is never told, and the placeholder the harness expands on its way to a tool - and the harness's own keys, hidden from every tool result and never filled back in.
+- **`keystore.py`**: Saved API keys in the OS keyring when `aetheris[keyring]` is installed and there is one to use; `providers.json` otherwise.
 - **`tests/test_platform.py`**: Checks the waiting-for-input detection on the machine it is run on. Worth running on any new machine, and especially on Windows - see below.
 - **`tests/test_registry.py`**: Fails if the tool table, the system prompt and the handlers stop describing the same tools.
 - **`tests/test_durability.py`**: Atomic writes (including killing a writer mid-write) and the token estimate.
@@ -2127,12 +2246,15 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.
 - **`tests/test_qr.py`**: That a symbol is one a scanner can read - it reads each one back the way a scanner does, from the mask in its own format bits through the zigzag and the blocks, and checks that every block still satisfies its Reed-Solomon parity; plus what fits in which version, and that the drawing is the symbol.
+- **`tests/test_zyris.py`**: The Zyris wire against a server written from the spec, not from this client - a msgpack handshake, answers matched by id, a stream that skips a chunk failed rather than delivered, a dropped connection failing what was in flight and coming back with its tools announced again, and a refused or revoked credential that stops it for good.
+- **`tests/test_attacca.py`**: Attacca's seam against a fake that plays scripted turns - pairing at the server's pace, a turn drawn by the ordinary renderer, a tool call refused by a deny rule exactly as a local one would be, a turn that waits out one already running, Ctrl+C reporting how much was seen, and a call from the web app that closes the prompt and gives the half-typed line back.
 - **`tests/test_remote.py`**: That the remote refuses a request with no token, a token that is nearly right and a `Host` this machine was never called by, that a `.env` value on this terminal does not go out over it, that a question cannot be answered by a phone still showing the last one, and that closing it frees the port and puts `sys.stdout` back.
 - **`tests/test_channel.py`**: That a file one harness is changing cannot be written from another, that the refusal names who to ask, that a claim dies with the terminal that took it, and that several processes writing to the board at once lose nothing.
 - **`tests/test_mentions.py`**: What `@` attaches and what it must leave alone - an email address is not a file - that the completion menu reads the real directory, and that the command menu previews what each command does and what may follow it.
 - **`tests/test_images.py`**: That an image is detected by extension and by its first bytes, that one too large is resized rather than refused and relabelled as whatever it became, that each of the four providers is handed the shape it asks for with the cache breakpoint still on the text, that `@shot.png` attaches a picture instead of a wall of bytes, and that a model which cannot see is found out before the request rather than after.
 - **`tests/test_notes.py`**: That a note is one markdown file whose name is its id and whose bytes are its content, that two projects do not share notes while one project is the same project from any directory inside it, that a note id the model chose cannot write outside the notes directory, and that the prompt gets the titles only - capped, sorted, and identical between builds.
 - **`tests/test_memory.py`**: That a memory marked `important` is in the system prompt a session opens on - a new one and a resumed one - that the mark survives a later rewrite of the memory's text, that the block is capped in both directions and says when it cut something, and that a hand-edited `memory.json` cannot break the prompt.
+- **`tests/test_keys.py`**: That a key the harness holds never reaches the model - hidden in what tools print and never filled back in, `providers.json` refused to every tool even through a symlink, and absent from the environment the model's commands run in - that a keyring takes the key out of the file without losing one it refuses, and that the home directory is closed to other accounts.
 - **`tests/test_vault.py`**: That a `.env` value never reaches the model - not through `read_file`, not through a command that prints it, not through an `@` attachment - that the placeholder reaches the shell as the real key, and that a file is neither how a secret gets out nor how it gets lost.
 - **`tests/test_malformed_state.py`**: What happens when the state is not the shape the code assumed - a message whose content is `null`, a `memory.json` somebody edited by hand, a setting typed as nought - and that `write_file` and `edit_file` replace a file in one step rather than truncating it first, without rewriting its line endings on the way past.
 - **`requirements-lock.txt`**: The exact dependency set the harness was tested against. `requirements.txt` gives the tested floors and a ceiling before the next breaking release.

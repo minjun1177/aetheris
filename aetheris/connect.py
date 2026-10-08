@@ -98,7 +98,8 @@ def show_status() -> None:
         print(f"  {S.ACCENT}{provider.label}{S.R} {S.MUTED}({name}){S.R}  {state}{marker}")
         if provider.model:
             print(f"  {S.MUTED}│{S.R}  {S.GRAY}model{S.R}  {provider.model}")
-        how = ("native tool calling" if provider.supports_native_tools
+        how = ("run here, called by the agent over Zyris" if provider.drives_turns
+               else "native tool calling" if provider.supports_native_tools
                and getattr(config, "NATIVE_TOOLS", True)
                else "text <tool_call> protocol")
         print(f"  {S.MUTED}│{S.R}  {S.GRAY}tools{S.R}  {S.MUTED}{how}{S.R}")
@@ -108,7 +109,7 @@ def show_status() -> None:
                   f"   {S.MUTED}{provider.key_help}{S.R}")
         print(f"  {S.MUTED}╰─{S.R}")
     print(f"\n  {S.GRAY}Keys are read from the environment first, then "
-          f"{S.MUTED}{providers.CONFIG_PATH}{S.GRAY}.{S.R}")
+          f"{S.MUTED}{providers.key_home()}{S.GRAY}.{S.R}")
     print(f"  {S.GRAY}Connect with {S.ACCENT}/connect <provider> [model]{S.GRAY}, "
           f"delete a saved key with {S.ACCENT}/connect forget <provider>{S.GRAY}.{S.R}\n")
 
@@ -116,8 +117,7 @@ def show_status() -> None:
 def forget(name: str) -> None:
     """`/connect forget <provider>` - take a saved API key back out."""
     if not name:
-        saved = [n for n in providers.PROVIDERS
-                 if providers.settings_for(n).get("api_key")]
+        saved = [n for n in providers.PROVIDERS if providers.has_saved_key(n)]
         if not saved:
             print(f"  {S.GRAY}No API key is saved for any provider.{S.R}\n")
             return
@@ -166,14 +166,26 @@ def _pick_provider() -> str:
 def _ensure_key(name: str) -> bool:
     """Ask for an API key if the provider needs one and has none."""
     provider = providers.build(name)
+    if provider.pairs:
+        # Checked before anything else: finding out the packages are missing
+        # after walking to another device to type a code is the worse order.
+        from aetheris import zyris
+        try:
+            zyris._libraries()
+        except zyris.MissingDependency as error:
+            print(f"  {S.ERR}✗ {error}{S.R}\n")
+            return False
     if not provider.needs_key or provider.api_key:
         return True
+    if provider.pairs:
+        from aetheris import attacca
+        return attacca.pair(provider)
 
     print(f"\n  {S.WARN}{provider.label} needs an API key.{S.R}")
     print(f"  {S.MUTED}{provider.key_help}{S.R}")
     print(f"  {S.MUTED}Set {' or '.join(provider.key_env)} in the environment to keep it "
           f"out of a file, or paste it here to save it to{S.R}")
-    print(f"  {S.MUTED}{providers.CONFIG_PATH} (owner-only).{S.R}\n")
+    print(f"  {S.MUTED}{providers.key_home()}.{S.R}\n")
     key = _ask(f"  {S.INFO}API key{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
                title=f"{provider.label} API key", keyboard_only=True)
     if not key:

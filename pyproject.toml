@@ -57,6 +57,22 @@ ast = [
     "tree-sitter-rust>=0.24.2,<0.25",
     "tree-sitter-c-sharp>=0.23.5,<0.24",
 ]
+# Attacca speaks Zyris: one websocket of msgpack frames. Nothing imports either
+# package until /connect attacca, so a harness that only talks to Ollama never
+# needs them: pip install "aetheris[attacca]"
+attacca = [
+    # 16.1.1, not 17: 17 needs Python 3.11 and this supports 3.10. Both are
+    # tested; the sync client this uses is the same in each.
+    "websockets>=16.1.1,<18.0",
+    "msgpack>=1.2.3,<2.0",
+]
+# API keys in the OS keyring (Keychain, Credential Manager, Secret Service)
+# instead of in providers.json. Without it - or on a machine with no keyring,
+# like WSL or a server - keys stay in the file, owner-only, as before:
+# pip install "aetheris[keyring]"
+keyring = [
+    "keyring>=25.7.0,<26.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/minjun1177/aetheris"

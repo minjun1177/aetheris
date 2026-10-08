@@ -72,6 +72,21 @@ def _session_result(session, output: str, ended: bool, timed_out: bool) -> str:
             f'end_process with session "{session.id}" to stop it.').strip()
 
 
+# Set only by `run_user_cmd`, for the length of one command. Not a parameter of
+# `safe_run_cmd`: that signature is the tool's, bound from what the model sent.
+_keep_keys = False
+
+
+def run_user_cmd(command: str) -> str:
+    """`safe_run_cmd` for a command the person typed with `!`: environment intact."""
+    global _keep_keys
+    _keep_keys = True
+    try:
+        return safe_run_cmd(command)
+    finally:
+        _keep_keys = False
+
+
 def safe_run_cmd(command_string: str, stdin_text: str = "") -> str:
     """Run a shell command, and stay connected to it while it runs.
 
@@ -100,8 +115,13 @@ def safe_run_cmd(command_string: str, stdin_text: str = "") -> str:
     if not _approval_prompt("Run Command", details, rule=f"run_cmd({command})"):
         return "[System] User denied command execution."
 
+    from aetheris import providers      # here, not at the top: see `_handlers`
     try:
-        session = shell_session.start(command)
+        # The model's command runs without the provider keys in its
+        # environment (`providers.child_environment`). A command the person
+        # typed with `!` is theirs, and keeps their whole shell.
+        session = shell_session.start(
+            command, env=None if _keep_keys else providers.child_environment())
     except Exception as e:
         return f"[Error] Failed to execute command: {e}"
 
@@ -1892,7 +1912,13 @@ def handle_spawn_agent(task: str, context: str = "", model: str = "") -> str:
     on a hosted model, real money before it reaches its first tool - so the
     decision to hire one is the user's, the same as running a command is.
     """
-    from aetheris import subagent
+    from aetheris import providers, subagent
+    if providers.current().drives_turns:
+        # A sub-agent is the local loop run again on the current provider, and
+        # this provider has no local loop: started from inside an Attacca turn
+        # it would wait on that same turn for an answer that never comes.
+        return ("[System] spawn_agent is not available here - this session's "
+                "agent loop runs elsewhere. Do this part of the work yourself.")
     first_line = (task or "").strip().splitlines()[0] if (task or "").strip() else ""
     details = [("task", first_line), ("model", model or "same as this one")]
     if not _approval_prompt("Hire Sub-agent", details, rule="spawn_agent"):
@@ -2186,6 +2212,45 @@ def _name_the_failure(function_name: str, arguments: dict, result):
     return f"{_ERROR_PREFIX} {_describe_call(function_name, arguments)}: {said}"
 
 
+def _names_the_key_file(arguments: dict) -> str:
+    """The argument that resolves to `providers.json`, or "" when none does.
+
+    Every string argument, not the ones a tool is known to treat as a path:
+    an MCP server's `read_file` calls it `path`, a copy calls it `src` and
+    `dst`. Resolved through symlinks, so a link made with `run_cmd` first and
+    read second is the same file.
+    """
+    from aetheris import providers
+    try:
+        protected = os.path.realpath(providers.CONFIG_PATH)
+    except (OSError, ValueError):
+        return ""
+
+    def check(value, depth):
+        if isinstance(value, str):
+            text = value.strip()
+            # Content is not a path: a file body, a command, a long query.
+            if not text or "\n" in text or len(text) > 4096:
+                return ""
+            try:
+                if os.path.realpath(os.path.expanduser(text)) == protected:
+                    return text
+            except (OSError, ValueError):
+                pass
+            return ""
+        if depth >= 2:
+            return ""
+        items = value.values() if isinstance(value, dict) else (
+            value if isinstance(value, list) else ())
+        for item in items:
+            found = check(item, depth + 1)
+            if found:
+                return found
+        return ""
+
+    return check(arguments, 0)
+
+
 def dispatch_tool(function_name: str, arguments: dict) -> str | None:
     # Small models sometimes emit "arguments" as a JSON string rather than an
     # object. Normalise once here so no handler has to defend against it.
@@ -2209,6 +2274,19 @@ def dispatch_tool(function_name: str, arguments: dict) -> str | None:
                 "You are working out what to do, not doing it - say what you would "
                 "change and why. You will be asked to make the change in a later "
                 "stage, and everything you write now carries over to it.")
+
+    guarded = _names_the_key_file(arguments)
+    if guarded:
+        # Before the rules, so no allow rule and no /automode reaches it. The
+        # output would be redacted anyway; a write is what redaction cannot
+        # undo - a `base_url` pointed somewhere else sends the key there on the
+        # next request - and a copy or a move is a way round both.
+        print(f"  {S.ERR}✗ refused: {guarded} holds this harness's API keys{S.R}")
+        return (f"[System] '{function_name}' was refused: {guarded} is where this "
+                "harness keeps its own API keys, and no tool reads, copies, moves "
+                "or changes it. Nothing in it is needed for the task. Do not try "
+                "another way to reach it; if the user wants a key changed, they "
+                "use /connect.")
 
     blocked, conflict = _claimed_by_another(function_name, arguments)
     if conflict:
