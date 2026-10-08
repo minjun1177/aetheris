@@ -61,7 +61,9 @@ ast = [
 # package until /connect attacca, so a harness that only talks to Ollama never
 # needs them: pip install "aetheris[attacca]"
 attacca = [
-    "websockets>=17.2,<18.0",
+    # 16.1.1, not 17: 17 needs Python 3.11 and this supports 3.10. Both are
+    # tested; the sync client this uses is the same in each.
+    "websockets>=16.1.1,<18.0",
     "msgpack>=1.2.3,<2.0",
 ]
 
