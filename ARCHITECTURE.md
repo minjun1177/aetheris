@@ -1190,6 +1190,27 @@ a `running: true` or by this message's own `chat_user` event. A session
 already running a turn - one started from the web app - is waited out first,
 because posting into it would race its end.
 
+**Events are rewritten in place.** attacca.cc writes an event and then
+rewrites it: a `tool_call` gets its result, a `thinking` block its title, a
+`work_summary` its heading, a `subagent_update` its ending - and each rewrite
+arrives again with the same id. `Turn.shown` keeps what was last drawn for each
+one, so only a change draws. The titles come from a side model after the block
+is read, and the last ones land after `running: false` (live check #4:
+0.35s), so `_late_titles` keeps reading for up to `LATE_TITLES` seconds while
+one is still owed.
+
+**A question is answered inside its turn.** Attacca's `question` tool waits on
+the server for the person's next message, inside the running turn - and the
+prompt here does not come back until the turn ends. So a pending `question`
+event ends the segment, `answer` asks each step through `ask_the_driver` (the
+remote included), and the answer is sent mid-turn with its question. One
+whose waiter gave up (`status: "timeout"`, or `run_in_background`) is printed
+instead, and the next message at the prompt answers it.
+
+**A closed window stops the turn.** `_watch_for_closing` hooks SIGHUP and
+SIGTERM for the length of a turn and turns either into the Ctrl+C path -
+`cancel_turn`, given `CLOSING_GRACE` seconds - and then `SystemExit`.
+
 **Calls nobody here made.** The node stays announced between turns, so an agent
 in the web app can call it while the prompt is open. `app._typed_or_remote`
 races the keyboard and the remote against `_attacca_call`, which *looks* at the

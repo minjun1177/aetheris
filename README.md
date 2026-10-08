@@ -1090,7 +1090,30 @@ through the same renderer every reply goes through. The session's cost is
 shown once at the end, as Attacca reports it. `/clear` starts a new session
 there too; `/resume` picks the old one back up, because its id is saved with
 the session file. Ctrl+C stops the turn on Attacca as well, keeping only as
-much of the answer as was actually on your screen.
+much of the answer as was actually on your screen - and so does closing the
+terminal (SIGHUP) or a SIGTERM, which a turn left running there would go on
+paying for.
+
+**What it is doing, as it does it.** Attacca titles each block of reasoning and
+heads each stretch of work, and those lines appear as they land:
+`✻ 사용자 요청에 맞춰 도구 목록을 정리하는 중`, `▾ Looking for the scroll math`.
+The last ones are written after the turn has ended, so they can appear under
+the answer. A sub-agent shows while it runs and when it is done, an error
+Attacca recorded is said rather than dropped, and the run's own report reads as
+its result.
+
+**Questions are answered where they are asked.** When the agent asks with
+Attacca's `question` tool, the options are put to you inside the turn - a
+number, several for a multi-select, or your own words - and the answer goes
+back with the question it answers. Blank skips a step;
+nothing at all tells the agent you will not answer, rather than leaving it
+waiting.
+
+**What the agent is told.** The session starts with where it is working and
+what a local model would have been told about the project: its conventions
+file (the same one the local system prompt reads), the skills on disk, and the
+names in `.env`. Fixed for the
+session's life; `/clear` picks up a changed file.
 
 **The tools run here, under your rules.** The agent sees this harness's own
 tool table as the capability `aetheris` - the same tools, MCP ones included,

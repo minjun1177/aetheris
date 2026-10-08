@@ -68,6 +68,27 @@ POLL_FLOOR, POLL_CEILING, SLOW_DOWN_STEP = 1, 60, 5
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 IDLE_POLL = 0.2               # how often the prompt looks for a call from Attacca
 
+# How long a closing window gives Attacca to hear that the turn is over.
+# Past it the window closes regardless.
+CLOSING_GRACE = 3
+
+# The project's own instructions, in the session preamble, are cut to this:
+# a CLAUDE.md written for a person can be long, and it is sent once per session.
+PREAMBLE_CONVENTIONS = 24_000
+
+# How long to keep listening after a turn ends for the titles still owed.
+# attacca.cc titles a reasoning block, and heads a stretch of work, by
+# rewriting the event once a side model has read it - live check #4 saw the
+# last block's title land 0.35s after `running: false`. A turn that ended on
+# the end of the turn would never show its last title, and a short turn none.
+LATE_TITLES = 2.0
+
+# What goes back to Attacca's `question` tool for a step skipped, a question
+# refused and a typed answer.
+TYPED_MARK = "Typed:"
+NOT_ANSWERING = "I won't answer this question."
+ALL_SKIPPED = "Skipped them all."
+
 
 class NotPaired(RuntimeError):
     """No credential: `/connect attacca` pairs this machine."""
@@ -442,12 +463,34 @@ def _agent_id(live: zyris.Link, provider) -> str:
 
 
 def _preamble(live: zyris.Link) -> str:
-    return (f"You are working on a person's computer through Aetheris, a terminal "
-            f"harness, on the node `{live.address}`. Its tools are the "
-            f"`{CAPABILITY}` capability, and they act on {platform.system()} in "
-            f"{os.getcwd()} - relative paths start there. Every call goes "
-            f"through that person's permission rules and may be refused; a "
-            f"refusal says why, and asking again gets the same answer.")
+    """What the agent is told once, when the session is made.
+
+    Where it is, and then what a local model here would have been told about
+    this project: its own instructions file, the skills on disk and the `.env`
+    names. Attacca's agent never sees the local system prompt, so without
+    these it worked blind to a project's conventions, never reached for a
+    skill it was not told existed, and read `{{env:NAME}}` as a broken file.
+    Fixed for the session's life, as the session's own preamble is - a changed
+    CLAUDE.md is picked up by /clear.
+    """
+    from aetheris import skills, systemprompt, vault
+    parts = [f"You are working on a person's computer through Aetheris, a terminal "
+             f"harness, on the node `{live.address}`. Its tools are the "
+             f"`{CAPABILITY}` capability, and they act on {platform.system()} in "
+             f"{os.getcwd()} - relative paths start there. Every call goes "
+             f"through that person's permission rules and may be refused; a "
+             f"refusal says why, and asking again gets the same answer."]
+    for section in (systemprompt.load_context_file, skills.skills_catalog_prompt,
+                    vault.prompt_section):
+        try:
+            text = section().strip()
+        except Exception:
+            text = ""              # a file that will not read is not worth a failed session
+        if len(text) > PREAMBLE_CONVENTIONS:
+            text = text[:PREAMBLE_CONVENTIONS] + "\n\n... (cut here - the rest was too long)"
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
 
 
 def _ensure_session(live: zyris.Link, provider) -> str:
@@ -485,6 +528,14 @@ class Turn:
         self.final = ""               # the answer as Attacca stored it
         self.streamed = ""            # the answer as it arrived, if no final came
         self.stop = False
+        # Attacca writes an event and then rewrites it in place - a thinking
+        # block gets its title later, a tool call its result, a work its
+        # heading - and each rewrite arrives again. What was last shown for
+        # each event, so a rewrite that changed nothing on screen draws nothing.
+        self.shown: dict = {}
+        self.question = None          # steps of a question waiting on the person
+        self.untitled: set = set()    # thinking blocks and works whose title is still owed
+        self.closed_by = 0            # the signal that closed the window, if one did
 
     def open(self) -> None:
         self.stream = self.link.open_stream(
@@ -519,10 +570,73 @@ def _is_ours(name: str) -> bool:
     return head == CAPABILITY and tail in offered()
 
 
+def _tool_name(name: str) -> str:
+    """`question` from `question` or from `zyris__<node>__<capability>__question`.
+
+    Attacca's own tools arrive unprefixed and a node's arrive prefixed, and
+    matching on the tail keeps this from depending on which a deployment sends.
+    """
+    return name.rpartition("__")[2]
+
+
+def questions(arguments) -> list:
+    """The steps of a `question` call: `{"questions": [{question, options, ...}]}`."""
+    raw = arguments.get("questions") if isinstance(arguments, dict) else None
+    steps = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, dict) or not isinstance(item.get("question"), str):
+            continue
+        options = [{"label": str(o["label"]), "description": str(o.get("description") or "")}
+                   for o in item.get("options") or () if isinstance(o, dict) and o.get("label")]
+        steps.append({"header": str(item.get("header") or ""), "question": item["question"],
+                      "multi": bool(item.get("multiSelect")), "options": options})
+    return steps
+
+
+def _answered(payload: dict) -> bool:
+    """Whether a `question` call's answer arrived - not whether the call returned.
+
+    Attacca's waiter returns `status: "timeout"` as an ordinary success when
+    nobody replied in time, and `run_in_background` returns at once, and in
+    both the answer is still wanted. A call that failed will take none.
+    """
+    if payload.get("error") is not None:
+        return True
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return False
+    if "status" in result:
+        return result.get("status") == "answered"
+    return result.get("answer") is not None
+
+
+def _report(payload: dict) -> tuple:
+    """(ok, summary) of a `report_result` call, or None when it says nothing."""
+    args = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else {}
+    summary = args.get("summary")
+    if not isinstance(summary, str):
+        summary = payload.get("result") if isinstance(payload.get("result"), str) else ""
+    summary = summary.strip()
+    if not summary:
+        return None
+    status = args.get("status")
+    ok = status == "success" if isinstance(status, str) else payload.get("error") is None
+    return ok, summary
+
+
+def _once(turn: Turn, key, value) -> bool:
+    """True the first time `value` is seen for `key` - so a rewrite draws once."""
+    if turn.shown.get(key) == value:
+        return False
+    turn.shown[key] = value
+    return True
+
+
 def _event(turn: Turn, event: dict) -> bool:
     """Fold one durable event into the turn. True ends the segment."""
     kind = event.get("kind")
     payload = event.get("payload") or {}
+    key = event.get("id") or event.get("seq")
     if kind == "chat_user":
         # This message, as Attacca filed it: the turn is under way.
         turn.armed = True
@@ -530,29 +644,149 @@ def _event(turn: Turn, event: dict) -> bool:
     if kind == "chat_agent":
         turn.final = str(payload.get("content") or "")
         return False
+    if kind == "thinking":
+        # A small model on Attacca titles each reasoning block, and the title
+        # lands by rewriting the event - after the block, or never if that
+        # model is off. The reasoning itself already streamed as deltas.
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            turn.untitled.add(("thinking", key))
+            return False
+        turn.untitled.discard(("thinking", key))
+        if _once(turn, ("thinking", key), title):
+            turn.notices.append(f"  {S.ACCENT}✻{S.R} {S.GRAY}{title}{S.R}")
+            return True
+        return False
+    if kind == "work_summary":
+        # The heading of a stretch of work, empty until decided and rewritten
+        # as the work moves on ("retrying the node" → "writing the report").
+        heading = str(payload.get("content") or "").strip()
+        if not heading:
+            turn.untitled.add(("work", key))
+            return False
+        turn.untitled.discard(("work", key))
+        # A one-block stretch is headed with its block's title, word for word
+        # (live check #4); the same line twice in a row says nothing new.
+        if heading in turn.shown.values():
+            turn.shown[("work", key)] = heading
+            return False
+        if _once(turn, ("work", key), heading):
+            turn.notices.append(f"  {S.ACCENT}▾{S.R} {S.WHITE}{heading}{S.R}")
+            return True
+        return False
+    if kind == "error":
+        message = str(payload.get("message") or "").strip()
+        if message and _once(turn, ("error", key), message):
+            turn.notices.append(f"  {S.ERR}✗ Attacca: {message}{S.R}")
+            return True
+        return False
     if kind == "tool_call":
         name = str(payload.get("name") or "")
+        tail = _tool_name(name)
         # Written when the call starts and rewritten when it returns: pending
         # until there is a result or an error (zyris-code's `event.rs`).
         settled = payload.get("result") is not None or payload.get("error") is not None
-        if name == "question":
-            args = payload.get("arguments") or {}
-            asked = args.get("question") or args.get("text") or args
-            turn.notices.append(f"  {S.ACCENT}?{S.R} {S.WHITE}{asked}{S.R}\n"
-                                f"  {S.MUTED}Answer at the prompt.{S.R}")
+        if tail == "question":
+            steps = questions(payload.get("arguments"))
+            if not steps or _answered(payload) or not _once(turn, ("question", key), True):
+                return False
+            if not settled:
+                # The agent is waiting on Attacca for the person's next message,
+                # inside this turn. Answered here and now, between segments -
+                # the prompt does not come back until the turn ends, and the
+                # turn does not end until it is answered.
+                turn.question = steps
+            else:
+                # Its waiter gave up or never waited: the answer is the next
+                # message, typed at the prompt like any other.
+                turn.notices.append(_question_text(steps) + f"\n  {S.MUTED}Answer at "
+                                    f"the prompt - your next message is the answer.{S.R}")
             return True
-        if settled and not _is_ours(name):
+        if tail == "report_result":
+            report = _report(payload)
+            if report and _once(turn, ("report", key), report):
+                ok, summary = report
+                mark = f"{S.OK}◆ done" if ok else f"{S.ERR}◆ did not work out"
+                turn.notices.append(f"  {mark}{S.R} {S.WHITE}{summary}{S.R}")
+                return True
+            return False
+        if settled and not _is_ours(name) and _once(turn, ("tool", key), True):
             turn.notices.append(_summary(payload))
             return True
         return False
     if kind == "subagent_update":
-        summary = payload.get("summary") or ""
-        status = payload.get("status") or ""
-        if summary or status:
-            turn.notices.append(f"  {S.MUTED}↳ sub-agent {status}: {summary}{S.R}")
+        summary = str(payload.get("summary") or "").strip()
+        # Written when the delegation starts and rewritten when it ends.
+        # Anything but the two endings is still running: saying "done" over
+        # work that is going on is the one mistake worth avoiding here.
+        status = {"completed": "done", "failed": "failed"}.get(payload.get("status"), "running")
+        if summary and _once(turn, ("subagent", key), status):
+            colour = S.ERR if status == "failed" else S.MUTED
+            turn.notices.append(f"  {colour}↳ sub-agent {status}:{S.R} {S.GRAY}{summary}{S.R}")
             return True
-    # chat_user, chat_system, recall, todo_change: the model's own bookkeeping.
+        return False
+    # chat_system, recall, todo_change: the model's own bookkeeping.
     return False
+
+
+def _question_text(steps: list) -> str:
+    lines = []
+    for step in steps:
+        head = f"[{step['header']}] " if step["header"] else ""
+        lines.append(f"  {S.ACCENT}?{S.R} {S.WHITE}{head}{step['question']}{S.R}")
+        for number, option in enumerate(step["options"], 1):
+            more = f" {S.MUTED}- {option['description']}{S.R}" if option["description"] else ""
+            lines.append(f"    {S.ACCENT}{number}{S.R} {option['label']}{more}")
+    return "\n".join(lines)
+
+
+def _picks(reply: str, step: dict) -> list:
+    """What a reply chose: option numbers, an option's own label, or neither."""
+    labels = [option["label"] for option in step["options"]]
+    if reply in labels:
+        return [labels.index(reply)]
+    tokens = [t for t in reply.replace(",", " ").split() if t]
+    if not tokens or not all(t.isdigit() and 1 <= int(t) <= len(labels) for t in tokens):
+        return []
+    chosen = sorted({int(t) - 1 for t in tokens})
+    return chosen if step["multi"] or len(chosen) == 1 else []
+
+
+def answer(steps: list):
+    """Ask each step here, and say what was picked.
+
+    The question is carried with the answer, and a picked option keeps its
+    description, so the agent can tell what was answered from the answer
+    alone. A typed answer is marked as typed - that it was none of the
+    options is worth knowing too. None when nobody answered at all.
+    """
+    from aetheris import tui
+    print(_question_text(steps))
+    parts = []
+    for step in steps:
+        hint = ("numbers, or " if step["multi"] else "a number, or ") if step["options"] else ""
+        reply = tui.ask_the_driver(
+            "Attacca asks", [("question", step["question"])],
+            [o["label"] for o in step["options"]],
+            f"  {S.INFO}›{S.R} {S.MUTED}({hint}your own answer; blank skips){S.R} ",
+            free_text=True)
+        if reply is None:
+            return None
+        reply = reply.strip()
+        if not reply:
+            continue
+        chosen = _picks(reply, step)
+        if chosen:
+            picked = [(f"{step['options'][i]['label']} ({step['options'][i]['description']})"
+                       if step["options"][i]["description"] else step["options"][i]["label"])
+                      for i in chosen]
+        else:
+            picked = [f"{TYPED_MARK} {reply}"]
+        head = f"[{step['header']}] {step['question']}" if step["header"] else step["question"]
+        body = ("\n".join(f"  - {p}" for p in picked) if len(picked) > 1
+                else f"  {picked[0]}")
+        parts.append(f"{head}\n{body}")
+    return "\n\n".join(parts) if parts else ALL_SKIPPED
 
 
 def _segment(turn: Turn):
@@ -648,13 +882,22 @@ async def run_turn(messages: list) -> str:
     # so a stream opened afterwards could miss the start of a fast reply.
     turn.open()
     current_turn = turn
+    watched = _watch_for_closing(turn)
     try:
         if (turn.stream.head or {}).get("running"):
             # Outside the cancel below on purpose: Ctrl+C while waiting on a
             # turn somebody else started must not cancel *their* turn.
             await _wait_for_quiet(turn)
         await _drive(turn, messages, user_line)
+        await _late_titles(turn)
+    except asyncio.CancelledError:
+        if turn.closed_by:
+            # The window is going. `_drive` has told Attacca already; a
+            # traceback on the way out would be the last thing on the screen.
+            raise SystemExit(128 + turn.closed_by) from None
+        raise
     finally:
+        _stop_watching(watched)
         turn.stop = True
         current_turn = None
         if turn.stream is not None:
@@ -666,6 +909,72 @@ async def run_turn(messages: list) -> str:
     messages.append({"role": "assistant", "content": answer})
     _report_usage(live, session)
     return answer
+
+
+async def _late_titles(turn: Turn) -> None:
+    """The titles that land after the turn has ended, drawn under its answer.
+
+    Only while one is still owed, and never longer than `LATE_TITLES`: a
+    deployment whose side model is off owes them for ever.
+    """
+    deadline = time.monotonic() + LATE_TITLES
+    while turn.untitled and time.monotonic() < deadline and turn.stream is not None:
+        try:
+            frame = turn.stream.get(timeout=0)
+        except queue.Empty:
+            await asyncio.sleep(0.05)
+            continue
+        except zyris.ZyrisError:
+            return
+        if frame is None:
+            return
+        if frame.get("type") == "event":
+            _event(turn, frame.get("event") or {})
+            for line in turn.notices:
+                print(line)
+            turn.notices.clear()
+
+
+def _watch_for_closing(turn: Turn) -> list:
+    """Stop the turn on Attacca if the window closes in the middle of it.
+
+    The turn runs there, not here. Left alone after the terminal is closed it
+    goes on thinking, fails every call to a node that is no longer there, and
+    spends credit doing it. SIGHUP (the terminal closed) and SIGTERM end the
+    turn the way Ctrl+C does - cancelled on Attacca, with
+    `CLOSING_GRACE` seconds to hear it - and then the program. POSIX only:
+    Windows has neither signal, and closing its console kills the process
+    outright.
+    """
+    import signal
+    try:
+        loop = asyncio.get_running_loop()
+        task = asyncio.current_task()
+    except RuntimeError:
+        return []
+    watched = []
+    for name in ("SIGHUP", "SIGTERM"):
+        number = getattr(signal, name, None)
+        if number is None or task is None:
+            continue
+
+        def closing(number=number):
+            turn.closed_by = int(number)
+            task.cancel()
+        try:
+            loop.add_signal_handler(number, closing)
+        except (NotImplementedError, RuntimeError, ValueError):
+            continue
+        watched.append((loop, number))
+    return watched
+
+
+def _stop_watching(watched: list) -> None:
+    for loop, number in watched:
+        try:
+            loop.remove_signal_handler(number)
+        except Exception:
+            pass
 
 
 async def _wait_for_quiet(turn: Turn) -> None:
@@ -705,6 +1014,14 @@ async def _drive(turn: Turn, messages: list, user_line: str) -> None:
             for line in turn.notices:
                 print(line)
             turn.notices.clear()
+            if turn.question is not None:
+                steps, turn.question = turn.question, None
+                reply = answer(steps)
+                # Closing it quietly would leave the agent waiting on an answer
+                # that never comes; saying so lets it carry on without one.
+                live.call("attacca_api.send_message", {
+                    "session_id": session, "message": reply or NOT_ANSWERING, "data": []})
+                print(f"  {S.MUTED}⇢ answer sent{S.R}")
             if turn.request is not None:
                 serve(turn.request)
                 continue
@@ -723,7 +1040,8 @@ async def _drive(turn: Turn, messages: list, user_line: str) -> None:
             # text nobody read.
             live.call("attacca_api.cancel_turn", {
                 "session_id": session,
-                "delivered": {"cursor": None, "chars": turn.printed}}, timeout=5)
+                "delivered": {"cursor": None, "chars": turn.printed}},
+                timeout=CLOSING_GRACE if turn.closed_by else 5)
         except Exception:
             pass
         raise

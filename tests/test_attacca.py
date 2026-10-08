@@ -25,6 +25,7 @@ import os
 import queue
 import re
 import stat
+import signal
 import struct
 import sys
 import tempfile
@@ -498,6 +499,135 @@ check("Attacca is told to stop, keeping exactly what was delivered",
           "session_id": "s1", "delivered": {"cursor": None, "chars": len("\n\npartial ")}},
       str(server.cancelled))
 check("and nothing is left half-running here", attacca.current_turn is None)
+
+print("\n--- what a turn is doing, as it does it ---")
+TITLE = "사용자 요청에 맞춰 도구 목록을 정리하는 중"
+server.scripts["show me everything"] = [
+    event(2, "work_summary", {"content": ""}),
+    event(2, "work_summary", {"content": "Looking for the scroll math"}),
+    delta("weighing the options", "reasoning"),
+    # A thinking block opens untitled; the title lands by rewriting it, and
+    # a rewrite that changes nothing must not draw a second line.
+    event(3, "thinking", {"content": "weighing the options", "title": None}),
+    event(3, "thinking", {"content": "weighing the options", "title": TITLE}),
+    event(3, "thinking", {"content": "weighing the options", "title": TITLE}),
+    event(4, "subagent_update", {"summary": "reading the docs", "status": "running"}),
+    event(4, "subagent_update", {"summary": "reading the docs", "status": "completed"}),
+    event(5, "error", {"message": "node laptop/other timed out"}),
+    event(6, "tool_call", {"name": "report_result", "result": "ok", "error": None,
+                           "arguments": {"summary": "Scroll math lives in rows.rs",
+                                         "status": "success"}}),
+    delta("Answer."),
+    event(7, "chat_agent", {"content": "Answer."}),
+] + DONE
+# Exactly what attacca.cc did in live check #4: the last block's title, and
+# the work's heading, rewritten in *after* the turn has said it is over.
+server.scripts["a short one"] = [
+    event(2, "work_summary", {"content": ""}),
+    event(3, "thinking", {"content": "1024 against 1000", "title": None}),
+    delta("By 24."), event(4, "chat_agent", {"content": "By 24."}),
+    ("item", {"type": "status", "running": False}),
+    event(3, "thinking", {"content": "1024 against 1000", "title": "차이를 계산하는 중"}),
+    event(2, "work_summary", {"content": "차이를 계산하는 중"}),
+    ("end",)]
+messages.append({"role": "user", "content": "a short one"})
+answer, shown = quietly(lambda: run(attacca.run_turn(messages)))
+check("a title that lands after the turn ended is still shown", "✻ 차이를 계산하는 중" in shown,
+      shown[-400:])
+check("and the heading that repeats it word for word is not shown twice",
+      shown.count("차이를 계산하는 중") == 1, shown[-400:])
+messages.append({"role": "user", "content": "show me everything"})
+answer, shown = quietly(lambda: run(attacca.run_turn(messages)))
+check("the answer still arrives", answer == "Answer.", repr(answer))
+check("a thinking block's title, once it lands", f"✻ {TITLE}" in shown, shown[-600:])
+check("drawn once, however often the event is rewritten", shown.count(TITLE) == 1)
+check("the heading of the work", "▾ Looking for the scroll math" in shown)
+check("a sub-agent while it runs, and when it is done",
+      "sub-agent running: reading the docs" in shown
+      and "sub-agent done: reading the docs" in shown)
+check("an error Attacca recorded is said, not dropped",
+      "✗ Attacca: node laptop/other timed out" in shown)
+check("the run's report reads as its result, not as one more tool",
+      "◆ done Scroll math lives in rows.rs" in shown and "report_result" not in shown)
+
+print("\n--- a question is answered inside the turn that asked it ---")
+ASK = {"questions": [
+    {"header": "DB", "question": "Which database?", "multiSelect": False,
+     "options": [{"label": "Postgres", "description": "the one in prod"},
+                 {"label": "SQLite"}]},
+    {"question": "Anything else?", "multiSelect": True,
+     "options": [{"label": "tests"}, {"label": "docs"}]}]}
+EXPECTED = ("[DB] Which database?\n  Postgres (the one in prod)\n\n"
+            "Anything else?\n  - tests\n  - docs")
+# The agent waits on Attacca for the answer *inside* the turn: nothing more
+# comes until it is sent, and without an answer here the turn never ends.
+server.scripts["ask me"] = [event(2, "tool_call", {"name": "question", "arguments": ASK,
+                                                   "result": None, "error": None})]
+server.scripts[EXPECTED] = [
+    event(3, "tool_call", {"name": "question", "arguments": ASK, "error": None,
+                           "result": {"status": "answered", "answer": EXPECTED}}),
+    delta("Postgres it is."), event(4, "chat_agent", {"content": "Postgres it is."}),
+] + DONE
+import builtins                          # noqa: E402
+typed = iter(["1", "1, 2"])
+real_input, builtins.input = builtins.input, lambda prompt="": next(typed)
+messages.append({"role": "user", "content": "ask me"})
+try:
+    answer, shown = quietly(lambda: run(attacca.run_turn(messages)))
+finally:
+    builtins.input = real_input
+sent = [e["params"]["message"] for e in server.received
+        if e.get("method") == "attacca_api.send_message"]
+check("the options are put to the person", "1 Postgres - the one in prod" in shown, shown[-500:])
+check("the answer goes back with the question it answers", sent[-1] == EXPECTED, repr(sent[-1]))
+check("and the turn carries on to its end", answer == "Postgres it is.", repr(answer))
+check("an answered question is not asked again", shown.count("Which database?") == 1)
+step = {"options": [{"label": "a"}, {"label": "b"}], "multi": False}
+check("a label is a pick, as a remote's button sends it", attacca._picks("b", step) == [1])
+check("two numbers for a one-answer question are not a pick",
+      attacca._picks("1 2", step) == [])
+check("anything else is a typed answer, marked as typed",
+      attacca._picks("neither", step) == [])
+
+print("\n--- closing the window stops the turn on Attacca ---")
+if hasattr(signal, "SIGTERM") and os.name != "nt":
+    server.scripts["slow again"] = [delta("partial "), ("pause",)]
+    messages.append({"role": "user", "content": "slow again"})
+    before = len(server.cancelled)
+
+    async def close_it():
+        task = asyncio.ensure_future(attacca.run_turn(messages))
+        for _ in range(200):
+            await asyncio.sleep(0.02)
+            if attacca.current_turn is not None and attacca.current_turn.printed:
+                break
+        os.kill(os.getpid(), signal.SIGTERM)
+        await task
+
+    try:
+        quietly(lambda: run(close_it()))
+        code = None
+    except SystemExit as stop:
+        code = stop.code
+    check("the program ends, as a closed window should", code == 128 + signal.SIGTERM, repr(code))
+    check("having told Attacca to stop the turn first", len(server.cancelled) == before + 1,
+          str(server.cancelled[before:]))
+    check("and SIGTERM is left as it was found once the turn is over",
+          signal.getsignal(signal.SIGTERM) == signal.SIG_DFL)
+
+print("\n--- the agent is told what a local model would have been ---")
+with open("AGENTS.md", "w", encoding="utf-8") as handle:
+    handle.write("Run the tests with `make check` - never pytest directly.\n")
+with open(".env", "w", encoding="utf-8") as handle:
+    handle.write("STRIPE_KEY=sk_live_notarealkey123456\n")
+try:
+    told = attacca._preamble(attacca.link())
+finally:
+    os.remove("AGENTS.md")
+    os.remove(".env")
+check("the project's own instructions", "make check" in told, told[:300])
+check("the .env names, and how to use them", "STRIPE_KEY" in told and "{{env:NAME}}" in told)
+check("never the .env value", "sk_live_notarealkey123456" not in told)
 
 print("\n--- a call nobody here made: the prompt makes way, keeps the line ---")
 from aetheris import app                 # noqa: E402

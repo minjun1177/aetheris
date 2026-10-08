@@ -74,6 +74,28 @@ That last one was wrong at first - attacca.cc reports the session's state the
 moment a stream opens, which is "not running" before the message goes in - and
 `tests/test_attacca.py` now plays exactly that.
 
+### Attacca: what a turn is doing, and the questions it asks
+
+Checked on attacca.cc.
+
+- **What it is thinking, in a line.** Attacca titles each reasoning block and
+  heads each stretch of work by rewriting the event; those titles now appear
+  (`✻ …`, `▾ …`), once each however often the event is rewritten. The last
+  ones land after the turn has ended, so the turn listens up to two seconds
+  more for them.
+- **Questions answered inside the turn.** The agent's `question` waits on the
+  server for the next message, and the prompt only came back once the turn
+  ended - so the turn sat until the server gave up. The options are now put to
+  the person at once, and the answer goes back with its question.
+- **Errors, reports and sub-agents.** An `error` event is shown instead of
+  dropped; `report_result` reads as the run's result; a sub-agent shows when it
+  starts and when it is done or failed.
+- **The project, told to the agent.** The session preamble carries the
+  project's conventions file, the skills catalogue and the `.env` names - what a
+  local model is told in its system prompt, which Attacca's agent never sees.
+- **Closing the window stops the turn.** SIGHUP and SIGTERM mid-turn cancel it
+  on Attacca first, instead of leaving it running and failing every call.
+
 ### The harness's own keys, out of the model's reach
 
 `providers.json` held every API key in plaintext, and nothing kept a model
