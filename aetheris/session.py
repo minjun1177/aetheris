@@ -258,6 +258,10 @@ def save_session(messages: list[dict], session_id: str) -> str:
         "messages": config.repair_messages(messages),
         "updated_at": datetime.datetime.now().isoformat()
     }
+    if config.ATTACCA_SESSION:
+        # Only when there is one, so a session that never went near Attacca is
+        # written byte for byte as it always was.
+        data["attacca_session"] = config.ATTACCA_SESSION
 
     try:
         atomic.write_json(filepath, data)

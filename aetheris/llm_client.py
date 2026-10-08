@@ -342,15 +342,20 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
             try: await spin_task
             except asyncio.CancelledError: pass
             
-    config.token_history.append({"prompt": prompt_tokens,
-                                 "completion": completion_tokens,
-                                 "cached": cached_tokens,
-                                 "turn": config.turn_index})
+    # A reply whose provider counted nothing records and prints nothing: a line
+    # of zeros is not a measurement. Attacca streams a turn in segments with no
+    # counts of their own, and reports the session's once, at the end.
+    counted = bool(prompt_tokens or completion_tokens)
+    if counted:
+        config.token_history.append({"prompt": prompt_tokens,
+                                     "completion": completion_tokens,
+                                     "cached": cached_tokens,
+                                     "turn": config.turn_index})
     # `messages` is still exactly what was sent - the reply is appended by the
     # caller - so this is a clean sample to calibrate the estimator against.
     context.observe_usage(messages, prompt_tokens)
-    
-    if not stream.saw_tool_call:
+
+    if counted and not stream.saw_tool_call:
         # The turn this request ends, so what is reported is what the question
         # cost rather than what its last request cost. `/usage` groups the same
         # way; the two would otherwise disagree about the same conversation.

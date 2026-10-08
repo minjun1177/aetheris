@@ -86,11 +86,13 @@ def _adopt_session(loaded) -> list[dict]:
         config.MODEL = loaded.get("model", config.MODEL)
         config.CUSTOM_PERSONA = loaded.get("persona", config.CUSTOM_PERSONA)
         config.SESSION_TITLE = loaded.get("title", "")
+        config.ATTACCA_SESSION = loaded.get("attacca_session", "")
     else:                                   # a transcript from before version 2
         messages = loaded
         config.token_history.clear()
         config.resume_turns()
         config.SESSION_TITLE = ""
+        config.ATTACCA_SESSION = ""
     if not messages or messages[0].get("role") != "system":
         # Every later turn addresses messages[0] as the system message. A file
         # saved with none - or with none left after a repair - must not make the
@@ -591,6 +593,47 @@ def _echo_remote(line: str) -> str:
     return line
 
 
+# What `_read_line` returns when the prompt closed for a call from Attacca rather
+# than for a line: the main loop serves it - outside `patch_stdout`, where an
+# approval prompt reads the keyboard the ordinary way - and opens the prompt
+# again without starting a turn.
+IDLE_CALL = object()
+_kept_typing = ""             # half a line, set aside while a call was served
+
+
+def _attacca_listening() -> bool:
+    """Whether a call from Attacca can arrive while the prompt is open."""
+    if not providers.current().drives_turns:
+        return False
+    from aetheris import attacca
+    return attacca.connected()
+
+
+async def _attacca_call() -> bool:
+    """Resolves once a call from Attacca is waiting. Looks; never takes one.
+
+    Taking it here would lose it whenever the keyboard won the same race - the
+    call would be off the queue with nobody left to answer it. So this only
+    sees that something is there, and `attacca.serve_waiting` takes it.
+    """
+    from aetheris import attacca
+    while not attacca.call_waiting():
+        await asyncio.sleep(attacca.IDLE_POLL)
+    return True
+
+
+def _serve_idle_calls() -> None:
+    """Run what Attacca's agent asked for while the prompt was open."""
+    from aetheris import attacca
+    try:
+        attacca.serve_waiting()
+    except KeyboardInterrupt:
+        print(f"\n  {S.GRAY}Stopped - the agent was told the call was cancelled.{S.R}")
+    except Exception as error:
+        connect._print_problem("Could not serve a call from Attacca", error)
+    print()
+
+
 async def _typed_or_remote(session_pt, message) -> str:
     """Whichever comes first: a line typed here, or one typed on the remote.
 
@@ -600,18 +643,44 @@ async def _typed_or_remote(session_pt, message) -> str:
     again, and the alternative - holding the remote's line until somebody
     presses Enter here - is exactly the hang the remote exists to avoid.
     """
-    typed = asyncio.ensure_future(session_pt.prompt_async(message))
-    if not remote.running():
+    global _kept_typing
+    kept, _kept_typing = _kept_typing, ""
+    # `default` only when there is something to put back, so every prompt that
+    # never met an Attacca call opens exactly the way it always did.
+    typed = asyncio.ensure_future(session_pt.prompt_async(message, default=kept)
+                                  if kept else session_pt.prompt_async(message))
+    called = (asyncio.ensure_future(_attacca_call()) if _attacca_listening()
+              else None)
+    if not remote.running() and called is None:
         return (await typed).strip()
 
-    waiting = asyncio.ensure_future(_remote_line())
-    done, _ = await asyncio.wait({typed, waiting},
-                                 return_when=asyncio.FIRST_COMPLETED)
+    waiting = asyncio.ensure_future(_remote_line()) if remote.running() else None
+    contestants = {typed} | {c for c in (waiting, called) if c is not None}
+    done, _ = await asyncio.wait(contestants, return_when=asyncio.FIRST_COMPLETED)
     if typed in done:
-        waiting.cancel()
-        remote.set_driver("terminal")
+        for other in (waiting, called):
+            if other is not None:
+                other.cancel()
+        if waiting is not None:
+            remote.set_driver("terminal")
         return typed.result().strip()
 
+    if called is not None and (waiting is None or waiting not in done):
+        # Attacca's agent wants a tool run, and nobody here asked it anything.
+        # Whatever was half-typed is kept and put back when the prompt reopens -
+        # it was not this person's mistake that the box closed under them.
+        _kept_typing = session_pt.default_buffer.text
+        if waiting is not None:
+            waiting.cancel()
+        typed.cancel()
+        try:
+            await typed
+        except (asyncio.CancelledError, Exception):
+            pass
+        return IDLE_CALL
+
+    if called is not None:
+        called.cancel()
     typed.cancel()
     try:
         await typed
@@ -647,6 +716,12 @@ async def _read_line(session_pt) -> str:
         waiting = remote.take_line()
         if waiting:
             return _echo_remote(waiting)
+        if _attacca_listening():
+            from aetheris import attacca
+            if attacca.call_waiting():
+                # Served before blocking, since nothing can interrupt `input()`;
+                # a call that lands while it waits is served after the Enter.
+                return IDLE_CALL
         remote.set_driver("terminal")
         line = input(f"  {S.USER_CLR}{S.BOLD}❯{S.R} ").strip()
         _auto_turns, _auto_spent_said = 0, False
@@ -697,6 +772,8 @@ async def _read_line(session_pt) -> str:
                 line = await _typed_or_remote(session_pt, message)
     finally:
         watcher.cancel()
+    if line is IDLE_CALL:
+        return line           # an agent elsewhere, not somebody arriving here
     if not _auto_woke:
         # Somebody is at the keyboard. Whatever the channel spent answering on
         # its own is forgiven, including an empty line - pressing Enter is how
@@ -1173,6 +1250,10 @@ async def main(resume_id: str = "") -> None:
     print("\033[2J\033[H", end="")
     providers.apply_startup()
     failed_mcp = _connect_mcp_servers()
+    if providers.current().drives_turns and providers.current().api_key:
+        # After the MCP servers, so the first announcement already lists theirs.
+        from aetheris import attacca
+        attacca.connect_in_background()
     config.SYSTEM_PROMPT = _build_system_prompt()
     messages: list[dict] = [{"role": "system", "content": _compose_system_prompt()}]
 
@@ -1259,13 +1340,23 @@ async def main(resume_id: str = "") -> None:
                 session_pt if config.PROMPT_TOOLKIT_AVAILABLE else None)
             # A console that hands back surrogate escapes would otherwise poison
             # the history: every later save and request would raise.
-            user_input = config.safe_text(user_input)
+            if user_input is not IDLE_CALL:
+                user_input = config.safe_text(user_input)
         except (EOFError, KeyboardInterrupt):
             channel.leave()
             remote.stop()
             mcp_client.shutdown()
+            if providers.current().drives_turns:
+                from aetheris import attacca
+                attacca.disconnect()
             print(f"\n\n  {S.GRAY}Goodbye!{S.R}\n")
             break
+
+        if user_input is IDLE_CALL:
+            # Outside the `try` above on purpose: Ctrl+C at an approval prompt
+            # for a call nobody here made means "not that", not "quit".
+            _serve_idle_calls()
+            continue
 
         if not user_input:
             continue
@@ -1326,6 +1417,9 @@ async def main(resume_id: str = "") -> None:
             messages = [{"role": "system", "content": _compose_system_prompt()}]
             current_session_id = None
             config.SESSION_TITLE = ""
+            # A cleared conversation here is a new one there, too: Attacca
+            # keeps its own context, and the old session would remember it all.
+            config.ATTACCA_SESSION = ""
             config.token_history.clear()
             config.turn_index = 0
             config.LOADED_SKILLS.clear()
@@ -1805,8 +1899,18 @@ async def main(resume_id: str = "") -> None:
         config.repair_messages(messages)
         current_session_id = save_session(messages, current_session_id)
 
+        driven_elsewhere = providers.current().drives_turns
         try:
-            if config.DEEPTHINK:
+            if driven_elsewhere:
+                # Attacca runs the loop - and its own context - on its side;
+                # this end runs the tools it asks for. Nothing here to compact,
+                # and no six local stages for deepthink to run.
+                if config.DEEPTHINK:
+                    print(f"  {S.MUTED}◆ /deepthink is for a model this harness "
+                          f"drives; Attacca runs its own loop.{S.R}")
+                from aetheris import attacca
+                result = await attacca.run_turn(messages)
+            elif config.DEEPTHINK:
                 # deepthink drives its own turns, and manages context between
                 # them - it is several passes over one request, not one.
                 result = await deepthink.run(messages)
@@ -1816,8 +1920,11 @@ async def main(resume_id: str = "") -> None:
 
             current_session_id = save_session(messages, current_session_id)
 
-            # Name the session once, from the exchange that just finished.
-            if config.AUTO_TITLE and not config.SESSION_TITLE and current_session_id:
+            # Name the session once, from the exchange that just finished. Not
+            # for Attacca: a title is a side question to a model, there is no
+            # model here to ask, and Attacca names its own sessions anyway.
+            if (config.AUTO_TITLE and not config.SESSION_TITLE and current_session_id
+                    and not driven_elsewhere):
                 sys.stdout.write(f"  {S.MUTED}✎ naming session…{S.R}")
                 sys.stdout.flush()
                 title = await generate_session_title(messages)

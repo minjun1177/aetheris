@@ -471,6 +471,13 @@ class Provider:
     key_help = ""
     default_base_url = ""
     needs_key = True
+    # True for a provider that runs the agent loop itself, somewhere else, and
+    # only calls back for tools - Attacca. `app` hands such a turn to the
+    # provider whole instead of driving `chat_turn` against it.
+    drives_turns = False
+    # True where the credential comes from pairing with a code rather than
+    # from a key someone pastes - `/connect` shows the code instead of asking.
+    pairs = False
 
     def __init__(self, settings: dict | None = None):
         self.settings = settings or {}
@@ -1121,8 +1128,52 @@ class GeminiProvider(Provider):
         return _as_stream(chunks)
 
 
+class AttaccaProvider(Provider):
+    """An agent hosted on Attacca, driving this machine's tools. See attacca.py.
+
+    Not a model: there is nothing here to send a conversation to. `model` is
+    the name of the Attacca agent turns go to, and `stream` reads the reply of
+    a turn `attacca.run_turn` already started.
+    """
+    name = "attacca"
+    label = "Attacca"
+    key_env = ("ATTACCA_CREDENTIAL",)
+    key_help = "/connect attacca pairs this machine with a code - no key to paste"
+    default_base_url = "wss://attacca.cc/api/zyris/v1/ws"
+    drives_turns = True
+    pairs = True
+
+    @property
+    def base_url(self) -> str:
+        # The server is chosen the way the key is: environment first.
+        return (os.environ.get("ATTACCA_SERVER_URL", "").strip()
+                or super().base_url)
+
+    def sees_images(self) -> bool:
+        return False
+
+    def ready(self) -> str:
+        if not self.api_key:
+            return "not paired (/connect attacca)"
+        if not self.model:
+            return "no agent chosen"
+        return ""
+
+    def list_models(self) -> list:
+        from aetheris import attacca
+        agents = attacca.link().call("attacca_api.list_agents", {}) or []
+        return [{"name": agent.get("name") or agent.get("id", ""),
+                 "detail": agent.get("model") or agent.get("description") or ""}
+                for agent in agents if agent.get("id")]
+
+    def stream(self, messages: list, max_tokens: int | None = None, **_):
+        from aetheris import attacca
+        return attacca.stream_segment()
+
+
 PROVIDERS = {p.name: p for p in
-             (OllamaProvider, AnthropicProvider, OpenAIProvider, GeminiProvider)}
+             (OllamaProvider, AnthropicProvider, OpenAIProvider, GeminiProvider,
+              AttaccaProvider)}
 
 
 # ---------------------------------------------------------------------------
@@ -1270,6 +1321,12 @@ def _sync_config(provider: Provider) -> None:
 
 async def complete(messages: list, max_tokens: int) -> str:
     """One short non-streamed answer - used for session titles and summaries."""
+    provider = current()
+    if provider.drives_turns:
+        # There is no model behind it to ask a side question of: everything
+        # goes through the agent's session, which keeps its own context.
+        raise RuntimeError(f"{provider.label} runs its own agent loop and cannot "
+                           f"answer a one-off request like this one.")
     pieces = []
     async for chunk in current().stream(messages, max_tokens=max_tokens):
         if chunk.get("text"):

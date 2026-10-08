@@ -57,6 +57,13 @@ ast = [
     "tree-sitter-rust>=0.24.2,<0.25",
     "tree-sitter-c-sharp>=0.23.5,<0.24",
 ]
+# Attacca speaks Zyris: one websocket of msgpack frames. Nothing imports either
+# package until /connect attacca, so a harness that only talks to Ollama never
+# needs them: pip install "aetheris[attacca]"
+attacca = [
+    "websockets>=17.2,<18.0",
+    "msgpack>=1.2.3,<2.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/minjun1177/aetheris"

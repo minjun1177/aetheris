@@ -1892,7 +1892,13 @@ def handle_spawn_agent(task: str, context: str = "", model: str = "") -> str:
     on a hosted model, real money before it reaches its first tool - so the
     decision to hire one is the user's, the same as running a command is.
     """
-    from aetheris import subagent
+    from aetheris import providers, subagent
+    if providers.current().drives_turns:
+        # A sub-agent is the local loop run again on the current provider, and
+        # this provider has no local loop: started from inside an Attacca turn
+        # it would wait on that same turn for an answer that never comes.
+        return ("[System] spawn_agent is not available here - this session's "
+                "agent loop runs elsewhere. Do this part of the work yourself.")
     first_line = (task or "").strip().splitlines()[0] if (task or "").strip() else ""
     details = [("task", first_line), ("model", model or "same as this one")]
     if not _approval_prompt("Hire Sub-agent", details, rule="spawn_agent"):

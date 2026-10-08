@@ -12,9 +12,11 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~18,600 lines of Python, no framework. It talks to
+A terminal AI assistant, ~21,600 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
-model 40 tools, and runs them with the user's approval.
+model 40 tools, and runs them with the user's approval. It can also hand whole
+turns to an agent hosted on Attacca and run the tools that agent calls back
+for (§8d).
 
 The design constraint that explains most of the odd decisions: **it has to work
 with a 4-billion-parameter local model.** Such a model cannot reliably escape a
@@ -40,6 +42,7 @@ app.main()                                      app.py
 ├─ messages.append({"role": "user", "content": <what they typed>})
 ├─ save_session(messages, id)                   session.py
 │
+├─ provider.drives_turns ? attacca.run_turn(messages)  attacca.py → §8d
 ├─ config.DEEPTHINK ? deepthink.run(messages)   deepthink.py  → §7
 │                   : chat_turn(messages)       llm_client.py
 │                     └─ context.manage_context first
@@ -576,6 +579,8 @@ app.py            the loop, slash commands, session lifecycle
       └ qr.py    a QR encoder, stdlib only, for the link that door prints
       └ vm.py     the Python scratch process behind run_python
       └ providers.py  four wire formats → one event shape
+  └ attacca.py     a hosted agent's turn, and the tools it calls back for
+      └ zyris.py    the websocket both ways, on a reader thread of its own
           └ sse.py    server-sent events, read as they arrive
           └ atomic.py crash-safe writes
   └ config.py     every setting and its default, the saved overrides read
@@ -599,6 +604,8 @@ app.py            the loop, slash commands, session lifecycle
 | `channel.py` | Who else is running here, what they said, what they hold | Anything about one conversation |
 | `qr.py` | Byte-mode QR encoding and the half-block drawing of it. Nothing about the remote | What the link *is* - `remote.urls` decides that |
 | `remote.py` | The HTTP server, the token, the transcript mirrored off `sys.stdout`, and the question that follows the driver | Anything about *what* is being approved - it carries the question, it does not read it |
+| `zyris.py` | The Zyris wire: framing, the handshake, calls both ways, streams and credit, reconnecting. Imports `websockets`/`msgpack` only when used | Anything about Attacca - it is one deployment of the protocol |
+| `attacca.py` | Pairing, the announced capability, the session, and the turn: segments for `stream_reply`, calls served through `dispatch_tool` | A second dispatcher - every call goes through `dispatch_tool` |
 | `context.py` | Token estimate, trimming, compression, and folding the token history into turns | |
 | `session.py` | Session files, the directory each was worked in, long-term memory, and the block the important ones make (5.15) | Where that block is put - `app` composes |
 | `notes.py` | A project's markdown notes: where they live, the five tools over them, and the block of titles (5.16) | What counts as a project - `channel.workspace` answers that |
@@ -1136,6 +1143,75 @@ the token and the queue together.
 
 ---
 
+## 8d. Attacca
+
+`attacca.py` and `zyris.py`, behind `/connect attacca`. Every other provider is
+a model that `chat_turn` drives. Attacca is an agent loop of its own on another
+machine, so for it `app` skips `chat_turn` - and `manage_context`, `deepthink`
+and the auto-title, all of which ask a model this end drives - and calls
+`attacca.run_turn` instead. What stays here is everything that touches this
+machine.
+
+```
+ main thread                                   reader thread (zyris.Link)
+ app → attacca.run_turn                        recv() → envelope / chunk
+   send_message  ───────────────────────────▶  ·
+   stream_reply(messages)                      · res/err → the waiting call
+     └ AttaccaProvider.stream → _segment  ◀──  · stream items → Stream queue
+          deltas → {"text"} {"thinking"}       · inbound req → Link.inbox
+          ends at: a call for this machine,
+                   a line to print, the end
+   serve(request) → tools.dispatch_tool  ───▶  · res → the far end
+   (loop until the turn ends)
+```
+
+**Why the socket has its own thread.** A tool runs on the main thread because
+that is where `ask_the_driver` reads a keyboard, and an approval prompt waits
+on a person for as long as they like. attacca.cc closes a connection that
+stops answering pings after 45 seconds. So one thread reads the socket and
+never waits on anyone, and hands what it reads over through queues. Only that
+thread calls `recv()` - the sync `websockets` client allows exactly one.
+
+**A turn is segments.** `stream_reply` is reused as it is - spinner, markdown,
+reasoning, TPS - by giving it a "stream" that is one segment of the turn. A
+segment ends wherever the agent wants something other than more text: a call
+into this machine, which `run_turn` serves and then streams the next segment,
+or a line about a tool that ran on Attacca. Segments carry no token counts, and
+`stream_reply` records and prints nothing for a reply nobody counted; the
+session's cost is reported once, from `session_usage`.
+
+**When a turn has ended** is the edge from `running: true` to `running: false`
+- never a `false` on its own. attacca.cc sends the session's state the moment
+a stream opens, which is `false` before the message has gone in, and reading
+that as the end ended live check #2 before its first word. The turn is armed by
+a `running: true` or by this message's own `chat_user` event. A session
+already running a turn - one started from the web app - is waited out first,
+because posting into it would race its end.
+
+**Calls nobody here made.** The node stays announced between turns, so an agent
+in the web app can call it while the prompt is open. `app._typed_or_remote`
+races the keyboard and the remote against `_attacca_call`, which *looks* at the
+inbox and never takes from it, so a call cannot be lost to the keyboard winning
+the same race. When the call wins, the half-typed line is set aside and handed
+back as `default=`, and the call is served by the main loop outside
+`patch_stdout`, where an approval prompt reads the keyboard the ordinary way.
+Ctrl+C at that prompt refuses the call; it does not quit.
+
+**What is offered** is `toolspec.native_schema()` plus the MCP tools, as one
+capability named `aetheris`; the agent sees them as
+`zyris__aetheris_v1__<tool>`, which is how its events name them. `spawn_agent`
+and `view_image` are left out - both hand work to the local model - and
+`spawn_agent` also refuses outright under a provider that drives its own
+turns: started from inside an Attacca turn, it would wait on that same turn.
+
+**Names and shapes** were read off attacca.cc, not guessed: the scopes, the
+parameter objects (`create_session_with` takes `{session: …}`), the tool names
+in events, `credits_used` as a share of the plan. The spec and zyris-code are
+the references: the wire spec in the `docs/` folder of
+github.com/attacca-cc/zyris-protocol, and github.com/attacca-cc/zyris-code.
+
+---
+
 ## 9. Recipes
 
 ### Add a tool
@@ -1155,7 +1231,9 @@ the token and the queue together.
 ### Add a provider
 
 1. Subclass `providers.Provider`: `name`, `label`, `key_env`,
-   `default_base_url`, `list_models()`, `stream()`.
+   `default_base_url`, `list_models()`, `stream()`. A provider that runs the
+   agent loop itself sets `drives_turns` instead and owns the whole turn -
+   see §8d for what that takes.
 2. `stream()` must yield the §3 event shape and nothing else.
 3. Set `supports_native_tools` and implement `encode_tools()` if it has a
    function-calling interface; leave both alone if it does not.
@@ -1203,6 +1281,8 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |
 | `test_qr.py` | That a symbol is one a scanner can read: read back through its own format bits, zigzag and blocks, every block still satisfies its parity (§8c) |
+| `test_zyris.py` | The wire against a server written from the spec: msgpack handshake, answers by id, a stream with a gap failed rather than delivered, in-flight calls failed on a drop and tools re-announced after it, a refused or revoked credential that stops redialling (§8d) |
+| `test_attacca.py` | Pairing at the server's pace, a turn drawn by `stream_reply`, a stale `running: false` not ending a turn, a deny rule refusing the agent's call, a busy session waited out, Ctrl+C reporting what was seen, an idle call closing the prompt and keeping the half-typed line (§8d) |
 | `test_remote.py` | That no token, a nearly-right token and a foreign `Host` each get nothing, that a `.env` value does not go out over the wire, that a stale question cannot be answered, and that closing the door frees the port (§8c) |
 | `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, that a message sent mid-turn is read inside that turn rather than after it, and that concurrent writes to the board lose nothing (5.11, §8) |
 | `test_hashline_edit.py` | That an anchor reaches the line it names, and that a stale one is refused rather than applied a few lines off (5.12) |

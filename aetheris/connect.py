@@ -98,7 +98,8 @@ def show_status() -> None:
         print(f"  {S.ACCENT}{provider.label}{S.R} {S.MUTED}({name}){S.R}  {state}{marker}")
         if provider.model:
             print(f"  {S.MUTED}│{S.R}  {S.GRAY}model{S.R}  {provider.model}")
-        how = ("native tool calling" if provider.supports_native_tools
+        how = ("run here, called by the agent over Zyris" if provider.drives_turns
+               else "native tool calling" if provider.supports_native_tools
                and getattr(config, "NATIVE_TOOLS", True)
                else "text <tool_call> protocol")
         print(f"  {S.MUTED}│{S.R}  {S.GRAY}tools{S.R}  {S.MUTED}{how}{S.R}")
@@ -166,8 +167,20 @@ def _pick_provider() -> str:
 def _ensure_key(name: str) -> bool:
     """Ask for an API key if the provider needs one and has none."""
     provider = providers.build(name)
+    if provider.pairs:
+        # Checked before anything else: finding out the packages are missing
+        # after walking to another device to type a code is the worse order.
+        from aetheris import zyris
+        try:
+            zyris._libraries()
+        except zyris.MissingDependency as error:
+            print(f"  {S.ERR}✗ {error}{S.R}\n")
+            return False
     if not provider.needs_key or provider.api_key:
         return True
+    if provider.pairs:
+        from aetheris import attacca
+        return attacca.pair(provider)
 
     print(f"\n  {S.WARN}{provider.label} needs an API key.{S.R}")
     print(f"  {S.MUTED}{provider.key_help}{S.R}")

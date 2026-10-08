@@ -31,6 +31,53 @@ packages of their own rather than be imported from here.
 
 ---
 
+## Unreleased
+
+### Attacca: an agent somewhere else, the tools here
+
+For a machine that cannot run a model of its own. `/connect attacca` pairs this
+machine with [Attacca](https://attacca.cc) by an eight-character code, and from
+then on a turn goes to an agent hosted there - Qwen among the models on offer -
+while every tool it calls runs here.
+
+Attacca is not a model, so this is not one more wire format. It runs the agent
+loop on its own servers and reaches back over Zyris, its websocket protocol,
+whenever it wants a file read or a command run. So connecting to it changes who
+drives a turn. `chat_turn`, compaction, `/deepthink` and the session titles all
+step aside for it; what stays is everything that touches this machine.
+
+- **The same rules.** A call from Attacca's agent goes through `dispatch_tool`
+  exactly as a local model's does: permission rules, approval prompts, the
+  `.env` vault, `/undo`, the file claims on the agent channel. The agent sees
+  the harness's own tool table, MCP tools included, minus `spawn_agent` and
+  `view_image`, which only mean something to the local loop.
+- **The narrowest grant that works.** Four scopes - `agents:read`,
+  `sessions:read`, `sessions:write`, `events:read` - and a `zc_` credential
+  saved owner-only like an API key, or read from `ATTACCA_CREDENTIAL`. A
+  credential revoked in Attacca is forgotten here, with the way to pair again.
+- **Reachable between turns.** An agent in Attacca's web app can use this
+  machine while the prompt waits. The call closes the prompt, says it came from
+  outside, meets the same rules, and gives back whatever was half-typed.
+- **Stopping is honest.** Ctrl+C stops the turn on Attacca too, keeping only as
+  much of the answer as reached the screen.
+
+`pip install "aetheris[attacca]"` - two packages, `websockets` and `msgpack`,
+that nothing imports until Attacca is the provider.
+
+Checked against attacca.cc itself, not only the spec: pairing, the parameter
+shapes, how its events name this machine's tools, and when a turn has ended.
+That last one was wrong at first - attacca.cc reports the session's state the
+moment a stream opens, which is "not running" before the message goes in - and
+`tests/test_attacca.py` now plays exactly that.
+
+### A reply nobody counted is not a line of zeros
+
+`stream_reply` used to record and print a token line for every reply, counted
+or not. A provider that reports no counts now gets neither, instead of
+`tokens: 0 in · 0 out` and a zero row in `/usage`.
+
+---
+
 ## 1.0.0 - 2026-10-06
 
 Three things, and the version number is about the third. The session can be

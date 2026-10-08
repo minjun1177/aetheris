@@ -26,6 +26,7 @@ exists to make small models genuinely usable rather than nearly usable.
 ## 2. Features
 
 - **Any Provider**: `/connect` points the harness at Ollama, Anthropic, OpenAI (or anything OpenAI-compatible), or Google Gemini. No vendor SDKs - four wire formats normalised into one event shape.
+- **Attacca**: `/connect attacca` pairs this machine with [Attacca](https://attacca.cc) by a code, and turns go to an agent hosted there - for a machine that cannot run a model of its own. The agent runs on Attacca; the tools run here, through the same permission rules, approval prompts and undo log a local model's calls go through. See *Attacca*.
 - **Two Tool Protocols, One Tool Table**: A model with a real function-calling interface gets the tools through it; one without gets them as `<tool_call>` text with a JSON repair engine behind it. For Ollama this is decided per model. Both come from the same table, and both end up as the same call.
 - **Deepthink**: `/deepthink on` turns one request into plan → argue with the plan → build → review the real diff → run it. The planning stages *cannot* edit, the harness reports what the final check actually ran, and a check that says the work is not done sends the whole chain back to the plan.
 - **Undo**: every file an AI tool changes is committed on its own, so `/undo` takes it back. It commits only what the tool named, and refuses to undo over work it did not create.
@@ -127,6 +128,10 @@ is.
    (or `pip install -e ".[ast]"` from a checkout). Everything else runs
    without it.
 
+   Attacca speaks a websocket protocol that needs two more packages, so it is
+   opt-in the same way: `pip install "aetheris[attacca]"`. `/connect attacca`
+   says so, before any pairing code is shown, if they are missing.
+
 2. **Pull an Ollama Model**:
    ```bash
    ollama pull gemma4:e4b
@@ -162,6 +167,10 @@ especially on Windows: it checks what that machine can tell you about a command
 waiting for input. `tests/test_vm.py` starts and kills real Python processes,
 so it is the slowest of them - about ten seconds, most of it waiting out a
 deliberate `VM_TIMEOUT`.
+
+`tests/test_zyris.py` and `tests/test_attacca.py` need the `attacca` extra
+and say `skipped` without it. They still need no network: Attacca is played
+by a server on a loopback port.
 
 ---
 
@@ -991,6 +1000,7 @@ moves it:
 | `anthropic` | `api.anthropic.com` | `ANTHROPIC_API_KEY` |
 | `openai` | `api.openai.com/v1`, or any compatible `base_url` | `OPENAI_API_KEY` |
 | `gemini` | `generativelanguage.googleapis.com` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `attacca` | `wss://attacca.cc`, or `ATTACCA_SERVER_URL` | a pairing code, or `ATTACCA_CREDENTIAL` |
 
 Because `base_url` is settable, the `openai` entry also reaches anything that
 speaks the same protocol - a local vLLM or llama.cpp server, OpenRouter, Groq,
@@ -1002,6 +1012,63 @@ which is a place people commit from. On Linux and macOS the file is owner-only
 (0600) from the moment it is created. Windows has no POSIX mode bits, so there
 the file takes whatever ACL its directory gives it; `%USERPROFILE%` is
 per-user, but if that matters to you, keep the key in the environment instead.
+
+### Attacca
+
+[Attacca](https://attacca.cc) is not a model, and this is not one more API to
+send a conversation to. It runs the agent loop on its own servers - its own
+prompt, its own context, its own model; Qwen among them - and reaches back into
+this machine whenever the agent wants a file read or a command run. That makes
+it the way to use the harness on a machine that cannot run a model at all.
+
+```
+/connect attacca          pair this machine (once), then pick an agent
+/connect forget attacca   drop the saved credential
+```
+
+**Pairing.** The first `/connect attacca` shows an eight-character code and the
+page to type it on - from any device with a browser - plus a QR code of that
+page. Approve all four scopes it asks for: `agents:read`, `sessions:read`,
+`sessions:write`, `events:read`. That is everything a turn uses and nothing
+more: jobs, works, files and peers are never touched, so they are never asked
+for. What comes back is a long-lived `zc_` credential, saved owner-only in
+`providers.json` like an API key; `ATTACCA_CREDENTIAL` supplies one from the
+environment instead. Revoking it from Attacca's settings ends it everywhere:
+the next connection is refused, and the harness forgets it and says to pair
+again.
+
+**The agent list is the model list.** `/connect attacca` lists your agents with
+the model each runs on, and `/models` does the same. The choice is kept by name
+and never quietly swapped for another: an agent that has since been deleted is
+an error that names it.
+
+**A turn.** Your line goes to an Attacca session, and the reply streams back
+through the same renderer every reply goes through. The session's cost is
+shown once at the end, as Attacca reports it. `/clear` starts a new session
+there too; `/resume` picks the old one back up, because its id is saved with
+the session file. Ctrl+C stops the turn on Attacca as well, keeping only as
+much of the answer as was actually on your screen.
+
+**The tools run here, under your rules.** The agent sees this harness's own
+tool table as the capability `aetheris` - the same tools, MCP ones included,
+described the same way - and every call it makes is run by the same dispatcher
+a local model's calls are: permission rules, approval prompts, the `.env` vault,
+`/undo`, and the file claims on the agent channel all see it the same way. Two
+tools are left out, because they only mean something to the local loop:
+`spawn_agent` and `view_image`.
+
+**Calls nobody here made.** The machine stays reachable while the prompt is
+waiting, so an agent you are talking to in Attacca's web app can use it too.
+Such a call closes the prompt for as long as it runs - whatever you had
+half-typed comes back when it reopens - and is marked as coming from outside
+this terminal. It meets exactly the same rules and prompts; Ctrl+C at its
+approval prompt refuses that call rather than quitting.
+
+**What does not apply.** `/deepthink`, the context compaction and the session
+titles all work by asking a model this harness drives, and there is none here:
+Attacca keeps its own context and names its own sessions. A message sent while
+another turn is already running on the same Attacca session waits for that one
+to finish first.
 
 ### Prompt caching
 
@@ -2054,6 +2121,7 @@ Two prefixes act on the message itself rather than being commands:
 | `@<path>` | Attach a file (or a directory's listing) to this message. Typing `@` opens a completion menu of the current directory - arrows to move, Tab to insert |
 | `!<command>` | Run a shell command yourself. It skips the approval prompt, because you typed it, and its output is added to the conversation |
 | `/connect [provider] [model]` | Connect a provider, or pick one interactively |
+| `/connect attacca` | Pair this machine with Attacca by a code (once), then pick an agent |
 | `/connect status` | Show every provider and whether it is usable |
 | `/connect forget <provider>` | Delete the API key saved for a provider. An environment variable is left alone, and said so |
 | `/perms` | Show the active tool permission rules |
@@ -2100,7 +2168,9 @@ The codebase is organized cleanly around the following components:
 - **`channel.py`**: The board the harnesses running in one project share - who is here, what they have said, and which files each is in the middle of changing.
 - **`subagent.py`**: `spawn_agent` - a second model, hired for one self-contained job, working in its own context and handing back only its report.
 - **`skills.py`**: Skill discovery, frontmatter parsing, and on-demand loading.
-- **`providers.py`**: The provider abstraction - Ollama, Anthropic, OpenAI, Gemini - and the saved connection.
+- **`providers.py`**: The provider abstraction - Ollama, Anthropic, OpenAI, Gemini, Attacca - and the saved connection.
+- **`zyris.py`**: The Zyris wire - one websocket, msgpack envelopes, calls in both directions, streams with credit, and the reconnecting reader thread that keeps it up while a prompt waits on a person.
+- **`attacca.py`**: Attacca as the provider - pairing by code, this machine's tool table announced as a capability, and the turn that streams an agent's reply and runs the tools it calls back for.
 - **`connect.py`**: The `/connect` flow.
 - **`sse.py`**: Reading server-sent events without waiting for data that has not been sent. Shared by the providers and the MCP client.
 - **`permissions.py`**: Permission rule loading, matching, and the allow/deny/ask decision.
@@ -2127,6 +2197,8 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.
 - **`tests/test_qr.py`**: That a symbol is one a scanner can read - it reads each one back the way a scanner does, from the mask in its own format bits through the zigzag and the blocks, and checks that every block still satisfies its Reed-Solomon parity; plus what fits in which version, and that the drawing is the symbol.
+- **`tests/test_zyris.py`**: The Zyris wire against a server written from the spec, not from this client - a msgpack handshake, answers matched by id, a stream that skips a chunk failed rather than delivered, a dropped connection failing what was in flight and coming back with its tools announced again, and a refused or revoked credential that stops it for good.
+- **`tests/test_attacca.py`**: Attacca's seam against a fake that plays scripted turns - pairing at the server's pace, a turn drawn by the ordinary renderer, a tool call refused by a deny rule exactly as a local one would be, a turn that waits out one already running, Ctrl+C reporting how much was seen, and a call from the web app that closes the prompt and gives the half-typed line back.
 - **`tests/test_remote.py`**: That the remote refuses a request with no token, a token that is nearly right and a `Host` this machine was never called by, that a `.env` value on this terminal does not go out over it, that a question cannot be answered by a phone still showing the last one, and that closing it frees the port and puts `sys.stdout` back.
 - **`tests/test_channel.py`**: That a file one harness is changing cannot be written from another, that the refusal names who to ask, that a claim dies with the terminal that took it, and that several processes writing to the board at once lose nothing.
 - **`tests/test_mentions.py`**: What `@` attaches and what it must leave alone - an email address is not a file - that the completion menu reads the real directory, and that the command menu previews what each command does and what may follow it.
