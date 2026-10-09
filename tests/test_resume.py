@@ -222,6 +222,29 @@ try:
           os.path.isfile("holey.md") and "kept" in open("holey.md", encoding="utf-8").read(),
           said.getvalue().strip()[:60])
 
+    print("\n--- a replay draws each turn the way it was drawn live ---")
+    with contextlib.redirect_stdout(io.StringIO()) as drawn:
+        app._replay_session([
+            {"role": "system", "content": "the prompt"},
+            {"role": "user", "content": "read @a.py\n\n[Attached file: a.py]\nprint(1)"},
+            {"role": "assistant", "content": "Reading it.\n<tool_call>{\"name\": "
+                                             "\"read_file\", \"arguments\": "
+                                             "{\"filepath\": \"a.py\"}}</tool_call>"},
+            {"role": "user", "content": "[Tool Result for 'read_file']:\nprint(1)"},
+            {"role": "user", "content": "[System] Your last reply was empty."},
+            {"role": "user", "content": "[Channel] This arrived from another AI agent"},
+            {"role": "user", "content": "[Shell] $ echo 1\n1"},
+        ])
+    screen = drawn.getvalue()
+    check("a typed line as the prompt showed it, without what @ attached",
+          "read @a.py" in screen and "[Attached" not in screen, screen[:200])
+    check("an answer before the tool it called, the order it streamed in",
+          0 <= screen.index("Reading it.") < screen.index("read_file"))
+    check("nothing the harness only said to the model",
+          "[System]" not in screen and "[Channel]" not in screen)
+    check("!command as the shell block it printed, not as a message",
+          "[Shell]" not in screen and "!echo 1" in screen and "$" in screen)
+
 finally:
     os.chdir(origin)
     shutil.rmtree(HOME, ignore_errors=True)

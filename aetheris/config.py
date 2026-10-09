@@ -431,6 +431,13 @@ SECRET_MIN_LENGTH = 8       # below this a "secret" is a word like `dev`, and
                             # hiding it would rewrite every tool result
 SECRET_FILES = []           # extra filenames to treat the same way
 
+# --- the keyring -------------------------------------------------------------
+# Where saved API keys are kept: the OS keyring where there is one (keystore.py),
+# otherwise `providers.json` at 0600. Off keeps them in the file even where a
+# keyring is available. The setting form of `AETHERIS_KEYRING=off`, which still
+# switches it off when set: the environment is what a CI runner can reach.
+KEYRING_ENABLED = True
+
 # --- tool permissions --------------------------------------------------------
 # Rules live in .permissions.json / ~/.aetheris/permissions.json. Empty rules
 # behave exactly as before: the approval prompt decides.

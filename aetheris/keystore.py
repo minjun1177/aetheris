@@ -62,7 +62,13 @@ _known: dict = {}
 
 
 def switched_off() -> bool:
-    return os.environ.get(ENV_VAR, "").strip().lower() in _OFF
+    """Off by `AETHERIS_KEYRING=off` or by `/set KEYRING_ENABLED off`; either does it."""
+    if os.environ.get(ENV_VAR, "").strip().lower() in _OFF:
+        return True
+    # Here rather than at the top: `config` builds the system prompt as it is
+    # imported (ARCHITECTURE 5.2), and this module is imported under it.
+    from aetheris import config
+    return not getattr(config, "KEYRING_ENABLED", True)
 
 
 def _keyring():

@@ -168,6 +168,31 @@ try:
     fresh_state()
     check("back on, back again", providers.build("anthropic").api_key == KEY)
 
+    print("\n--- /set KEYRING_ENABLED: the same switch, and the keys move with it ---")
+    from aetheris import app            # noqa: E402
+    check("a setting /set offers", "KEYRING_ENABLED" in config.settable())
+    quietly(lambda: app._set_command("KEYRING_ENABLED off", [{"role": "system", "content": ""}]))
+    check("off is off", keystore.switched_off() and not keystore.available())
+    check("the key is in the file now, not left behind in a keyring nobody reads",
+          on_disk()["providers"]["anthropic"].get("api_key") == KEY
+          and "key_store" not in on_disk()["providers"]["anthropic"],
+          str(on_disk()["providers"]["anthropic"]))
+    fresh_state()
+    check("so the next start still has it", providers.build("anthropic").api_key == KEY)
+    os.environ["AETHERIS_KEYRING"] = "off"
+    with contextlib.redirect_stdout(io.StringIO()) as shown:
+        app._set_command("KEYRING_ENABLED on", [{"role": "system", "content": ""}])
+    said = shown.getvalue()
+    check("the environment still wins, and says so",
+          keystore.switched_off() and "AETHERIS_KEYRING=off" in said, said)
+    del os.environ["AETHERIS_KEYRING"]
+    quietly(lambda: app._set_command("KEYRING_ENABLED on", [{"role": "system", "content": ""}]))
+    check("on moves it back out of the file",
+          "api_key" not in on_disk()["providers"]["anthropic"]
+          and on_disk()["providers"]["anthropic"].get("key_store") == "keyring",
+          str(on_disk()["providers"]["anthropic"]))
+    check("and into the keyring", backend.entries.get(ENTRY) == KEY)
+
     print("\n--- /connect forget takes it out of the keyring too ---")
     removed, _ = providers.forget_key("gemini")
     check("forgotten", removed)

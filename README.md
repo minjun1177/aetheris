@@ -1023,11 +1023,13 @@ the macOS Keychain, the Windows Credential Manager or the Secret Service on a
 Linux desktop, and `providers.json` keeps only `"key_store": "keyring"` in its
 place. A key already in the file moves the next time the harness starts.
 Without the package, or with no keyring to use - WSL, a server, a container -
-or with `AETHERIS_KEYRING=off`, keys stay in the file at 0600 as before, and a
+or with `AETHERIS_KEYRING=off` or `/set KEYRING_ENABLED off`, keys stay in the
+file at 0600 as before, and a
 key the keyring refuses is written there rather than lost. **A keyring that
 does not answer within 10 seconds** - gnome-keyring on WSL or over SSH, waiting
 on an unlock prompt with no screen to show it - is skipped for the rest of the
-run, and the start says so; set `AETHERIS_KEYRING=off` to skip the wait.
+run, and the start says so; `/set KEYRING_ENABLED off` (or `AETHERIS_KEYRING=off`)
+skips the wait.
 
 **What a keyring does not do** is keep out a program running as you: it can
 ask the keyring through the same API, and on most desktops gets an answer
@@ -2061,6 +2063,7 @@ The settings worth knowing:
 | `SECRET_REDACT` | `True` | Whether `.env` values are hidden from the model and pasted back in by the harness (§13a) |
 | `SECRET_MIN_LENGTH` | 8 | Below this a value is a word like `dev`, not a secret, and hiding it would rewrite every result that mentions it |
 | `SECRET_FILES` | `[]` | Extra filenames to treat the way `.env` is treated |
+| `KEYRING_ENABLED` | `True` | Keep saved API keys in the OS keyring where there is one. `/set KEYRING_ENABLED off` moves them into `providers.json` (0600) at once, and `on` moves them back. `AETHERIS_KEYRING=off` in the environment still switches it off |
 | `GIT_AUTO_COMMIT` | `True` | A commit per AI edit, so `/undo` has something to take back |
 | `AUTO_VERIFY` | `True` | Run the project's own check after a turn changes a file |
 | `VERIFY_TIMEOUT` | 90 | Seconds one check gets before it is killed and turned off |
@@ -2131,8 +2134,9 @@ skills, and they win.
 | `./skills/`, then `~/.aetheris/skills/` | Skills |
 
 Set `AETHERIS_HOME` to put that directory somewhere else - two profiles, or a
-throwaway one for trying something out. Set `AETHERIS_KEYRING=off` to keep keys
-in `providers.json` even where a keyring is available.
+throwaway one for trying something out. Set `AETHERIS_KEYRING=off` - or
+`/set KEYRING_ENABLED off` - to keep keys in `providers.json` even where a
+keyring is available.
 
 **Upgrading from simple-harness.** The directory was `~/.localchat` before
 1.0.0, and the rename does not move it. If `~/.localchat` is there and
@@ -2274,6 +2278,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_qr.py`**: That a symbol is one a scanner can read - it reads each one back the way a scanner does, from the mask in its own format bits through the zigzag and the blocks, and checks that every block still satisfies its Reed-Solomon parity; plus what fits in which version, and that the drawing is the symbol.
 - **`tests/test_zyris.py`**: The Zyris wire against a server written from the spec, not from this client - a msgpack handshake, answers matched by id, a stream that skips a chunk failed rather than delivered, a dropped connection failing what was in flight and coming back with its tools announced again, and a refused or revoked credential that stops it for good.
 - **`tests/test_attacca.py`**: Attacca's seam against a fake that plays scripted turns - pairing at the server's pace, a turn drawn by the ordinary renderer, a tool call refused by a deny rule exactly as a local one would be, a turn that waits out one already running, Ctrl+C reporting how much was seen, and a call from the web app that closes the prompt and gives the half-typed line back.
+- **`tests/test_resize.py`**: That a resized terminal is drawn again for its new size - once the size has settled rather than at every step of a drag, with the screen and its scrollback cleared, the conversation replayed, and whatever was half-typed given back to the prompt; and that Ctrl+C at the prompt reaches the main loop instead of escaping the event loop.
 - **`tests/test_remote.py`**: That the remote refuses a request with no token, a token that is nearly right and a `Host` this machine was never called by, that a `.env` value on this terminal does not go out over it, that a question cannot be answered by a phone still showing the last one, and that closing it frees the port and puts `sys.stdout` back.
 - **`tests/test_channel.py`**: That a file one harness is changing cannot be written from another, that the refusal names who to ask, that a claim dies with the terminal that took it, and that several processes writing to the board at once lose nothing.
 - **`tests/test_mentions.py`**: What `@` attaches and what it must leave alone - an email address is not a file - that the completion menu reads the real directory, and that the command menu previews what each command does and what may follow it.

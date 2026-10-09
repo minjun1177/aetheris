@@ -128,6 +128,43 @@ conversation, at the provider and in a session file.
 or not. A provider that reports no counts now gets neither, instead of
 `tokens: 0 in · 0 out` and a zero row in `/usage`.
 
+### Resizing the terminal redraws the conversation
+
+A terminal does not reflow what was printed for another width: narrower, every
+rule, table and code frame wrapped into a second ragged line; wider, the
+transcript stayed in the left part of the window. Now a resize under the prompt
+clears the screen and its scrollback and draws the banner and the conversation
+again at the new size, the way `--resume` replays one. It waits for the size to
+settle, so a dragged edge is drawn once; whatever was half-typed is put back;
+and a resize during a turn is redrawn when the prompt returns. Output that never
+entered the conversation - `/help`, a listing - is not kept and does not come
+back.
+
+### A replayed conversation looks like the one that was had
+
+`/load` used to print the session below whatever the screen already held, and
+the replay drew turns as nothing had drawn them: `!echo 1` as a message reading
+`[Shell] $ echo 1`, the harness's own notes to the model as if typed, the files
+an `@` attached pasted under the line, and every answer after the tools it had
+called instead of before. Now `/load` clears the screen and draws from the top,
+as `--resume` does, and each turn is drawn the way it was live.
+
+### Ctrl+C at the prompt says goodbye again
+
+Pressed at the prompt, Ctrl+C left through `asyncio.run` - past the main
+loop's goodbye and shutdown - and printed `Task exception was never retrieved`
+with a traceback on the way out. The prompt runs as a task so it can be raced,
+and asyncio raises a `KeyboardInterrupt` from a task out of the event loop
+rather than to whoever awaits it. It is now handed back and raised where the
+main loop catches it.
+
+### `/set KEYRING_ENABLED`
+
+`AETHERIS_KEYRING=off`, as a setting. Switched off, the saved keys move into
+`providers.json` (0600) at once, rather than at whatever saves next; switched
+on, they move back into the keyring. The environment variable still switches
+it off when set, and `/set` says so instead of appearing to work.
+
 ---
 
 ## 1.0.0 - 2026-10-06

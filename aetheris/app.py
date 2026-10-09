@@ -113,8 +113,30 @@ def _adopt_session(loaded) -> list[dict]:
     return messages
 
 
+# What the harness says to the model in a `user` turn of its own: nudges,
+# notes, a peer's message, a deepthink stage. Nobody typed any of it and none of
+# it was on screen as written - live, each printed a line of its own or nothing -
+# so a replay that showed it would be showing the model's side of the screen.
+_NOT_TYPED = ("[System]", "[System Note", "[Tool Error]", "[Channel]", "[Deepthink")
+
+# What the harness appends to a line after it was typed: the files an `@`
+# attached and the `/tdd` note. Cut off, the line is what the prompt showed.
+_APPENDED = ("\n\n[Attached ", "\n\n[System Note:")
+
+
+def _as_typed(content: str) -> str:
+    cut = min((at for at in (content.find(mark) for mark in _APPENDED) if at >= 0),
+              default=len(content))
+    return content[:cut]
+
+
 def _replay_session(messages: list[dict]) -> None:
     """Print a resumed conversation the way it looked while it was happening.
+
+    Each turn is drawn by what drew it live: a typed line as the prompt showed
+    it, `!command` as the shell block it printed, an answer before the tools
+    it called - the order it streamed in - and nothing the harness only said
+    to the model.
 
     Every field is read defensively. This runs against a file, and a file
     written by another version - or one repaired after a crash - is allowed to
@@ -136,16 +158,36 @@ def _replay_session(messages: list[dict]) -> None:
                 if m:
                     _fmt_tool_result(m.group(1), m.group(2))
                 continue
-            print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} {content}")
+            shell = re.match(r"\[Shell\] \$ ([^\n]*)\n?(.*)", content, re.DOTALL)
+            if shell:
+                command, output = shell.groups()
+                print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} !{command}")
+                print(f"\n  {S.MUTED}${S.R} {S.WHITE}{command}{S.R}")
+                _fmt_tool_result(command, output)
+                print()
+                continue
+            if content.startswith(_NOT_TYPED):
+                continue
+            print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} {_as_typed(content)}")
         elif role == "assistant":
-            for name, arguments in parse_tool_calls(content, quiet=True):
-                _fmt_tool_call(name, arguments)
-
             c = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL)
-            c = strip_thinking(c)
+            c = strip_thinking(c).strip()
+            calls = parse_tool_calls(content, quiet=True)
             if c:
                 print(_render_full(c))
-                print()
+                if not calls:
+                    print()
+            for name, arguments in calls:
+                _fmt_tool_call(name, arguments)
+
+
+def _clear_screen() -> None:
+    """The screen and its scrollback, so what is drawn next starts at the top.
+
+    3J as well as 2J: a redraw replaces what was there, and scrolling up into
+    the old copy would show it all again, laid out the old way.
+    """
+    print("\033[2J\033[3J\033[H", end="")
 
 
 def _show_ambiguous(query: str, matches: list, hint: str) -> None:
@@ -296,7 +338,8 @@ def _report_keyring() -> None:
         return
     print(f"  {S.WARN}⚠ Keyring skipped: {why}.{S.R}")
     print(f"  {S.MUTED}  Keys stay in {providers.CONFIG_PATH} (owner-only) this run. "
-          f"Set {S.ACCENT}{keystore.ENV_VAR}=off{S.MUTED} to stop asking it.{S.R}\n")
+          f"{S.ACCENT}/set KEYRING_ENABLED off{S.MUTED} (or "
+          f"{S.ACCENT}{keystore.ENV_VAR}=off{S.MUTED}) stops asking it.{S.R}\n")
 
 
 def _agent_label() -> str:
@@ -617,6 +660,83 @@ def _echo_remote(line: str) -> str:
 IDLE_CALL = object()
 _kept_typing = ""             # half a line, set aside while a call was served
 
+# What `_read_line` returns when the terminal changed size under an open prompt:
+# the main loop draws the conversation again at the new size and opens the
+# prompt again, with whatever was half-typed put back.
+RESIZED = object()
+RESIZE_POLL = 0.15            # seconds between looks at the terminal's size
+_drawn_size = None            # (columns, rows) the screen was last laid out for
+
+
+def _terminal_size() -> tuple:
+    return config.tw(), config.th()
+
+
+def _size_changed() -> bool:
+    """Whether the terminal is no longer the size the screen was drawn at.
+
+    The first look only records it: until something has been drawn there is
+    nothing a size could be wrong for.
+    """
+    global _drawn_size
+    now = _terminal_size()
+    if _drawn_size is None:
+        _drawn_size = now
+    return now != _drawn_size
+
+
+async def _resized() -> bool:
+    """Resolves once the terminal has settled at a size it was not drawn at.
+
+    Polled rather than told: there is no SIGWINCH on Windows, and while a
+    prompt is open prompt_toolkit holds that handler anyway. Settled, because
+    dragging a window edge passes through dozens of sizes a second and every
+    redraw is the whole conversation - only the size it stops at is worth one.
+    """
+    _size_changed()
+    last = _terminal_size()
+    while True:
+        await asyncio.sleep(RESIZE_POLL)
+        now = _terminal_size()
+        if now == last and _size_changed():
+            return True
+        last = now
+
+
+def _redraw(messages: list[dict]) -> None:
+    """The screen again from the top, laid out for the size it is now.
+
+    A terminal does not reflow what was printed for another width: narrower,
+    every rule, table and code frame wraps into a second ragged line; wider,
+    the whole transcript stays in the left part of the window. The conversation
+    is the part that can be drawn again, so it is, the way a resumed one is.
+    Output that never entered it - `/help`, a listing - is kept nowhere and
+    does not come back.
+
+    Not mirrored: the remote has its own width and already has every line.
+    """
+    global _drawn_size
+    _drawn_size = _terminal_size()
+    mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
+    try:
+        _clear_screen()
+        _welcome()
+        _replay_session(messages)
+        sys.stdout.flush()
+    finally:
+        sys.stdout = mirrored
+
+
+async def _set_aside(session_pt, typed) -> None:
+    """Close the prompt for something other than Enter, keeping the line."""
+    global _kept_typing
+    _kept_typing = session_pt.default_buffer.text
+    typed.cancel()
+    try:
+        await typed
+    except (asyncio.CancelledError, Exception):
+        pass
+
 
 def _attacca_listening() -> bool:
     """Whether a call from Attacca can arrive while the prompt is open."""
@@ -651,6 +771,26 @@ def _serve_idle_calls() -> None:
     print()
 
 
+async def _prompt(session_pt, message, kept: str):
+    """The prompt, with Ctrl+C handed back as a value instead of raised.
+
+    It runs as a task so it can be raced, and a task is the one place a
+    `KeyboardInterrupt` cannot be raised from: asyncio re-raises it straight out
+    of the event loop rather than into whoever awaits the task. The main loop's
+    `except KeyboardInterrupt` never saw it, the program left through
+    `asyncio.run` instead of saying goodbye, and the task was reported at exit
+    as "Task exception was never retrieved". Returned, it is raised again by
+    `_typed_or_remote`, which is an ordinary coroutine and can.
+    """
+    try:
+        # `default` only when there is something to put back, so every prompt
+        # that never met an Attacca call opens exactly the way it always did.
+        return await (session_pt.prompt_async(message, default=kept) if kept
+                      else session_pt.prompt_async(message))
+    except KeyboardInterrupt as interrupt:
+        return interrupt
+
+
 async def _typed_or_remote(session_pt, message) -> str:
     """Whichever comes first: a line typed here, or one typed on the remote.
 
@@ -659,45 +799,51 @@ async def _typed_or_remote(session_pt, message) -> str:
     at the keyboard is the one who can see the line disappear and type it
     again, and the alternative - holding the remote's line until somebody
     presses Enter here - is exactly the hang the remote exists to avoid.
+
+    A terminal resized under the prompt closes it too, keeping the line, and
+    `RESIZED` sends the main loop off to draw the screen again at the new size.
     """
     global _kept_typing
     kept, _kept_typing = _kept_typing, ""
-    # `default` only when there is something to put back, so every prompt that
-    # never met an Attacca call opens exactly the way it always did.
-    typed = asyncio.ensure_future(session_pt.prompt_async(message, default=kept)
-                                  if kept else session_pt.prompt_async(message))
+    typed = asyncio.ensure_future(_prompt(session_pt, message, kept))
     called = (asyncio.ensure_future(_attacca_call()) if _attacca_listening()
               else None)
-    if not remote.running() and called is None:
-        return (await typed).strip()
-
     waiting = asyncio.ensure_future(_remote_line()) if remote.running() else None
-    contestants = {typed} | {c for c in (waiting, called) if c is not None}
+    resized = asyncio.ensure_future(_resized())
+    contestants = {typed, resized} | {c for c in (waiting, called) if c is not None}
     done, _ = await asyncio.wait(contestants, return_when=asyncio.FIRST_COMPLETED)
     if typed in done:
-        for other in (waiting, called):
+        for other in (waiting, called, resized):
             if other is not None:
                 other.cancel()
         if waiting is not None:
             remote.set_driver("terminal")
-        return typed.result().strip()
+        line = typed.result()
+        if isinstance(line, KeyboardInterrupt):
+            raise line
+        return line.strip()
 
-    if called is not None and (waiting is None or waiting not in done):
-        # Attacca's agent wants a tool run, and nobody here asked it anything.
-        # Whatever was half-typed is kept and put back when the prompt reopens -
-        # it was not this person's mistake that the box closed under them.
-        _kept_typing = session_pt.default_buffer.text
+    if waiting is None or waiting not in done:
         if waiting is not None:
             waiting.cancel()
-        typed.cancel()
-        try:
-            await typed
-        except (asyncio.CancelledError, Exception):
-            pass
-        return IDLE_CALL
+        if called is not None and called in done:
+            # Attacca's agent wants a tool run, and nobody here asked it anything.
+            # Whatever was half-typed is kept and put back when the prompt reopens -
+            # it was not this person's mistake that the box closed under them.
+            resized.cancel()
+            await _set_aside(session_pt, typed)
+            return IDLE_CALL
+        # Only the terminal changed size. Kept the same way: the box is closed
+        # so the screen can be drawn again around it, not because of anything
+        # typed in it.
+        if called is not None:
+            called.cancel()
+        await _set_aside(session_pt, typed)
+        return RESIZED
 
-    if called is not None:
-        called.cancel()
+    for other in (called, resized):
+        if other is not None:
+            other.cancel()
     typed.cancel()
     try:
         await typed
@@ -739,6 +885,9 @@ async def _read_line(session_pt) -> str:
                 # Served before blocking, since nothing can interrupt `input()`;
                 # a call that lands while it waits is served after the Enter.
                 return IDLE_CALL
+        if _size_changed():
+            # The same goes for a resize: noticed only before `input()` blocks.
+            return RESIZED
         remote.set_driver("terminal")
         line = input(f"  {S.USER_CLR}{S.BOLD}❯{S.R} ").strip()
         _auto_turns, _auto_spent_said = 0, False
@@ -789,8 +938,8 @@ async def _read_line(session_pt) -> str:
                 line = await _typed_or_remote(session_pt, message)
     finally:
         watcher.cancel()
-    if line is IDLE_CALL:
-        return line           # an agent elsewhere, not somebody arriving here
+    if line is IDLE_CALL or line is RESIZED:
+        return line           # not somebody arriving here
     if not _auto_woke:
         # Somebody is at the keyboard. Whatever the channel spent answering on
         # its own is forgiven, including an empty line - pressing Enter is how
@@ -1048,6 +1197,8 @@ def _set_command(rest: str, messages: list[dict]) -> None:
     # the tool catalogue is in it at all - so it is rebuilt every time rather
     # than only for the ones somebody remembered to list here.
     _refresh_system_prompt(messages)
+    if name == "KEYRING_ENABLED":
+        _move_keys()
     # A remote that is open was started from the settings as they were. Moving
     # the port is the one somebody actually types mid-session, and a `/set`
     # that quietly did nothing until the next restart would read as broken.
@@ -1063,6 +1214,29 @@ def _set_command(rest: str, messages: list[dict]) -> None:
             for line in _remote_lines():
                 print(f"  {S.MUTED}{line}{S.R}")
     print()
+
+
+def _move_keys() -> None:
+    """`/set KEYRING_ENABLED`: put the saved keys where the setting now says.
+
+    Now, not at whatever saves next. A keyring switched off in a session that
+    then saved nothing would start the next one keyless, its keys in a keyring
+    it no longer reads.
+    """
+    if config.KEYRING_ENABLED and keystore.switched_off():
+        print(f"  {S.WARN}⚠ {keystore.ENV_VAR}=off is set in the environment, and "
+              f"it still keeps the keyring off.{S.R}")
+        return
+    if config.KEYRING_ENABLED and not keystore.available():
+        why = keystore.trouble() or f"there is no keyring to use here ({keystore.INSTALL_HINT})"
+        print(f"  {S.WARN}⚠ Keys stay in {providers.CONFIG_PATH}: {why}.{S.R}")
+        return
+    try:
+        providers.save_state()
+    except OSError as error:
+        print(f"  {S.ERR}✗ The saved keys could not be moved: {error}{S.R}")
+        return
+    print(f"  {S.MUTED}◆ Saved keys are kept in {providers.key_home()} now.{S.R}")
 
 
 def _remote_lines() -> list:
@@ -1359,7 +1533,7 @@ async def main(resume_id: str = "") -> None:
                 session_pt if config.PROMPT_TOOLKIT_AVAILABLE else None)
             # A console that hands back surrogate escapes would otherwise poison
             # the history: every later save and request would raise.
-            if user_input is not IDLE_CALL:
+            if user_input is not IDLE_CALL and user_input is not RESIZED:
                 user_input = config.safe_text(user_input)
         except (EOFError, KeyboardInterrupt):
             channel.leave()
@@ -1375,6 +1549,10 @@ async def main(resume_id: str = "") -> None:
             # Outside the `try` above on purpose: Ctrl+C at an approval prompt
             # for a call nobody here made means "not that", not "quit".
             _serve_idle_calls()
+            continue
+
+        if user_input is RESIZED:
+            _redraw(messages)
             continue
 
         if not user_input:
@@ -1512,6 +1690,11 @@ async def main(resume_id: str = "") -> None:
                 messages = _adopt_session(loaded)
                 current_session_id = sid
                 label = config.SESSION_TITLE or sid
+                # From the top, as `--resume` draws it: below whatever this
+                # screen already held, the loaded conversation read as a
+                # continuation of the one it replaced.
+                _clear_screen()
+                _welcome()
                 print(f"  {S.OK}✓ Loaded session: {label} (Model: {config.MODEL}){S.R}\n")
                 _replay_session(messages)
             else:
