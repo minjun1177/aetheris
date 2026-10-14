@@ -267,7 +267,9 @@ class Session:
         A shell that has exited is not asking anything, so silence after it
         has gone means the command is over - even though the pipes are still
         open, because something it started in the background inherited them
-        and will hold them for as long as it runs.
+        and will hold them for as long as it runs. The silence is counted from
+        when the exit was seen, not from before it: the last thing a program
+        prints can still be on its way through the pump when it exits.
 
         Returns (text, ended, timed_out).
         """
@@ -278,6 +280,7 @@ class Session:
         closed = 0
         quiet_since = None
         cpu_mark = None
+        exited = False
 
         while True:
             now = time.time()
@@ -293,7 +296,10 @@ class Session:
 
                 text = "".join(chunks)
                 if not self.alive:
-                    return text, True, False            # only the background is left
+                    if exited:
+                        return text, True, False        # only the background is left
+                    exited = True                       # one more wait to drain the pumps
+                    continue
                 if quiet_since is None:
                     quiet_since = time.time()
                     cpu_mark = self.cpu_seconds()

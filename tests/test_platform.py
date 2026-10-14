@@ -303,6 +303,33 @@ check("the next command still runs",
       tools.safe_run_cmd(f'"{sys.executable}" -c "print(7)"').strip() == "7")
 
 
+class _ExitedJustNow:
+    """A shell that has exited while its last words are still in the pump.
+
+    Polling is the moment the exit is seen, and the output lands right after it
+    - the order a loaded Windows runner produced, and the one that came back
+    empty when the exit alone ended the read.
+    """
+    stdin = stdout = stderr = None
+    pid = -1
+
+    def __init__(self):
+        self.session = None
+
+    def poll(self):
+        if self.session is not None:
+            self.session._queue.put("last words\n")
+            self.session = None
+        return 0
+
+
+late = _ExitedJustNow()
+late.session = shell_session.Session("late", late)
+text, ended, _timed = late.session.read_until_idle(0.2, time.time() + 5)
+check("output that arrives just after the exit is still read",
+      text == "last words\n" and ended, repr((text, ended)))
+
+
 # --- ordinary commands are unaffected ---------------------------------------
 
 print("\n=== ordinary commands ===")
