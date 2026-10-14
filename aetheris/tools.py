@@ -1141,6 +1141,47 @@ def handle_copy_file(src: str, dst: str) -> str:
     except Exception as e:
         return f"[Error] Cannot copy file: {e}"
 
+def handle_move_file(src: str, dst: str) -> str:
+    """Move or rename one file, as one step rather than read, write and delete.
+
+    A small model doing it by hand drops the delete, or writes the copy from a
+    stale read. A file git tracks moves with `git mv`, so the rename is one
+    commit that `/undo` takes back whole and the history follows the file.
+    """
+    src, complaint = _as_path(src, "src")
+    if complaint:
+        return complaint
+    dst, complaint = _as_path(dst, "dst")
+    if complaint:
+        return complaint
+    if not os.path.isfile(src):
+        return (f"[Error] No file at {src}. move_file moves one file; "
+                f"use list_dir to find the right path.")
+    if os.path.isdir(dst):
+        return (f"[Error] {dst} is a directory. Give the full new path, "
+                f"e.g. {os.path.join(dst, os.path.basename(src))}.")
+    if os.path.lexists(dst):
+        return (f"[Error] {dst} already exists, and moving over it would destroy it. "
+                f"Delete it first if that is really what you want, or choose another name.")
+    approved = _approval_prompt("Move File", [("from", src), ("to", dst)],
+                                rule=f"move_file({src})")
+    if not approved: return "[System] User denied file move."
+    try:
+        parent = os.path.dirname(os.path.abspath(dst))
+        os.makedirs(parent, exist_ok=True)
+        if git_ops.tracked(src) and git_ops.repo_root(src) == git_ops.repo_root(parent):
+            problem = git_ops.move(src, dst)
+            if problem:
+                return f"[Error] Cannot move file: {problem}"
+        else:
+            try:
+                os.replace(src, dst)
+            except OSError:
+                shutil.move(src, dst)       # another filesystem: copy, then delete
+        return f"[Success] File moved: {src} -> {dst}"
+    except Exception as e:
+        return f"[Error] Cannot move file: {e}"
+
 def handle_create_dir(dirpath: str) -> str:
     dirpath, complaint = _as_path(dirpath, "dirpath")
     if complaint:
@@ -2116,6 +2157,7 @@ _WRITES_FILES = {
     "edit_file": ("filepath",),
     "delete_file": ("filepath",),
     "copy_file": ("dst",),
+    "move_file": ("src", "dst"),
 }
 
 
@@ -2378,6 +2420,7 @@ def _handlers() -> dict:
             "edit_file": handle_edit_file,
             "delete_file": handle_delete_file,
             "copy_file": handle_copy_file,
+            "move_file": handle_move_file,
             "create_dir": handle_create_dir,
             "view_image": handle_view_image,
             "git_status": handle_git_status,

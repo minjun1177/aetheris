@@ -48,6 +48,13 @@ packages of their own rather than be imported from here.
   moment used to end the turn - and under deepthink, a chain of a dozen
   requests. A reply that has started arriving is never started over: it has
   already been printed.
+- **`move_file`.** A small model renamed a file by reading it, writing it
+  under the new name and deleting the old one, and dropped a step often
+  enough to matter. One tool does it now. A tracked file moves with `git mv`,
+  so auto-commit records a rename, `/undo` puts the old name back, and the
+  history follows the file. It asks first, refuses to overwrite, and respects
+  another agent's claim on either path. Auto-commit also learned to commit the
+  old name of a moved file, which `git add` refused as matching nothing.
 
 ---
 

@@ -181,7 +181,7 @@ by a server on a loopback port.
 
 ## 4. Tool Capabilities
 
-The client equips the model with 40 tools. They are listed in one table in
+The client equips the model with 41 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -425,6 +425,7 @@ that says what went wrong.
 - `edit_file`: Replace part of a file, via `<old_content>` / `<new_content>` raw blocks. `old_content` either names the lines by hashline anchor (`50:1fa`) or quotes them as text - see *Editing by hashline anchor*.
 - `delete_file`: Remove a file from disk.
 - `copy_file`: Copy a file to a new location.
+- `move_file`: Move or rename a file in one step. A file git tracks moves with `git mv`, so the rename is one commit, `/undo` takes it back whole, and the history follows the file. Never overwrites an existing file.
 - `create_dir`: Create a new directory path.
 - `list_dir`: Display directory contents.
 - `search_in_file`: Search workspace files for string or regex patterns (grep functionality).

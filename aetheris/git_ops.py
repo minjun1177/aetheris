@@ -93,6 +93,31 @@ def enabled() -> bool:
 # committing
 # ---------------------------------------------------------------------------
 
+def _in_index(path: str, root: str) -> bool:
+    return _git("ls-files", "--error-unmatch", "--", path, cwd=root).returncode == 0
+
+
+def _in_head(path: str, root: str) -> bool:
+    return _git("cat-file", "-e", f"HEAD:{path}", cwd=root).returncode == 0
+
+
+def tracked(path: str) -> bool:
+    """Whether git is tracking this file - the question `move_file` asks."""
+    root = repo_root(path)
+    if not root or not _is_inside(path, root):
+        return False
+    return _in_index(os.path.relpath(os.path.realpath(path), os.path.realpath(root)), root)
+
+
+def move(src: str, dst: str) -> str:
+    """`git mv src dst`. "" when it worked, otherwise what git said."""
+    root = repo_root(src)
+    result = _git("mv", "--", os.path.realpath(src),
+                  os.path.join(os.path.realpath(os.path.dirname(os.path.abspath(dst))),
+                               os.path.basename(dst)), cwd=root)
+    return "" if result.returncode == 0 else (result.stderr.strip() or "git mv failed")
+
+
 def auto_commit(paths: list, tool: str, summary: str = "") -> str:
     """Commit exactly `paths`. Returns a short sha, or "" if nothing happened.
 
@@ -115,18 +140,28 @@ def auto_commit(paths: list, tool: str, summary: str = "") -> str:
     if not inside:
         return ""            # a file outside the repository is not ours to commit
 
+    # The old name of a file `move_file` has just moved is on neither the disk
+    # nor the index, and one pathspec that matches nothing makes `git add`
+    # refuse the whole call. It is still committed when HEAD had it: that is
+    # the other half of the rename. A path git has never heard of is dropped.
+    present = [p for p in inside
+               if os.path.lexists(os.path.join(root, p)) or _in_index(p, root)]
+    known = [p for p in inside if p in present or _in_head(p, root)]
+    if not known:
+        return ""
+
     # `git add` first: a file the tool has just created is untracked, and
     # `git commit <path>` alone will not pick it up. `-A` on the paths given
     # covers a delete as well as a create.
-    if _git("add", "-A", "--", *inside, cwd=root).returncode != 0:
+    if present and _git("add", "-A", "--", *present, cwd=root).returncode != 0:
         return ""
-    if not _git("diff", "--cached", "--quiet", "--", *inside, cwd=root).returncode:
+    if not _git("diff", "--cached", "--quiet", "--", *known, cwd=root).returncode:
         return ""            # nothing actually changed; a rewrite of the same bytes
 
     message = f"{MESSAGE_PREFIX}{tool}): {summary or ', '.join(inside)}"
     # --no-verify: a hook that rejects work in progress would strand the edit
     # uncommitted, which is the one state this exists to avoid.
-    committed = _git("commit", "--no-verify", "-m", message, "--", *inside, cwd=root)
+    committed = _git("commit", "--no-verify", "-m", message, "--", *known, cwd=root)
     if committed.returncode != 0:
         return ""
     return _git("rev-parse", "--short", "HEAD", cwd=root).stdout.strip()
@@ -162,8 +197,11 @@ def undo_last() -> tuple:
         return False, (f"The last commit is not one of mine, so I will not touch it:\n"
                        f"  {newest}")
 
-    paths = [line for line in _git("show", "--name-only", "--format=", sha,
-                                   cwd=root).stdout.splitlines() if line.strip()]
+    # --no-renames: a rename is two paths, and a commit made by `move_file`
+    # listed as only its new name would be undone by deleting the file and
+    # never putting the old one back.
+    paths = [line for line in _git("show", "--name-only", "--no-renames", "--format=",
+                                   sha, cwd=root).stdout.splitlines() if line.strip()]
 
     # Anything uncommitted in those files was written after the commit - by the
     # user, or by a tool that failed. Undoing would take it with us.

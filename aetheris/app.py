@@ -1412,7 +1412,8 @@ def _arm_tdd() -> None:
     permissions.release(_TDD_LABEL)          # never stack two arms
     rules = [f"{tool}({pattern})"
              for pattern in verify.TEST_PATTERNS
-             for tool in ("edit_file", "write_file", "delete_file", "copy_file")]
+             for tool in ("edit_file", "write_file", "delete_file", "copy_file",
+                          "move_file")]
     permissions.hold("deny", rules, _TDD_LABEL)
     config.TDD_LOCK = True
     print(f"  {S.INFO}✓ /tdd armed for one request.{S.MUTED} The test files are "
@@ -2453,7 +2454,7 @@ async def main(resume_id: str = "") -> None:
             user_input += (
                 "\n\n[System Note: TDD MODE is ON for this request. This "
                 "project's test files are locked - edit_file, write_file, "
-                "delete_file and copy_file are refused on them, and trying "
+                "delete_file, copy_file and move_file are refused on them, and trying "
                 "will not work. Make the failing test pass by changing the "
                 "code it tests. If you conclude the test itself is wrong, say "
                 "so and stop; do not work around it.]")

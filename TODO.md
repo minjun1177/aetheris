@@ -44,6 +44,7 @@
 * [x] Remote control: `/remote on` opens one token-locked door into the running session - the transcript, the prompt, and the approvals, on a phone
 * [x] Ollama: keep the model loaded (OLLAMA_KEEP_ALIVE), and temperature / seed when they are set
 * [x] Retry 429 / 5xx / a dropped connection with backoff, never once the reply has started
+* [x] move_file: git mv for a tracked file, one commit, one /undo
 
 ## next
 

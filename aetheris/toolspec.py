@@ -189,6 +189,14 @@ TOOLS = (
         ),
     ),
     Tool(
+        name='move_file',
+        description='Move or rename a file in one step - never read, write and delete it yourself. A file git tracks is moved with git mv, so its history follows it. Refuses to overwrite an existing file.',
+        params=(
+            Param(name='src', description='The absolute path to the file to move.'),
+            Param(name='dst', description='The absolute path it should have afterwards, file name included. Missing directories are created.'),
+        ),
+    ),
+    Tool(
         name='create_dir',
         description='Create a new directory.',
         params=(

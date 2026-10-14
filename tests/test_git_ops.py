@@ -186,6 +186,63 @@ check("reading commits nothing", subjects(root)[0] == before)
 tools.dispatch_tool("write_file", {"filepath": "", "content": "x"})
 check("a failed write commits nothing", subjects(root)[0] == before, subjects(root)[0])
 
+print("\n--- move_file: one step, one commit, one undo ---")
+root = new_repo()
+os.chdir(root)
+write(root, "old.py", "print('moved')\n")
+git("add", "-A", cwd=root)
+git("commit", "-q", "-m", "add old.py", cwd=root)
+git_ops._repo_root_cache.clear()
+result = tools.dispatch_tool("move_file", {"src": os.path.join(root, "old.py"),
+                                           "dst": os.path.join(root, "pkg", "new.py")})
+check("a tracked file is moved", result.startswith("[Success]")
+      and read(root, "pkg/new.py") == "print('moved')\n"
+      and not os.path.exists(os.path.join(root, "old.py")), result[:120])
+check("into a directory it had to create", os.path.isdir(os.path.join(root, "pkg")))
+check("as one commit", subjects(root)[0].startswith("ai(move_file):"), subjects(root)[0])
+renamed = git("show", "--stat", "-M", "--format=", "HEAD", cwd=root).stdout
+check("that git reads as a rename, so the history follows the file",
+      "=>" in renamed, renamed.strip())
+check("and nothing is left over", git("status", "--porcelain", cwd=root).stdout.strip() == "")
+ok, message = git_ops.undo_last()
+check("/undo takes the move back whole",
+      ok and read(root, "old.py") == "print('moved')\n"
+      and not os.path.exists(os.path.join(root, "pkg", "new.py")), message)
+check("leaving the tree clean", git("status", "--porcelain", cwd=root).stdout.strip() == "",
+      git("status", "--porcelain", cwd=root).stdout)
+
+write(root, "scratch.txt", "untracked\n")
+result = tools.dispatch_tool("move_file", {"src": os.path.join(root, "scratch.txt"),
+                                           "dst": os.path.join(root, "kept.txt")})
+check("an untracked file is moved too", result.startswith("[Success]")
+      and read(root, "kept.txt") == "untracked\n", result[:120])
+check("and its new name is committed", subjects(root)[0].startswith("ai(move_file):")
+      and "kept.txt" in git("show", "--name-only", "--format=", "HEAD", cwd=root).stdout,
+      subjects(root)[0])
+
+before = subjects(root)[0]
+result = tools.dispatch_tool("move_file", {"src": os.path.join(root, "kept.txt"),
+                                           "dst": os.path.join(root, "seed.txt")})
+check("it will not move over an existing file", result.startswith("[Error]")
+      and read(root, "seed.txt") == "seed\n", result[:120])
+result = tools.dispatch_tool("move_file", {"src": os.path.join(root, "nope.txt"),
+                                           "dst": os.path.join(root, "x.txt")})
+check("a missing source is an error, not a guess", result.startswith("[Error]"), result[:80])
+check("and neither committed anything", subjects(root)[0] == before)
+
+from aetheris import channel         # noqa: E402
+held = os.path.join(root, "kept.txt")
+real_holder = channel.holder
+channel.holder = lambda path: ({"agent": "other", "reason": "editing", "path": held}
+                               if os.path.realpath(path) == os.path.realpath(held) else {})
+try:
+    result = tools.dispatch_tool("move_file", {"src": held,
+                                               "dst": os.path.join(root, "away.txt")})
+finally:
+    channel.holder = real_holder
+check("a file another agent holds is not moved out from under it",
+      result.startswith(config.TOOL_REFUSAL_PREFIX) and os.path.exists(held), result[:120])
+
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print()
 if failures:
