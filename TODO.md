@@ -53,6 +53,7 @@
 * [x] Loop guard: the same call 3 times is warned, the 4th refused; a write in between resets it
 * [x] update_todos: a checklist kept with the session, its open items shown before every request
 * [x] The nine on/off commands are /set switches; the old names still answer, for the session
+* [x] /help shows the six common commands; /help all shows every one
 
 ## next
 

@@ -2266,7 +2266,7 @@ The interactive terminal supports special slash commands to control options and 
 
 | Command | Description |
 | :--- | :--- |
-| `/help` | Display the list of available commands |
+| `/help` | The six commands most sessions need, and the two prefixes. `/help all` lists every command and the keys |
 | `/usage` | Token cost per turn, as an ASCII chart, plus the cumulative total and what every request pays before the conversation starts. One bar is one thing you asked for, tool calls included |
 | `/model` | Show the connected provider and pick another of its models |
 | `/models` | List the models the connected provider offers |

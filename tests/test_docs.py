@@ -131,6 +131,32 @@ undelegated = [s for s in list(switches) + list(tui.SWITCHES)
 check("and each goes through the one shared switch", not undelegated,
       str(undelegated))
 
+print("\n--- /help is short, /help all is everything ---")
+import contextlib                                              # noqa: E402
+import io                                                      # noqa: E402
+
+
+def help_text(everything):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        tui._show_help(everything)
+    return re.sub(r"\x1b\[[0-9;]*m", "", out.getvalue())
+
+
+short, full = help_text(False), help_text(True)
+check("every command /help names is a real row", all(c in [r[0] for r in tui.COMMANDS]
+                                                      for c in tui.COMMON),
+      str([c for c in tui.COMMON if c not in [r[0] for r in tui.COMMANDS]]))
+check("a bare /help shows five or six commands", 5 <= len(tui.COMMON) <= 6
+      and all(c in short for c in tui.COMMON), str(tui.COMMON))
+check("and not the rest", "/vm reset" not in short and "/mcp reload" not in short)
+check("but says how to see them", "/help all" in short)
+check("/help all shows every row, and the keys",
+      all(row[0] in full for row in tui.COMMANDS) and "Ctrl+C" in full)
+check("/help all is offered as you type", "/help all" in
+      {insert for insert, _, _ in tui.complete_command("/help ")})
+check("app.py answers /help all", 'arg == "all"' in APP)
+
 print("\n--- the settings README documents still exist ---")
 documented_settings = set(re.findall(r"^\| `([A-Z][A-Z0-9_]+)` \|", README, re.M))
 check("README has a settings table", len(documented_settings) > 10,

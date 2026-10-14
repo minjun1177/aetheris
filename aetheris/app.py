@@ -2034,8 +2034,12 @@ async def main(resume_id: str = "") -> None:
             else:
                 display_usage_graph(messages)
             continue
-        if cmd == "/help":
-            _show_help()
+        if cmd == "/help" or cmd.startswith("/help "):
+            arg = user_input[len("/help"):].strip().lower()
+            if arg not in ("", "all"):
+                print(f"  {S.ERR}✗ Usage: /help [all]{S.R}\n")
+                continue
+            _show_help(everything=arg == "all")
             continue
         if cmd == "/clear":
             config.LOADED_MCP_SERVERS.clear()

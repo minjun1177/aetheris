@@ -157,7 +157,8 @@ def _welcome():
 # true of three of them and an error message on the other six.
 COMMANDS = (
     # -- getting around ----------------------------------------------------
-    ("/help", "Show this list"),
+    ("/help [all]", "The commands most sessions need. /help all lists every one, "
+                    "and the keys"),
     ("/clear", "Forget the conversation and start a fresh one"),
     ("/usage", "What this conversation has cost: one bar per turn, the "
                "cumulative total, and what every request pays before the "
@@ -196,7 +197,7 @@ COMMANDS = (
     ("/system reset", "Take that persona back out"),
     ("/set", "Every setting, with the ones you have changed marked"),
     ("/set <NAME>", "Show one of them on its own"),
-    ("/set <NAME> <value>", "Change it, now and for the next session. The switches "
+    ("/set <NAME> <value>", "Change a setting, now and for the next session. The switches "
                             "are settings too: /set DEEPTHINK on, /set AUTO_ALLOW off, "
                             "/set PLANMODE on, /set AUTO_VERIFY on ..."),
     ("/set <NAME> default", "Put it back to what config.py says"),
@@ -293,7 +294,15 @@ SWITCHES = {
 # A bracketed word is a placeholder for something only the person knows - a
 # path, a rule, a request. `[on/off]` is the exception: both of its values are
 # literally what you type, so they are worth offering.
-_CHOICES = {"[on/off]": ("on", "off")}
+_CHOICES = {"[on/off]": ("on", "off"), "[all]": ("all",)}
+
+# What a bare /help shows: the six a first session needs - which model, which
+# conversation, how to change a setting, how to take an edit back, and how to
+# start again or leave. Forty rows at once was the list nobody read to the
+# end, and the useful six were somewhere in it. Picked out of `COMMANDS` by
+# their row, so the words are the table's and cannot drift from it.
+COMMON = ("/connect", "/sessions [title]", "/set <NAME> <value>", "/undo", "/clear",
+          "/exit")
 
 
 def _describe(command: str) -> str:
@@ -426,16 +435,25 @@ def _show_rows(rows) -> None:
             print(f"  {' ' * width}  {S.GRAY}{line}{S.R}")
 
 
-def _show_help():
+def _show_help(everything: bool = False):
+    """`/help`: the common few. `/help all`: every command, and the keys."""
+    rows = COMMANDS if everything else [row for name in COMMON
+                                        for row in COMMANDS if row[0] == name]
     print()
     print(f"  {S.BOLD}{S.ACCENT}Commands{S.R}")
     print(f"  {_hr(width=44)}")
-    _show_rows(COMMANDS)
+    _show_rows(rows)
     print()
     print(f"  {S.BOLD}{S.ACCENT}In a message{S.R}")
     print(f"  {_hr(width=44)}")
     _show_rows(PREFIXES)
     print()
+    if not everything:
+        print(f"  {S.GRAY}{S.ACCENT}/help all{S.GRAY} lists all {len(command_names())} "
+              f"commands and the keys. Typing {S.ACCENT}/{S.GRAY} opens the same list "
+              f"as a menu.{S.R}")
+        print()
+        return
     print(f"  {S.BOLD}{S.ACCENT}Keys{S.R}")
     print(f"  {_hr(width=44)}")
     _show_rows(KEYS)

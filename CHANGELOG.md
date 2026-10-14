@@ -105,6 +105,11 @@ packages of their own rather than be imported from here.
   AUTO_VERIFY on` now retries a check that turned itself off, and `/set
   PLANMODE on` starts an Attacca plan job, as the commands did. Commands that
   take an argument, like `/tdd`, are unchanged.
+- **`/help` is six commands.** It printed every row - forty of them - and
+  the six a first session needs were somewhere in the middle. A bare `/help`
+  now shows `/connect`, `/sessions`, `/set`, `/undo`, `/clear` and `/exit`,
+  the `@` and `!` prefixes, and how to see the rest: `/help all` is the old
+  list, keys included. Typing `/` still opens every command as a menu.
 
 ---
 
