@@ -343,6 +343,10 @@ NUM_PREDICT = 6144          # 2048 and 4096 both truncated file writes mid-way.
                             # Keep this an int: every hosted API rejects a float
                             # in max_tokens, and 4096*1.5 is a float.
 
+# Ring the terminal bell when a turn that took at least this many seconds ends,
+# so a long one can be left to run in another window. 0 turns it off.
+TURN_BELL_SECONDS = 30
+
 # A request refused with 429 or a 5xx, or a connection that dropped before any
 # answer, is tried again this many times - after 1, 2 and 4 seconds, or as long
 # as the server's Retry-After asks, up to a minute. Never once a reply has

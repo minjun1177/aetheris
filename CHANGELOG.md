@@ -55,6 +55,9 @@ packages of their own rather than be imported from here.
   history follows the file. It asks first, refuses to overwrite, and respects
   another agent's claim on either path. Auto-commit also learned to commit the
   old name of a moved file, which `git add` refused as matching nothing.
+- **A bell when a long turn ends.** A turn of `TURN_BELL_SECONDS` (30) or
+  more rings the terminal bell as it finishes, so it can be left running in
+  another window. Not after Ctrl+C, and never into a pipe. 0 turns it off.
 
 ---
 

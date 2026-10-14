@@ -215,6 +215,35 @@ count = len(produced)
 time.sleep(0.2)
 check("and stops producing", len(produced) == count and count < 100, str(len(produced)))
 
+print("\n--- a long turn rings when it ends ---")
+
+
+class Terminal:
+    def __init__(self, tty=True):
+        self.tty, self.written = tty, ""
+
+    def isatty(self):
+        return self.tty
+
+    def write(self, text):
+        self.written += text
+
+    def flush(self):
+        pass
+
+
+config.TURN_BELL_SECONDS = 30
+term = Terminal()
+check("a turn of 31 seconds rings", app._ring_if_long(31, term) and term.written == "\a")
+term = Terminal()
+check("one of 5 does not", not app._ring_if_long(5, term) and term.written == "")
+term = Terminal(tty=False)
+check("nor does a pipe, however long", not app._ring_if_long(300, term) and not term.written)
+config.TURN_BELL_SECONDS = 0
+term = Terminal()
+check("TURN_BELL_SECONDS 0 turns it off", not app._ring_if_long(300, term) and not term.written)
+config.TURN_BELL_SECONDS = 30
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} check(s)")

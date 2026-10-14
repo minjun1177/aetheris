@@ -45,6 +45,7 @@
 * [x] Ollama: keep the model loaded (OLLAMA_KEEP_ALIVE), and temperature / seed when they are set
 * [x] Retry 429 / 5xx / a dropped connection with backoff, never once the reply has started
 * [x] move_file: git mv for a tracked file, one commit, one /undo
+* [x] Ring the terminal bell when a long turn ends (TURN_BELL_SECONDS)
 
 ## next
 

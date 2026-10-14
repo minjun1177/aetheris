@@ -464,6 +464,28 @@ def _report_usage(messages: list[dict]) -> None:
         pass          # a number on a strip is never worth an exception
 
 
+def _ring_if_long(seconds: float, out=None) -> bool:
+    """Ring the terminal bell after a turn long enough to have been left alone.
+
+    Somebody who waited thirty seconds has usually switched to another window,
+    and the answer then sits there until they happen to look. A bell is the one
+    signal every terminal has: most flash the tab or the taskbar with it. Not
+    for a pipe - a bell in a log file is a stray byte nobody asked for.
+    """
+    threshold = config.TURN_BELL_SECONDS
+    out = out or sys.stdout
+    if not threshold or seconds < threshold:
+        return False
+    try:
+        if not out.isatty():
+            return False
+        out.write("\a")
+        out.flush()
+    except (OSError, ValueError, AttributeError):
+        return False
+    return True
+
+
 # Commands the link does not get to run. One entry, and the reasoning is the
 # whole of it: everything else the remote can type it can also undo from there,
 # and this is the one that takes away the thing it would need to.
@@ -1873,6 +1895,7 @@ async def main(resume_id: str = "") -> None:
                 user_input = config.safe_text(user_input)
         except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
             leaving = _interrupted(pressed)
+            stopped = True
             await _absorb_cancel()
             if not leaving:
                 _say_how_to_leave()
@@ -2513,6 +2536,8 @@ async def main(resume_id: str = "") -> None:
 
         driven_elsewhere = providers.current().drives_turns
         leaving = False
+        stopped = False
+        started = time.monotonic()
         _stoppable = True
         try:
             if driven_elsewhere:
@@ -2569,6 +2594,9 @@ async def main(resume_id: str = "") -> None:
             _stoppable = False
             remote.set_busy(False)
             _report_usage(messages)
+            # Not after Ctrl+C: whoever pressed it is already looking.
+            if not stopped:
+                _ring_if_long(time.monotonic() - started)
             # `/tdd` is armed for one request and lifts itself here - including
             # when the turn ended in an error or the user interrupted it. A
             # lock that outlives what it was asked for is a lock nobody
