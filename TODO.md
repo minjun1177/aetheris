@@ -49,6 +49,7 @@
 * [x] Headless: aetheris -p "..." with piped input, --auto-allow and --json
 * [x] bench/run.py: the README tasks N times, graded, saved, --compare
 * [x] search_in_file: .gitignore, binaries skipped, glob, context lines, ripgrep when present
+* [x] find_files(pattern): glob over the project, .gitignore honoured, up to 200
 
 ## next
 

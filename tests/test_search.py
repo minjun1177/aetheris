@@ -123,6 +123,34 @@ tools._ripgrep = real
 check("outside git, build and vendored directories are skipped by name",
       "main.c" in found and "build/" not in found and "node_modules" not in found, found)
 
+print("\n--- find_files ---")
+os.chdir(root)
+write(root, "src/deep/er/conftest.py", "")
+write(root, "conftest.py", "")
+found = tools.handle_find_files("*.py")
+check("a name pattern finds files at any depth", "src/app.py" in found
+      and "src/deep/er/conftest.py" in found and "untracked_new.py" in found, found)
+check("but not what .gitignore excludes", "dist/" not in found
+      and "debug.log" not in tools.handle_find_files("*.log"))
+found = tools.handle_find_files("conftest.py")
+check("a plain name is found wherever it is",
+      "conftest.py" in found.splitlines() and "src/deep/er/conftest.py" in found, found)
+found = tools.handle_find_files("**/conftest.py")
+check("**/ includes the top level",
+      [l for l in found.splitlines()[1:]] == ["conftest.py", "src/deep/er/conftest.py"], found)
+found = tools.handle_find_files("src/*.ts")
+check("a pattern with a / matches the path", found.strip().endswith("src/util.ts")
+      and "app.py" not in found, found)
+check("nothing found says how patterns work", "matches file names" in
+      tools.handle_find_files("*.nothing"))
+check("no pattern is an error", tools.handle_find_files("").startswith("[Error]"))
+for index in range(230):
+    write(root, f"gen/f{index:03}.txt", "")
+found = tools.handle_find_files("gen/*.txt")
+check("at most 200, and it says how many there were",
+      len([l for l in found.splitlines() if l.startswith("gen/")]) == 200
+      and "230 files" in found, found.splitlines()[0])
+
 os.chdir(here)
 shutil.rmtree(root, ignore_errors=True)
 shutil.rmtree(plain, ignore_errors=True)

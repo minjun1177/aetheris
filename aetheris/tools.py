@@ -1156,7 +1156,7 @@ def handle_move_file(src: str, dst: str) -> str:
         return complaint
     if not os.path.isfile(src):
         return (f"[Error] No file at {src}. move_file moves one file; "
-                f"use list_dir to find the right path.")
+                f"use find_files to find the right path.")
     if os.path.isdir(dst):
         return (f"[Error] {dst} is a directory. Give the full new path, "
                 f"e.g. {os.path.join(dst, os.path.basename(src))}.")
@@ -1480,12 +1480,23 @@ def _looks_binary(path: str) -> bool:
 
 
 def _glob_matches(pattern: str, relative: str) -> bool:
-    """`*.py` matches a file name anywhere; a pattern with a `/` matches the path."""
+    """`*.py` matches a file name anywhere; a pattern with a `/` matches the path.
+
+    `*` crosses directories here, so `src/*.py` finds `src/a/b.py` as well - a
+    looser match than a shell's, which is the right way to be wrong for a model
+    looking for a file. `**/` also matches nothing at all: `**/conftest.py`
+    finds the one at the top.
+    """
     import fnmatch
     relative = relative.replace(os.sep, "/")
+    pattern = pattern.strip().replace("\\", "/")
+    if pattern.startswith("./"):
+        pattern = pattern[2:]
     if "/" not in pattern.strip("/"):
-        return fnmatch.fnmatch(os.path.basename(relative), pattern)
-    return fnmatch.fnmatch(relative, pattern.lstrip("./"))
+        return fnmatch.fnmatch(os.path.basename(relative), pattern.strip("/"))
+    if fnmatch.fnmatch(relative, pattern):
+        return True
+    return pattern.startswith("**/") and fnmatch.fnmatch(relative, pattern[3:])
 
 
 def _workspace_files(root: str) -> list:
@@ -1589,6 +1600,34 @@ def _search_ripgrep(rg: str, root: str, query: str, is_regex: bool, glob: str,
     if block:
         blocks.append(block)
     return blocks, matches, False
+
+
+FIND_MAX_FILES = 200
+
+
+def handle_find_files(pattern: str) -> str:
+    """Files whose name or path matches a glob, from anywhere in the project.
+
+    `list_dir` shows one level, so a small model looking for `config.py` went
+    down the tree a directory per call and often gave up before it got there.
+    """
+    pattern = str(pattern or "").strip()
+    if not pattern:
+        return "[Error] A pattern is required, e.g. \"*.py\", \"test_*\" or \"src/**/*.ts\"."
+    try:
+        found = [name.replace(os.sep, "/") for name in _workspace_files(os.getcwd())
+                 if _glob_matches(pattern, name)]
+    except Exception as e:
+        return f"[Error] Could not list the project's files: {e}"
+    if not found:
+        return (f"[Found] No file matches '{pattern}'. A pattern without a / matches "
+                f"file names anywhere (\"*.py\"); one with a / matches the path.")
+    shown = found[:FIND_MAX_FILES]
+    header = (f"[Found] {len(found)} files match '{pattern}'; the first {FIND_MAX_FILES} "
+              f"are below - narrow the pattern for the rest:\n"
+              if len(found) > FIND_MAX_FILES else
+              f"[Found] {len(found)} file(s) match '{pattern}':\n")
+    return header + "\n".join(shown)
 
 
 def handle_search_in_file(query: str, is_regex: bool = False, glob: str = "",
@@ -2597,6 +2636,7 @@ def _handlers() -> dict:
             "get_user_input": handle_get_input,
             "get_system_info": handle_get_system_info,
             "search_in_file": handle_search_in_file,
+            "find_files": handle_find_files,
             "call_api": handle_call_api,
             "get_code_skeleton": handle_get_code_skeleton,
             "query_ast_node": handle_query_ast_node,

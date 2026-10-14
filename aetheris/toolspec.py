@@ -303,6 +303,13 @@ TOOLS = (
         description='Show system usage.',
     ),
     Tool(
+        name='find_files',
+        description='Find files by name or path pattern anywhere in the project - one call instead of walking directories with list_dir. Files .gitignore excludes are left out. Returns up to 200 paths relative to the working directory.',
+        params=(
+            Param(name='pattern', description='A glob. Without a / it matches file names anywhere: "*.py", "test_*", "config.json". With a / it matches the path: "src/**/*.ts", "docs/*.md".'),
+        ),
+    ),
+    Tool(
         name='search_in_file',
         description='Search the contents of the project\'s files for text or a regex (like grep). Files .gitignore excludes and binary files are skipped. Returns matching lines as path:line: text.',
         params=(

@@ -78,6 +78,11 @@ packages of their own rather than be imported from here.
   skipped, `glob` narrows it (`*.py`, `src/*.ts`) and `context` shows lines
   around each match. ripgrep does it where it is installed, and the fallback
   gives the same answer without it.
+- **`find_files`.** `list_dir` shows one level, so a small model looking for
+  `config.py` went down the tree a directory per call and often gave up first.
+  `find_files("*.py")` finds names at any depth, a pattern with a `/` matches
+  the path, `.gitignore` is honoured, and it stops at 200 and says how many
+  there were.
 
 ---
 

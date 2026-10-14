@@ -212,7 +212,7 @@ by a server on a loopback port.
 
 ## 4. Tool Capabilities
 
-The client equips the model with 41 tools. They are listed in one table in
+The client equips the model with 42 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -459,6 +459,7 @@ that says what went wrong.
 - `move_file`: Move or rename a file in one step. A file git tracks moves with `git mv`, so the rename is one commit, `/undo` takes it back whole, and the history follows the file. Never overwrites an existing file.
 - `create_dir`: Create a new directory path.
 - `list_dir`: Display directory contents.
+- `find_files`: Find files by name or path pattern anywhere in the project (`*.py`, `test_*`, `src/**/*.ts`) - one call instead of a `list_dir` per directory. Honours `.gitignore`; up to 200 paths.
 - `search_in_file`: Search the project's files for text or a regex, grep-style. Only what git would show is searched - `.gitignore` is honoured and binaries are skipped - with an optional `glob` (`*.py`, `src/*.ts`) and `context` lines around each match. Uses ripgrep when it is installed, and gives the same answer without it.
 
 ### System & Git Management
@@ -2389,7 +2390,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_retry.py`**: That a rate limit, an overloaded server or a dropped connection is tried again - after a wait that doubles, or as long as the server asks - and that a reply which has started arriving is never started over.
 - **`tests/test_headless.py`**: That `aetheris -p` puts the answer alone - or one JSON object naming every tool call and how it ended - on stdout, reads a piped prompt, never waits on a stdin nobody sent anything on, and reports a failure as an exit status.
 - **`tests/test_bench.py`**: That each benchmark grader passes a right answer and fails the wrong ones a small model actually gives - a file rewritten down to the one function asked about, a call made when none was wanted - and that the edit fixture still has its bug.
-- **`tests/test_search.py`**: That `search_in_file` leaves out what `.gitignore` excludes and binaries, narrows by glob, shows context once per stretch - and that ripgrep and the Python fallback give the same answer.
+- **`tests/test_search.py`**: That `search_in_file` leaves out what `.gitignore` excludes and binaries, narrows by glob, shows context once per stretch - and that ripgrep and the Python fallback give the same answer; and that `find_files` finds by name at any depth, by path with a `/`, and stops at 200.
 - **`tests/test_resume.py`**: That `--resume` and `-c` open the conversation they name - and that neither hands back a blank one, or guesses, when they cannot.
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.
