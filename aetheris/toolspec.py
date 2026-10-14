@@ -304,10 +304,12 @@ TOOLS = (
     ),
     Tool(
         name='search_in_file',
-        description='Search for a text pattern or regex across all files in the current workspace directory (like grep). Returns matching lines with file paths and line numbers.',
+        description='Search the contents of the project\'s files for text or a regex (like grep). Files .gitignore excludes and binary files are skipped. Returns matching lines as path:line: text.',
         params=(
             Param(name='query', description='The text or regex pattern to search for.'),
             Param(name='is_regex', description='If true, treat query as a regular expression. Default is false.', default=False),
+            Param(name='glob', description='(Optional) Only search files matching this, e.g. "*.py" (any .py file) or "src/*.ts" (a path).', optional=True),
+            Param(name='context', description='(Optional) Lines to show before and after each match, 0-10. Default 0.', default=0, optional=True),
         ),
     ),
     Tool(

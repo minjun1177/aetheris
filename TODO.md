@@ -48,6 +48,7 @@
 * [x] Ring the terminal bell when a long turn ends (TURN_BELL_SECONDS)
 * [x] Headless: aetheris -p "..." with piped input, --auto-allow and --json
 * [x] bench/run.py: the README tasks N times, graded, saved, --compare
+* [x] search_in_file: .gitignore, binaries skipped, glob, context lines, ripgrep when present
 
 ## next
 

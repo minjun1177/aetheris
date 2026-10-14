@@ -1447,52 +1447,180 @@ def handle_get_system_info() -> str:
         return f"[Error] Failed to fetch system info: {e}"
 
 
-def handle_search_in_file(query: str, is_regex: bool = False) -> str:
+# --- searching the workspace ------------------------------------------------
+#
+# Every file under the working directory used to be opened, `.gitignore` or
+# not, so a search for a name spent its hundred results on `dist/`, a lock file
+# and a minified bundle before it reached the source - and a small model takes
+# the first page of results as the answer. Now: the files git would show
+# (tracked, plus untracked ones that are not ignored), binaries skipped, an
+# optional glob to narrow it and lines of context around each match. ripgrep
+# does it where it is installed; this does the same where it is not.
+
+SEARCH_MAX_MATCHES = 100
+SEARCH_LINE_CHARS = 200
+SEARCH_MAX_CONTEXT = 10
+_SEARCH_MAX_BYTES = 5 * 1024 * 1024        # past this a "text" file is data, not source
+# Outside a git repository there is no .gitignore to ask, so the usual
+# generated and vendored directories are skipped by name instead.
+_SEARCH_SKIP_DIRS = frozenset({"venv", ".venv", "__pycache__", "node_modules",
+                               "dist", "build", ".git"})
+
+
+def _ripgrep() -> str:
+    return shutil.which("rg") or ""
+
+
+def _looks_binary(path: str) -> bool:
+    try:
+        with open(path, "rb") as handle:
+            return b"\0" in handle.read(8192)
+    except OSError:
+        return True
+
+
+def _glob_matches(pattern: str, relative: str) -> bool:
+    """`*.py` matches a file name anywhere; a pattern with a `/` matches the path."""
+    import fnmatch
+    relative = relative.replace(os.sep, "/")
+    if "/" not in pattern.strip("/"):
+        return fnmatch.fnmatch(os.path.basename(relative), pattern)
+    return fnmatch.fnmatch(relative, pattern.lstrip("./"))
+
+
+def _workspace_files(root: str) -> list:
+    """Files under `root` a person would call the project, relative to it, sorted."""
+    listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others",
+                             "--exclude-standard"], cwd=root, capture_output=True)
+    if listed.returncode == 0:
+        names = [n for n in listed.stdout.decode("utf-8", "replace").split("\0") if n]
+        # A tracked file deleted from the disk is still in the index.
+        return sorted({n for n in names if os.path.isfile(os.path.join(root, n))})
+    found = []
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SEARCH_SKIP_DIRS]
+        for name in files:
+            found.append(os.path.relpath(os.path.join(directory, name), root))
+    return sorted(found)
+
+
+def _cut_line(text: str) -> str:
+    text = text.rstrip("\r\n")
+    return text[:SEARCH_LINE_CHARS] + "..." if len(text) > SEARCH_LINE_CHARS else text
+
+
+def _search_python(root: str, pattern, glob: str, context: int) -> tuple:
+    """(blocks, matches, truncated) without ripgrep. A block is a list of lines."""
+    blocks, matches = [], 0
+    for relative in _workspace_files(root):
+        if glob and not _glob_matches(glob, relative):
+            continue
+        path = os.path.join(root, relative)
+        try:
+            if os.path.getsize(path) > _SEARCH_MAX_BYTES or _looks_binary(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                lines = handle.readlines()
+        except OSError:
+            continue
+        shown = -1                      # the last line already printed, so context
+        block: list = []                # shared by two matches is printed once
+        for index, line in enumerate(lines):
+            if index <= shown or not pattern.search(line):
+                continue                # printed - and counted - as context already
+            first = max(index - context, shown + 1)
+            if block and first > shown + 1:
+                blocks.append(block)
+                block = []
+            for at in range(first, min(len(lines), index + context + 1)):
+                hit = at == index or bool(pattern.search(lines[at]))
+                mark = ":" if hit else "-"
+                block.append(f"{relative}{mark}{at + 1}{mark} {_cut_line(lines[at])}")
+                shown = at
+                if hit:
+                    matches += 1
+                    if matches >= SEARCH_MAX_MATCHES:
+                        blocks.append(block)
+                        return blocks, matches, True
+        if block:
+            blocks.append(block)
+    return blocks, matches, False
+
+
+def _search_ripgrep(rg: str, root: str, query: str, is_regex: bool, glob: str,
+                    context: int):
+    """The same search through ripgrep, or None when ripgrep could not do it."""
+    command = [rg, "--line-number", "--with-filename", "--no-heading", "--color=never",
+               "--null", "--sort=path", "--max-filesize", str(_SEARCH_MAX_BYTES)]
+    if context:
+        command += ["--context", str(context)]
+    if not is_regex:
+        command.append("--fixed-strings")
+    if glob:
+        command += ["--glob", glob]
+    command += ["--regexp", query, "--", "."]
+    try:
+        done = subprocess.run(command, cwd=root, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode == 1:
+        return [], 0, False
+    if done.returncode != 0:
+        return None         # a pattern ripgrep's engine refuses, say; Python may not
+    blocks, block, matches = [], [], 0
+    for raw in done.stdout.decode("utf-8", "replace").splitlines():
+        if raw == "--":
+            if block:
+                blocks.append(block)
+            block = []
+            continue
+        name, _, rest = raw.partition("\0")
+        number = re.match(r"(\d+)([:-])", rest)
+        if not number:
+            continue
+        name = name[2:] if name.startswith("./") else name
+        mark = number.group(2)
+        block.append(f"{name}{mark}{number.group(1)}{mark} {_cut_line(rest[number.end():])}")
+        if mark == ":":
+            matches += 1
+            if matches >= SEARCH_MAX_MATCHES:
+                blocks.append(block)
+                return blocks, matches, True
+    if block:
+        blocks.append(block)
+    return blocks, matches, False
+
+
+def handle_search_in_file(query: str, is_regex: bool = False, glob: str = "",
+                          context=0) -> str:
     if not query:
         return "[Error] Search query is required."
+    is_regex = str(is_regex).strip().lower() in ("true", "1", "yes", "on")
+    glob = str(glob or "").strip()
     try:
-        if is_regex:
-            try:
-                pattern = re.compile(query)
-            except re.error as e:
-                return f"[Error] Invalid regex pattern: {e}"
-        else:
-            pattern = re.compile(re.escape(query))
-
-        matches = []
-        max_results = 100
-        search_root = os.getcwd()
-
-        for root, dirs, files in os.walk(search_root):
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('venv', '__pycache__', 'node_modules', '.git')]
-            for filename in files:
-                filepath = os.path.join(root, filename)
-                rel_path = os.path.relpath(filepath, search_root)
-                try:
-                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                        for line_num, line in enumerate(f, 1):
-                            if pattern.search(line):
-                                line_preview = line.rstrip()
-                                if len(line_preview) > 200:
-                                    line_preview = line_preview[:200] + "..."
-                                matches.append(f"{rel_path}:{line_num}: {line_preview}")
-                                if len(matches) >= max_results:
-                                    break
-                except (PermissionError, OSError):
-                    continue
-                if len(matches) >= max_results:
-                    break
-            if len(matches) >= max_results:
-                break
-
-        if not matches:
-            return f"[Search] No matches found for: {query}"
-        header = f"[Search] Found {len(matches)} match(es) for '{query}':\n"
-        if len(matches) >= max_results:
-            header = f"[Search] Showing first {max_results} matches for '{query}' (more may exist):\n"
-        return header + "\n".join(matches)
+        context = max(0, min(SEARCH_MAX_CONTEXT, int(context or 0)))
+    except (TypeError, ValueError):
+        return f"[Error] context must be a number of lines from 0 to {SEARCH_MAX_CONTEXT}."
+    try:
+        pattern = re.compile(query if is_regex else re.escape(query))
+    except re.error as e:
+        return f"[Error] Invalid regex pattern: {e}"
+    root = os.getcwd()
+    try:
+        rg = _ripgrep()
+        found = _search_ripgrep(rg, root, query, is_regex, glob, context) if rg else None
+        if found is None:
+            found = _search_python(root, pattern, glob, context)
     except Exception as e:
         return f"[Error] Search failed: {e}"
+    blocks, matches, truncated = found
+    where = f" in {glob}" if glob else ""
+    if not matches:
+        return f"[Search] No matches found for: {query}{where}"
+    header = (f"[Search] Showing the first {SEARCH_MAX_MATCHES} matches for '{query}'{where} "
+              f"(more exist - narrow it with glob):\n" if truncated else
+              f"[Search] Found {matches} match(es) for '{query}'{where}:\n")
+    return header + ("\n--\n" if context else "\n").join("\n".join(b) for b in blocks)
 
 
 def handle_call_api(url: str, method: str, headers: str = "", payload: str = "") -> str:

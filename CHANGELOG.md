@@ -71,6 +71,13 @@ packages of their own rather than be imported from here.
   from what actually happened and saved as JSON. `--compare` holds a run
   against an earlier one; `--seed` makes runs repeatable. They used to be run
   by hand, which told "works" from "does not" and nothing finer.
+- **`search_in_file` searches the project.** It opened every file under the
+  working directory, so a search spent its hundred results on `dist/`, a lock
+  file and a minified bundle. Now only what git would show is searched -
+  tracked files and untracked ones `.gitignore` does not exclude - binaries are
+  skipped, `glob` narrows it (`*.py`, `src/*.ts`) and `context` shows lines
+  around each match. ripgrep does it where it is installed, and the fallback
+  gives the same answer without it.
 
 ---
 
