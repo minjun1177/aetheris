@@ -47,6 +47,13 @@ def saved_file():
         return None
 
 
+def in_subprocess(code: str) -> str:
+    environment = dict(os.environ, PYTHONPATH=ROOT, PYTHONIOENCODING="utf-8")
+    environment[paths.ENV_VAR] = HOME
+    return subprocess.run([sys.executable, "-c", code], capture_output=True,
+                          text=True, env=environment, cwd=ROOT).stdout.strip()
+
+
 # ---------------------------------------------------------------------------
 print("--- what counts as a setting is derived, not listed ---")
 settable = config.settable()
@@ -62,7 +69,10 @@ check("but live state and protocol anchors are not",
       str(sorted({"SYSTEM_PROMPT", "SESSION_TITLE", "MODEL", "TOOL_ERROR_PREFIX",
                   "SETTINGS_FILE", "CURRENT_OS"} & set(settable))))
 check("and nothing unserialisable is",
-      all(isinstance(v, (bool, int, float, str, list)) for v in settable.values()))
+      all(isinstance(v, (bool, int, float, str, list)) or v is None
+          for v in settable.values()))
+check("a number that may be absent is still a setting",
+      {"OLLAMA_TEMPERATURE", "OLLAMA_SEED", "OLLAMA_KEEP_ALIVE"} <= set(settable))
 
 print("\n--- what was typed becomes the type the setting already has ---")
 cases = [
@@ -85,6 +95,52 @@ for name, raw, why in [
 ]:
     value, problem = config.parse_setting(name, raw)
     check(f"{name} = {raw!r} is refused ({why})", value is None and bool(problem), problem)
+
+print("\n--- a number that may be absent: unset is not zero ---")
+for name, raw, expected in [
+    ("OLLAMA_TEMPERATURE", "0.2", 0.2),
+    ("OLLAMA_TEMPERATURE", "0", 0.0),
+    ("OLLAMA_TEMPERATURE", "none", None),
+    ("OLLAMA_SEED", "42", 42),
+    ("OLLAMA_SEED", "", None),
+]:
+    value, problem = config.parse_setting(name, raw)
+    check(f"{name} = {raw!r}", value == expected and type(value) is type(expected)
+          and not problem, f"got {value!r} {problem}")
+for name, raw in [("OLLAMA_SEED", "4.5"), ("OLLAMA_TEMPERATURE", "hot"),
+                  ("OLLAMA_TEMPERATURE", "-1")]:
+    value, problem = config.parse_setting(name, raw)
+    check(f"{name} = {raw!r} is refused", value is None and bool(problem), problem)
+
+ok, _ = config.set_setting("OLLAMA_SEED", "7")
+check("a seed is saved like any other setting",
+      ok and saved_file() == {"OLLAMA_SEED": 7}, str(saved_file()))
+check("and read back in a new process",
+      in_subprocess("from aetheris import config; print(config.OLLAMA_SEED)") == "7")
+ok, _ = config.set_setting("OLLAMA_SEED", "default")
+check("and put back to unset", ok and config.OLLAMA_SEED is None
+      and not saved_file(), str(saved_file()))
+
+print("\n--- what reaches Ollama: only what was chosen ---")
+request = providers.ollama_request("m:1b", [], 100)
+check("unset temperature and seed are not sent",
+      "temperature" not in request["options"] and "seed" not in request["options"],
+      str(request["options"]))
+check("the model is kept loaded for half an hour by default",
+      request.get("keep_alive") == "30m", str(request.get("keep_alive")))
+config.OLLAMA_TEMPERATURE, config.OLLAMA_SEED = 0.1, 3
+config.OLLAMA_KEEP_ALIVE = "-1"
+request = providers.ollama_request("m:1b", [], 100)
+check("a chosen temperature and seed are sent",
+      request["options"].get("temperature") == 0.1 and request["options"].get("seed") == 3,
+      str(request["options"]))
+check("a bare number is sent as seconds, not as a unitless duration",
+      request.get("keep_alive") == -1, repr(request.get("keep_alive")))
+config.OLLAMA_KEEP_ALIVE = ""
+check("and an empty keep-alive leaves it to the server",
+      "keep_alive" not in providers.ollama_request("m:1b", [], 100))
+config.OLLAMA_TEMPERATURE, config.OLLAMA_SEED = None, None
+config.OLLAMA_KEEP_ALIVE = config.defaults()["OLLAMA_KEEP_ALIVE"]
 
 print("\n--- the file records the deviations and nothing else ---")
 ok, where = config.set_setting("num_ctx", "32768")
@@ -114,12 +170,6 @@ check("and nothing was written for it", "NO_SUCH_SETTING" not in (saved_file() o
 
 print("\n--- and it is read back at import, in a new process ---")
 
-
-def in_subprocess(code: str) -> str:
-    environment = dict(os.environ, PYTHONPATH=ROOT, PYTHONIOENCODING="utf-8")
-    environment[paths.ENV_VAR] = HOME
-    return subprocess.run([sys.executable, "-c", code], capture_output=True,
-                          text=True, env=environment, cwd=ROOT).stdout.strip()
 
 check("a saved setting survives a restart",
       in_subprocess("from aetheris import config; print(config.VM_TIMEOUT)") == "60")

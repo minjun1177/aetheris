@@ -2118,6 +2118,9 @@ The settings worth knowing:
 | `OLLAMA_HOST` | `http://localhost:11434` | Where the Ollama daemon is. `/set OLLAMA_HOST http://box:11434` points the harness at another machine - the chat, the model list, the tool-support probe and the summariser all follow it. While this is at its default a `$OLLAMA_HOST` in the environment is honoured instead; changing it here wins over both |
 | `NUM_CTX` | 65536 | Context window asked of Ollama |
 | `NUM_PREDICT` | 6144 | Output cap. Must be an int - every hosted API rejects a float |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded after a request. Its own default is five minutes, after which the next turn waits for the model to load again. `-1` keeps it loaded; empty leaves it to the server |
+| `OLLAMA_TEMPERATURE` | unset | Sampling temperature sent to Ollama. Unset sends nothing and the Modelfile decides; `/set OLLAMA_TEMPERATURE none` puts it back |
+| `OLLAMA_SEED` | unset | A fixed seed, for runs that have to be repeatable - a benchmark, a comparison |
 | `NATIVE_TOOLS` | `True` | `False` forces the `<tool_call>` text protocol everywhere |
 | `MAX_TOOL_CALLS` | 10 | Tool calls per turn before asking whether to continue |
 | `AUTO_ALLOW` | `False` | `True` is `/automode on` from startup - no approval prompts |

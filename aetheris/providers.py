@@ -625,6 +625,31 @@ def ollama_client(host: str = "", timeout: float | None = None):
     return ollama.Client(**arguments)
 
 
+def ollama_request(model: str, messages: list, max_tokens: int | None = None) -> dict:
+    """The body of one streamed chat request, with the settings that shape it.
+
+    An option left unset is left out rather than sent as a default of ours: the
+    model's Modelfile has its own temperature, and overriding it with a number
+    nobody chose would change every model's behaviour behind the person's back.
+    """
+    from aetheris import config
+    options = {"num_ctx": config.NUM_CTX, "num_predict": token_budget(max_tokens)}
+    if config.OLLAMA_TEMPERATURE is not None:
+        options["temperature"] = float(config.OLLAMA_TEMPERATURE)
+    if config.OLLAMA_SEED is not None:
+        options["seed"] = int(config.OLLAMA_SEED)
+    request = {"model": model, "messages": messages, "stream": True, "options": options}
+    keep_alive = str(config.OLLAMA_KEEP_ALIVE or "").strip()
+    if keep_alive:
+        # A bare number is seconds, and the server reads it only as a number:
+        # as a string "-1" is a duration without a unit, and is refused.
+        try:
+            request["keep_alive"] = int(keep_alive)
+        except ValueError:
+            request["keep_alive"] = keep_alive
+    return request
+
+
 def ollama_supports_tools(model: str, host: str = "") -> bool:
     """Whether this local model was built with a tool-calling template.
 
@@ -814,10 +839,7 @@ class OllamaProvider(Provider):
     async def stream(self, messages: list, max_tokens: int | None = None,
                      tools: list | None = None):
         from aetheris import config
-        options = {"num_ctx": config.NUM_CTX,
-                   "num_predict": token_budget(max_tokens)}
-        request = {"model": self.model, "messages": _ollama_messages(messages),
-                   "stream": True, "options": options}
+        request = ollama_request(self.model, _ollama_messages(messages), max_tokens)
         if tools:
             request["tools"] = self.encode_tools(tools)
         response = await self._client().chat(**request)

@@ -31,6 +31,20 @@ packages of their own rather than be imported from here.
 
 ---
 
+## Unreleased
+
+- **The local model stays loaded.** Requests to Ollama carry
+  `OLLAMA_KEEP_ALIVE` (`30m` by default). Ollama's own five minutes ran out
+  during a long test run, and the next turn spent tens of seconds loading the
+  model again.
+- **Temperature and seed for Ollama.** `OLLAMA_TEMPERATURE` and `OLLAMA_SEED`
+  are unset by default and then not sent at all, so the Modelfile still
+  decides. A low temperature suits tool calls; a fixed seed makes a measurement
+  repeatable. `/set` gained its first settings that can be absent:
+  `none` unsets one.
+
+---
+
 ## 1.1.0 - 2026-10-14
 
 Attacca is the headline: a machine that cannot run a model of its own can

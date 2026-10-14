@@ -343,6 +343,17 @@ NUM_PREDICT = 6144          # 2048 and 4096 both truncated file writes mid-way.
                             # Keep this an int: every hosted API rejects a float
                             # in max_tokens, and 4096*1.5 is a float.
 
+# How long Ollama keeps the model loaded after a request. Its own default is
+# five minutes, and a test run or a long read of the output is longer than
+# that: the next turn then waits tens of seconds for the model to load again.
+# A duration ("30m", "2h"), seconds, or "-1" for ever. Empty sends nothing and
+# leaves it to the server.
+OLLAMA_KEEP_ALIVE = "30m"
+# Unset (None) sends nothing and the model's own Modelfile decides. A low
+# temperature suits tool calls; a fixed seed makes a benchmark repeatable.
+OLLAMA_TEMPERATURE = None
+OLLAMA_SEED = None
+
 AUTO_ALLOW = False
 # Whether a drag with the mouse, while the prompt is open, selects what it
 # crosses the way this program understands it - a thought without its gutter,
@@ -829,13 +840,21 @@ _NOT_A_SETTING = frozenset({
 _TRUE = ("on", "true", "yes", "y", "1")
 _FALSE = ("off", "false", "no", "n", "0")
 
+# The one kind the current value cannot describe: a number that may also be
+# absent. Absent is not zero - temperature 0 and "the model's own temperature"
+# are different requests - so these hold None until somebody sets one, and the
+# type they take is written here because None has none.
+_OPTIONAL_NUMBERS = {"OLLAMA_TEMPERATURE": float, "OLLAMA_SEED": int}
+_UNSET = ("", "none", "unset", "off")
+
 
 def settable() -> dict:
     """Every setting `/set` may change, with the value it has right now."""
     return {name: value for name, value in sorted(globals().items())
             if name.isupper() and not name.startswith("_")
             and name not in _NOT_A_SETTING
-            and isinstance(value, (bool, int, float, str, list))}
+            and (isinstance(value, (bool, int, float, str, list))
+                 or name in _OPTIONAL_NUMBERS)}
 
 
 def parse_setting(name: str, raw) -> tuple:
@@ -847,6 +866,19 @@ def parse_setting(name: str, raw) -> tuple:
     """
     current = globals().get(name)
     text = raw.strip() if isinstance(raw, str) else raw
+
+    if name in _OPTIONAL_NUMBERS:
+        if text is None or str(text).strip().lower() in _UNSET:
+            return None, ""
+        kind = _OPTIONAL_NUMBERS[name]
+        try:
+            value = kind(str(text)) if kind is int else float(text)
+        except (TypeError, ValueError):
+            label = "a whole number" if kind is int else "a number"
+            return None, f"{name} is {label} or none, not '{raw}'"
+        if value < 0:
+            return None, f"{name} cannot be negative"
+        return value, ""
 
     if isinstance(current, bool):           # before int - a bool *is* an int
         if isinstance(text, bool):

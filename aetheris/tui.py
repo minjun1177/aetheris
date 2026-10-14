@@ -646,6 +646,8 @@ def _fmt_tool_result(name: str, result: str):
 
 
 def _fmt_setting(value) -> str:
+    if value is None:
+        return "(unset)"
     if isinstance(value, bool):
         return "on" if value else "off"
     if isinstance(value, list):
