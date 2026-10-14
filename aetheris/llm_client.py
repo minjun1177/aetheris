@@ -17,6 +17,7 @@ from aetheris.tui import (_fmt_tool_call, _fmt_tool_result, _fmt_tokens,
                           ask_the_driver)
 from aetheris.renderer import _render_line, _format_table, _render_full
 from aetheris.tools import dispatch_tool
+from aetheris import tools as _tools
 from aetheris import channel
 from aetheris import images
 from aetheris import context
@@ -812,6 +813,89 @@ MAX_EMPTY_REPLIES = 1      # one nudge, then say so
 REFUSAL_PREFIX = config.TOOL_REFUSAL_PREFIX
 MAX_REFUSALS_IN_A_ROW = 3
 
+# The other shape of the same loop: a call that is *allowed*, made again with
+# the same arguments - the same file read a fifth time, the same `ls`, the same
+# failing edit. Nothing refuses it, so the refusal count above never sees it.
+# The third time it runs with a warning attached; the fourth is refused, which
+# hands it to the refusal count, which ends the turn if the model keeps going.
+MAX_SAME_CALL = 3
+# Polling is what this one is for: an empty `send_input` listens for more
+# output from a command that is still running, and doing that four times is
+# the tool working, not the model stuck.
+_REPEATS_ALLOWED = frozenset({"send_input"})
+
+
+class CallGuard:
+    """What a stuck model does, counted over one turn, and what to do about it.
+
+    Two shapes. Refused calls in a row: a deny rule, a read-only stage, an
+    approval declined - it asks again, is refused again. And the same allowed
+    call again and again. The second is turned into the first at its fourth
+    repetition, so one escalation handles both: a nudge, then the turn ends.
+
+    A file written in between is progress, not a loop - "run the tests, fix,
+    run the tests" is the same command three times with a different answer
+    each time - so a successful write starts every other count again.
+    """
+
+    def __init__(self):
+        self.seen: dict = {}
+        self.refusals = 0
+        self.nudged = False
+
+    @staticmethod
+    def _key(name: str, arguments: dict):
+        if name in _REPEATS_ALLOWED:
+            return None
+        try:
+            return name + json.dumps(arguments, sort_keys=True, ensure_ascii=False,
+                                     default=str)
+        except (TypeError, ValueError):
+            return None
+
+    def screen(self, name: str, arguments: dict) -> str | None:
+        """The refusal to hand back instead of running this call, or None."""
+        key = self._key(name, arguments)
+        if key is None or self.seen.get(key, 0) < MAX_SAME_CALL:
+            return None
+        return (f"[System] Not run: this is call number {self.seen[key] + 1} to "
+                f"'{name}' with exactly these arguments in this request, and nothing "
+                f"has been written since. The answer would be the one you already "
+                f"have. Use it, try something different, or say what is blocking you.")
+
+    def note(self, name: str, arguments: dict, result) -> str:
+        """Count a call that ran. Returns the result, with a warning if due."""
+        key = self._key(name, arguments)
+        wrote = (name in _tools._WRITES_FILES and isinstance(result, str)
+                 and result.startswith("[Success"))
+        if wrote:
+            # Every *other* count starts again; this one does not, or the same
+            # write sent four times would reset itself each time.
+            self.seen = {key: self.seen[key]} if key in self.seen else {}
+        if key is None:
+            return result
+        self.seen[key] = self.seen.get(key, 0) + 1
+        if self.seen[key] == MAX_SAME_CALL and not wrote and isinstance(result, str):
+            return (result + f"\n\n[System] You have now made this exact '{name}' call "
+                    f"{MAX_SAME_CALL} times in this request with nothing written in "
+                    f"between. Another identical call will be refused - change the "
+                    f"arguments or the approach.")
+        return result
+
+    def after(self, result) -> str:
+        """"" to carry on, "nudge" to tell the model to stop, "stop" to end the turn."""
+        if not (isinstance(result, str) and result.startswith(REFUSAL_PREFIX)):
+            self.refusals = 0
+            return ""
+        self.refusals += 1
+        if self.refusals < MAX_REFUSALS_IN_A_ROW:
+            return ""
+        self.refusals = 0
+        if self.nudged:
+            return "stop"
+        self.nudged = True
+        return "nudge"
+
 # Auto-verify feeds a failing check back and lets the model fix it. Three goes,
 # for the same reason as above: by the fourth it is not converging, and another
 # round of guesses is worth less to the person watching than being told plainly
@@ -841,8 +925,7 @@ async def chat_turn(messages: list[dict]) -> str:
     call_count = 0
     parse_failures = 0
     empty_replies = 0
-    refusals = 0
-    refusal_nudges = 0
+    guard = CallGuard()
     verify_failures = 0
     verify_done = False        # set when this turn has spent its three goes
     last_failure = ""          # to tell a stuck model from one making progress
@@ -997,12 +1080,22 @@ async def chat_turn(messages: list[dict]) -> str:
                                  f"[Tool Result for '{function_name}']:\n{tool_result}"})
                 call_count += 1
                 continue
-            tool_result = dispatch_tool(function_name, arguments)
-            if tool_result is None:
-                # An unknown tool used to end the turn in silence. Hand the
-                # model the error so it can correct itself instead.
-                tool_result = (f"[Error] There is no tool named '{function_name}'. "
-                               "Use only the tools listed in your system prompt.")
+            tool_result = guard.screen(function_name, arguments)
+            if tool_result is not None:
+                _fmt_tool_call(function_name, arguments)
+                print(f"  {S.MUTED}✗ not run: the same call a {MAX_SAME_CALL + 1}th "
+                      f"time, with nothing written since{S.R}")
+                if _tools.call_log is not None:
+                    _tools.call_log.append({"name": function_name, "arguments": arguments,
+                                            "outcome": "refused", "seconds": 0.0})
+            else:
+                tool_result = dispatch_tool(function_name, arguments)
+                if tool_result is None:
+                    # An unknown tool used to end the turn in silence. Hand the
+                    # model the error so it can correct itself instead.
+                    tool_result = (f"[Error] There is no tool named '{function_name}'. "
+                                   "Use only the tools listed in your system prompt.")
+                tool_result = guard.note(function_name, arguments, tool_result)
 
             _fmt_tool_result(function_name, tool_result)
 
@@ -1020,26 +1113,21 @@ async def chat_turn(messages: list[dict]) -> str:
             messages.append(result_message)
             call_count += 1
 
-            if isinstance(tool_result, str) and tool_result.startswith(REFUSAL_PREFIX):
-                refusals += 1
-                if refusals >= MAX_REFUSALS_IN_A_ROW:
-                    refusals = 0
-                    if refusal_nudges:
-                        # Told once already and still knocking. End the turn on
-                        # what it has rather than spending the rest of the
-                        # budget on a door that is not going to open.
-                        print(f"  {S.WARN}⚠  The model kept calling tools it is not "
-                              f"allowed right now; ending the turn.{S.R}")
-                        stop_after_tools = True
-                        break
-                    refusal_nudges += 1
-                    messages.append({"role": "user", "content": (
-                        f"[System] That is the {MAX_REFUSALS_IN_A_ROW}rd tool in a row "
-                        "you have been refused. Trying again will be refused again - "
-                        "the answer will not change. Stop calling tools and write out "
-                        "in words what you wanted to do and why.")})
-            else:
-                refusals = 0
+            verdict = guard.after(tool_result)
+            if verdict == "stop":
+                # Told once already and still knocking. End the turn on what it
+                # has rather than spending the rest of the budget on a door that
+                # is not going to open.
+                print(f"  {S.WARN}⚠  The model kept calling tools it is not "
+                      f"allowed right now; ending the turn.{S.R}")
+                stop_after_tools = True
+                break
+            if verdict == "nudge":
+                messages.append({"role": "user", "content": (
+                    f"[System] That is the {MAX_REFUSALS_IN_A_ROW}rd tool in a row "
+                    "you have been refused. Trying again will be refused again - "
+                    "the answer will not change. Stop calling tools and write out "
+                    "in words what you wanted to do and why.")})
 
         if stop_after_tools:
             return stored

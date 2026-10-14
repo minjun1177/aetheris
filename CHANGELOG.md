@@ -83,6 +83,14 @@ packages of their own rather than be imported from here.
   `find_files("*.py")` finds names at any depth, a pattern with a `/` matches
   the path, `.gitignore` is honoured, and it stops at 200 and says how many
   there were.
+- **The same call, over and over, is stopped.** Only a *refused* tool asked for
+  again was caught. The commoner loop is allowed - the same file read a fifth
+  time, the same `ls` - and ran until the tool budget asked the person. Now
+  the third identical call in a request carries a warning and the fourth is
+  not run; that refusal joins the refusal count, which nudges once and then
+  ends the turn. A file written in between starts the count again, because
+  "test, fix, test" is progress, and an empty `send_input` polling a running
+  command is left alone.
 
 ---
 

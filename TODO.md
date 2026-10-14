@@ -50,6 +50,7 @@
 * [x] bench/run.py: the README tasks N times, graded, saved, --compare
 * [x] search_in_file: .gitignore, binaries skipped, glob, context lines, ripgrep when present
 * [x] find_files(pattern): glob over the project, .gitignore honoured, up to 200
+* [x] Loop guard: the same call 3 times is warned, the 4th refused; a write in between resets it
 
 ## next
 
