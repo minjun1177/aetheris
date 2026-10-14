@@ -176,17 +176,12 @@ COMMANDS = (
     ("/sessions [title]", "Saved conversations, newest first - pick one to open it"),
     ("/load <id|title>", "Open a saved conversation directly, by id or by title"),
     ("/title [name]", "Show this session's title, or set it"),
-    ("/autotitle [on/off]", "Whether the model names a new session after its first exchange"),
     ("/export [filename]", "Write the conversation out as markdown"),
-    ("/record [on/off]", "Whether conversations are saved to disk at all"),
 
     # -- what the model is allowed to do -----------------------------------
-    ("/automode [on/off]", "Whether tools run without asking. Off means every "
-                           "guarded tool waits for you"),
     ("/perms", "The rules that decide what runs without asking"),
     ("/perms reload", "Re-read the permission rule files"),
     ("/perms allow|deny <rule>", "Add a rule, e.g. /perms allow run_cmd(git *)"),
-    ("/planmode [on/off]", "Whether the model must submit a plan before it changes anything"),
     ("/artifacts [open] [n]", "What an Attacca agent made in this session - shown "
                               "here, or opened in the browser"),
     ("/tdd [request]", "Run one request with this project's test files locked, so "
@@ -195,23 +190,15 @@ COMMANDS = (
 
     # -- taking it back ----------------------------------------------------
     ("/undo", "Take back the last file change the AI committed"),
-    ("/autocommit [on/off]", "Whether each file an AI tool changes gets a commit "
-                             "of its own. On its own it also lists the recent ones"),
-    ("/autoverify [on/off]", "Whether this project's own tests run after an edit, "
-                             "with a failure handed straight back to the model"),
 
     # -- how it answers ----------------------------------------------------
-    ("/deepthink [on/off]", "Whether one request becomes plan, check, build, "
-                            "review, revise and verify"),
-    ("/think [on/off]", "Whether a reasoning model's thinking is shown. It is "
-                        "never kept in the conversation history either way"),
     ("/system <prompt>", "Put a persona in front of the system prompt"),
     ("/system reset", "Take that persona back out"),
-    ("/fullcontent [on/off]", "Whether a file or page reaches the model whole, "
-                              "or cut short"),
     ("/set", "Every setting, with the ones you have changed marked"),
     ("/set <NAME>", "Show one of them on its own"),
-    ("/set <NAME> <value>", "Change it, now and for the next session"),
+    ("/set <NAME> <value>", "Change it, now and for the next session. The switches "
+                            "are settings too: /set DEEPTHINK on, /set AUTO_ALLOW off, "
+                            "/set PLANMODE on, /set AUTO_VERIFY on ..."),
     ("/set <NAME> default", "Put it back to what config.py says"),
 
     # -- skills and MCP servers --------------------------------------------
@@ -285,6 +272,24 @@ def command_names() -> list:
 # and offered twice.
 ALIASES = {"/quit": "/exit"}
 
+# Nine on/off commands that were each a setting under another name - nine
+# more rows in /help, and nine more things to learn, for what `/set` already
+# does. `/set NAME on|off` is now the one way /help shows. The old names still
+# work exactly as they did - for this session only, which is what they always
+# meant - and say once that `/set` is the way that lasts. They are kept out of
+# the menu and /help; `app.py` answers them through `_switch`, which reads this.
+SWITCHES = {
+    "/autotitle": "AUTO_TITLE",
+    "/record": "SAVE_CHAT_HISTORY",
+    "/automode": "AUTO_ALLOW",
+    "/planmode": "PLANMODE",
+    "/autocommit": "GIT_AUTO_COMMIT",
+    "/autoverify": "AUTO_VERIFY",
+    "/deepthink": "DEEPTHINK",
+    "/think": "SHOW_THINKING",
+    "/fullcontent": "RETURN_ALL_FILE_CONTENT",
+}
+
 # A bracketed word is a placeholder for something only the person knows - a
 # path, a rule, a request. `[on/off]` is the exception: both of its values are
 # literally what you type, so they are worth offering.
@@ -340,6 +345,14 @@ def _dynamic(command: str, typed: str) -> list:
             for name, value in sorted(config.settable().items()):
                 rows.append((f"/set {name}", f"/set {name}",
                              f"now {_fmt_setting(value)}"))
+        elif command == "/set" and typed.count(" ") == 2:
+            # A switch offers its two values, as the commands it replaced did.
+            name = typed.split(" ")[1].upper()
+            value = config.settable().get(name)
+            if isinstance(value, bool):
+                for word in ("on", "off"):
+                    rows.append((f"/set {typed.split(' ')[1]} {word}",
+                                 f"/set {name} {word}", f"now {_fmt_setting(value)}"))
         elif command == "/skill" and typed.count(" ") == 1:
             for skill in list_skills():
                 rows.append((f"/skill {skill['name']}", f"/skill {skill['name']}",

@@ -96,6 +96,15 @@ packages of their own rather than be imported from here.
   plan as a checklist the harness keeps with the session; before every request
   the open items are put back in front of it, on what is sent rather than in
   the stored conversation, and only while something is left.
+- **Nine switches are `/set` now.** `/deepthink`, `/planmode`, `/automode`,
+  `/autoverify`, `/autocommit`, `/autotitle`, `/think`, `/fullcontent` and
+  `/record` were each a setting under a second name - nine more rows in
+  `/help` for what `/set DEEPTHINK on` already did. `/help` and the menu show
+  `/set` alone. The old names still answer exactly as before - for this
+  session only - and say once that `/set` is the way that lasts. `/set
+  AUTO_VERIFY on` now retries a check that turned itself off, and `/set
+  PLANMODE on` starts an Attacca plan job, as the commands did. Commands that
+  take an argument, like `/tdd`, are unchanged.
 
 ---
 

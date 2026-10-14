@@ -88,12 +88,24 @@ check("the tab-completion menu is built from the command table",
 check("and every suggestion says what it does",
       not [i for i, _, meta in tui.complete_command("/") if not meta.strip()],
       str([i for i, _, meta in tui.complete_command("/") if not meta.strip()]))
-check("every command is tab-completable",
-      not [c for c in commands if c not in completable],
-      str([c for c in commands if c not in completable]))
+# The on/off commands that are settings under another name are answered but
+# no longer offered: `/set` is the one way /help shows. Each must still name a
+# setting that exists, or its hint would point at nothing.
+hidden = set(tui.SWITCHES)
+check("every command is tab-completable, or a switch /set now owns",
+      not [c for c in commands if c not in completable and c not in hidden],
+      str([c for c in commands if c not in completable and c not in hidden]))
 helped = set(name.split()[0] for name, _ in tui.COMMANDS)
-check("every command is in /help", not [c for c in commands if c not in helped],
-      str([c for c in commands if c not in helped]))
+check("every command is in /help, or a switch /set now owns",
+      not [c for c in commands if c not in helped and c not in hidden],
+      str([c for c in commands if c not in helped and c not in hidden]))
+check("and each of those still answers, and names a real setting",
+      all(c in commands for c in hidden)
+      and all(s in config.settable() for s in tui.SWITCHES.values()),
+      str({c: s for c, s in tui.SWITCHES.items()
+           if c not in commands or s not in config.settable()}))
+check("none of them is offered in the menu or /help any more",
+      not (hidden & completable) and not (hidden & helped), str(hidden & (completable | helped)))
 check("and every row in the table describes something",
       not [name for name, desc in tui.COMMANDS if not desc.strip()],
       str([name for name, desc in tui.COMMANDS if not desc.strip()]))
@@ -111,13 +123,10 @@ check("no row promises a command that does not exist",
 # have more than one row for good reason and are checked apart from the rest.
 NOT_ONLY_SWITCHES = ("/mcp", "/agents", "/remote")
 switches = [name.split()[0] for name, _ in tui.COMMANDS if "[on/off]" in name]
-check("every switch is spelled the same way in /help", len(switches) >= 8, str(switches))
+check("the switches left in /help are the ones that are more than a switch",
+      sorted(set(switches)) == sorted(NOT_ONLY_SWITCHES), str(switches))
 
-pure = [s for s in switches if s not in NOT_ONLY_SWITCHES]
-doubled = [s for s in pure if sum(1 for n, _ in tui.COMMANDS if n.split()[0] == s) > 1]
-check("a switch is one row, not one to read and one to set", not doubled, str(doubled))
-
-undelegated = [s for s in switches
+undelegated = [s for s in list(switches) + list(tui.SWITCHES)
                if re.search(rf'_switch\(\s*\n?\s*"{re.escape(s)}"', APP) is None]
 check("and each goes through the one shared switch", not undelegated,
       str(undelegated))

@@ -295,6 +295,32 @@ check("and where the Ollama daemon lives is a setting like any other",
       "OLLAMA_HOST" in under)
 
 
+print("\n--- the old switch commands point at /set, and still change only this session ---")
+from aetheris import app                                            # noqa: E402
+import contextlib                                                   # noqa: E402
+before_file = saved_file()
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    value = app._switch("/deepthink", "on", False, "Deepthink", "one request, six turns")
+check("/deepthink on still answers on", value is True)
+check("and says, in one line, that it is /set DEEPTHINK now",
+      sum("/set DEEPTHINK" in line for line in said.getvalue().splitlines()) == 1,
+      said.getvalue())
+check("without writing anything down", saved_file() == before_file, str(saved_file()))
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    app._switch("/deepthink", "", False, "Deepthink", "one request, six turns")
+check("a bare one shows the /set spelling as its usage",
+      "Usage: /set DEEPTHINK <on/off>" in re.sub(r"\x1b\[[0-9;]*m", "", said.getvalue()),
+      said.getvalue())
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    app._switch("/remote", "", False, "Remote control", "a browser can drive this")
+check("a switch that is more than a switch keeps its own usage",
+      "/set" not in said.getvalue() and "Usage: /remote" in re.sub(
+          r"\x1b\[[0-9;]*m", "", said.getvalue()))
+
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

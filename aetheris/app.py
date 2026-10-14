@@ -30,6 +30,7 @@ from aetheris import promptkeys
 from aetheris import qr
 from aetheris import mentions
 from aetheris import todos
+from aetheris import tui
 from aetheris import tools
 from aetheris import vault
 from aetheris import verify
@@ -1402,11 +1403,18 @@ def _switch(command: str, argument: str, now: bool, label: str, what: str,
     Returns the new value, or None when nothing changed.
     """
     argument = (argument or "").strip().lower()
+    # One of the switches `/set` now owns: still answered, and pointed there.
+    setting = tui.SWITCHES.get(command)
+    hint = (f"  {S.MUTED}↪ {command} is /set {setting} on|off now - that also keeps "
+            f"it for the next session; {command} changes this one only.{S.R}"
+            if setting else "")
     if argument in ("on", "off"):
         value = argument == "on"
         note = on_note if value else off_note
         print(f"  {S.INFO}✓ {label} is {'ON' if value else 'OFF'}.{S.R}"
               + (f"{S.MUTED} {note}{S.R}" if note else ""))
+        if hint:
+            print(hint)
         print()
         return value
 
@@ -1416,7 +1424,7 @@ def _switch(command: str, argument: str, now: bool, label: str, what: str,
           f"{S.MUTED} - {what}{S.R}")
     for line in extra:
         print(f"  {S.MUTED}{line}{S.R}")
-    print(f"  {S.MUTED}Usage: {command} <on/off>{S.R}")
+    print(f"  {S.MUTED}Usage: {f'/set {setting} <on/off>' if setting else f'{command} <on/off>'}{S.R}")
     print()
     return None
 
@@ -1545,6 +1553,13 @@ def _set_command(rest: str, messages: list[dict]) -> None:
     _refresh_system_prompt(messages)
     if name == "KEYRING_ENABLED":
         _move_keys()
+    # What the old on/off commands did beyond flipping the value, so that
+    # `/set` is the whole of each and not a lesser spelling of it.
+    if name == "AUTO_VERIFY" and config.AUTO_VERIFY:
+        verify.reset()          # `on` after it turned itself off means "try again"
+    if name == "PLANMODE" and config.PLANMODE and providers.current().drives_turns:
+        from aetheris import attacca
+        attacca.plan_anew()
     # A remote that is open was started from the settings as they were. Moving
     # the port is the one somebody actually types mid-session, and a `/set`
     # that quietly did nothing until the next restart would read as broken.

@@ -155,7 +155,9 @@ try:
             return {insert for insert, _, _ in tui.complete_command(text)}
 
         top = tui.complete_command("/")
-        check("typing / offers every command", len(top) > 25, str(len(top)))
+        check("typing / offers every command",
+              len(top) == len(tui.command_names()) + len(tui.ALIASES) and len(top) > 15,
+              str(len(top)))
         check("each with what it does", all(meta.strip() for _, _, meta in top))
         check("including the second spelling of /exit", "/quit" in inserted("/"))
 
@@ -170,8 +172,13 @@ try:
               "/mcp tools|prompts|all [name]" not in shown("/mcp "),
               str(sorted(shown("/mcp "))))
         check("a switch offers on and off",
-              {"/deepthink on", "/deepthink off"} == inserted("/deepthink "),
-              str(inserted("/deepthink ")))
+              {"/remote on", "/remote off"} <= inserted("/remote "),
+              str(inserted("/remote ")))
+        check("and so does a setting that is a switch",
+              {"/set DEEPTHINK on", "/set DEEPTHINK off"} == inserted("/set DEEPTHINK "),
+              str(inserted("/set DEEPTHINK ")))
+        check("but not one that is a number", not inserted("/set NUM_CTX "),
+              str(inserted("/set NUM_CTX ")))
         check("a placeholder is shown but never completed",
               "/perms allow" in inserted("/perms ")
               and "/perms allow <rule>" in shown("/perms "),

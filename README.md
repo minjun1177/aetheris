@@ -2275,13 +2275,8 @@ The interactive terminal supports special slash commands to control options and 
 | `/load <id or title>` | Open a saved session directly, found by id or title. On its own it is `/sessions` |
 | `/title` | Show the current session's title and id |
 | `/title <name>` | Retitle the current session and rename its file to match |
-| `/autotitle [on/off]` | Whether the model names a new session after its first exchange. On its own it says which |
-| `/automode [on/off]` | Whether tools run without asking. Off means every guarded tool waits for you. On its own it says which |
-| `/fullcontent [on/off]` | Whether a file or page reaches the model whole, or cut short. On its own it says which |
-| `/record [on/off]` | Whether conversations are saved to disk at all. On its own it says which |
 | `/export [filename]` | Export current chat history into a Markdown file |
 | `/system <prompt>` | Set a custom system persona or reset to default (`/system reset`) |
-| `/planmode [on/off]` | Whether the model must submit a plan before it changes anything. On its own it says which. With Attacca it is Attacca's own plan mode |
 | `/artifacts [open] [n]` | What an Attacca agent made in this session: shown here, or opened in the browser |
 | `/skills` | List discovered skills with their descriptions and paths |
 | `/skills reload` | Rescan the skill directories and refresh the system prompt |
@@ -2308,8 +2303,6 @@ Two prefixes act on the message itself rather than being commands:
 | `/perms reload` | Re-read the permission rule files |
 | `/perms allow <rule>` | Add an allow rule, e.g. `/perms allow run_cmd(git *)` |
 | `/perms deny <rule>` | Add a deny rule |
-| `/think [on/off]` | Whether a reasoning model's thinking is shown. It is never kept in the history either way. On its own it says which |
-| `/deepthink [on/off]` | Whether one request becomes plan, check, build, review, revise and verify. On its own it says which, and lists the stages |
 | `/agents` | Show the other harnesses running in this project, what they hold, and what has been said |
 | `/agents say <text>` | Say something to all of them yourself |
 | `/agents release <path>` | Take a file back from the agent holding it |
@@ -2324,9 +2317,11 @@ Two prefixes act on the message itself rather than being commands:
 | `/set` | Every setting that can be changed, and which ones you have changed |
 | `/set <NAME> <value>` | Change one, e.g. `/set NUM_CTX 32768`. Saved for next time |
 | `/set <NAME> default` | Put it back to what `config.py` says |
+| `/set <SWITCH> on/off` | The on/off switches are settings like any other: `DEEPTHINK`, `PLANMODE`, `AUTO_ALLOW`, `AUTO_VERIFY`, `GIT_AUTO_COMMIT`, `AUTO_TITLE`, `SHOW_THINKING`, `RETURN_ALL_FILE_CONTENT`, `SAVE_CHAT_HISTORY` - saved for next time. `/set` on its own shows where each stands |
+
+The nine commands those switches used to be - `/deepthink`, `/planmode`, `/automode`, `/autoverify`, `/autocommit`, `/autotitle`, `/think`, `/fullcontent` and `/record` - still answer, as they always did: for this session only, and each says once that `/set` is the way that lasts. They are no longer in `/help` or the menu.
+
 | `/undo` | Take back the last file change the AI committed |
-| `/autocommit [on/off]` | Whether each file an AI tool changes gets a commit of its own. On its own it says which, and lists the recent ones |
-| `/autoverify [on/off]` | Whether this project's own tests run after an edit, with a failure handed straight back to the model. On its own it says which, and names any check turned off here |
 | `/tdd <request>` | Run one request with this project's test files locked |
 | `/tdd` | Arm that for your next message |
 | `/tdd off` | Lift it without sending anything |
