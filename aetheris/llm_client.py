@@ -157,6 +157,10 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
         ]
         cycle = itertools.cycle(frames)
         try:
+            # Into a pipe or a log - `aetheris -p` sends this to stderr - every
+            # frame would be a line of its own, hundreds of them per answer.
+            if not getattr(sys.stdout, "isatty", lambda: False)():
+                return
             while True:
                 frame = next(cycle)
                 sys.stdout.write(f'\r  {frame} {S.GRAY}thinking…{S.R}  ')

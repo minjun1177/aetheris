@@ -58,6 +58,14 @@ packages of their own rather than be imported from here.
 - **A bell when a long turn ends.** A turn of `TURN_BELL_SECONDS` (30) or
   more rings the terminal bell as it finishes, so it can be left running in
   another window. Not after Ctrl+C, and never into a pipe. 0 turns it off.
+- **Headless: `aetheris -p "..."`.** One prompt in, one answer out, for a pipe,
+  a script or CI - and for measuring, which needed a person at the keyboard
+  for every run. Piped input is appended to the prompt. The work is drawn on
+  stderr and stdout carries the answer alone, or with `--json` one object
+  with the text, every tool call and how it ended, tokens and seconds.
+  `--auto-allow` runs tools without asking. The session is saved like any
+  other, and `-c` / `--resume` combine with `-p`. The thinking spinner no
+  longer animates into something that is not a terminal.
 
 ---
 

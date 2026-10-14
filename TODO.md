@@ -46,6 +46,7 @@
 * [x] Retry 429 / 5xx / a dropped connection with backoff, never once the reply has started
 * [x] move_file: git mv for a tracked file, one commit, one /undo
 * [x] Ring the terminal bell when a long turn ends (TURN_BELL_SECONDS)
+* [x] Headless: aetheris -p "..." with piped input, --auto-allow and --json
 
 ## next
 

@@ -233,7 +233,8 @@ print("\n--- the turn loop owns the running, dispatch only notes it ---")
 # refusal counter (5.9) and could end the turn on the third one. It is a
 # message for that reason, and dispatch must not run the check inline: the
 # files are only in the state the model meant when its whole reply has run.
-source = inspect.getsource(tools.dispatch_tool)
+# `dispatch_tool` is a wrapper that keeps the call log; the work is `_dispatch`.
+source = inspect.getsource(tools._dispatch)
 check("dispatch_tool notes what was written", "verify.note_written" in source)
 check("and does not run the check itself", "verify.run_pending" not in source)
 loop = inspect.getsource(llm_client.chat_turn)

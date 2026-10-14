@@ -1,6 +1,9 @@
 import argparse
 import asyncio
+import contextlib
+import json
 import signal
+import stat
 import sys
 import os
 import re
@@ -2661,7 +2664,143 @@ def _parse_args(argv: list) -> argparse.Namespace:
     picked.add_argument("-c", "-continue", "--continue", dest="continue_here",
                         action="store_true",
                         help="resume the newest session last worked on in this directory")
-    return parser.parse_args(argv)
+    headless = parser.add_argument_group("one prompt, no prompt box")
+    headless.add_argument("-p", "--print", dest="prompt", nargs="?", const="",
+                          default=None, metavar="PROMPT",
+                          help="answer PROMPT and exit. Piped input is read too, and "
+                               "appended to it; with no PROMPT it is the whole prompt")
+    headless.add_argument("--json", dest="json_out", action="store_true",
+                          help="with -p: print the answer as JSON - its text, the tool "
+                               "calls, tokens and seconds")
+    headless.add_argument("--auto-allow", dest="auto_allow", action="store_true",
+                          help="with -p: run every tool without asking, as /automode on "
+                               "does. Without it a tool that needs approval is refused "
+                               "unless there is a terminal to ask at")
+    args = parser.parse_args(argv)
+    if args.prompt is None and (args.json_out or args.auto_allow):
+        parser.error("--json and --auto-allow only mean something with -p")
+    return args
+
+
+# ---------------------------------------------------------------------------
+# headless: `aetheris -p "..."`
+# ---------------------------------------------------------------------------
+#
+# One prompt in, one answer out, and nothing drawn for a person to look at - so
+# a script, a pipe or a CI job can use the harness, and a benchmark can run the
+# same request fifty times and count. Everything the turn would have drawn goes
+# to stderr, where a person running it by hand still sees the work happen;
+# stdout carries the answer alone, or the JSON, so it can be piped on.
+
+def _stdin_was_given(stdin) -> bool:
+    """Whether stdin is a pipe or a file - something somebody meant to send.
+
+    Not merely "not a terminal": a job runner can leave stdin as a socket that
+    never closes, and reading that waits for ever for input nobody will send.
+    """
+    try:
+        mode = os.fstat(stdin.fileno()).st_mode
+    except (AttributeError, OSError, ValueError):
+        return False
+    return stat.S_ISFIFO(mode) or stat.S_ISREG(mode)
+
+
+def _headless_prompt(given: str, stdin=None) -> str:
+    """`-p`'s argument and whatever was piped in, in that order."""
+    stdin = sys.stdin if stdin is None else stdin
+    piped = ""
+    if stdin is not None and (_stdin_was_given(stdin)
+                              or (not given.strip() and not stdin.isatty())):
+        piped = stdin.read()
+    return "\n\n".join(part.strip("\n") for part in (given, piped) if part.strip())
+
+
+async def run_headless(prompt: str, resume_id: str = "") -> dict:
+    """Answer one prompt as a turn of its own. Returns what `--json` prints.
+
+    The same turn the prompt box runs - context management, deepthink when it
+    is on, auto-verify, auto-commit, the permission rules - without the box.
+    The session is saved like any other, so `aetheris -c` can carry it on.
+    """
+    paths.close_home()
+    providers.apply_startup()
+    _report_mcp_problems(_connect_mcp_servers())
+    provider = providers.current()
+    if provider.drives_turns:
+        raise RuntimeError(f"{provider.label} runs its own agent loop; -p needs a "
+                           f"model this harness drives. /connect another one first.")
+    problem = provider.ready()
+    if problem:
+        raise RuntimeError(f"{provider.label} is not ready: {problem}. "
+                           f"Run aetheris and /connect first.")
+
+    config.SYSTEM_PROMPT = _build_system_prompt()
+    messages: list[dict] = [{"role": "system", "content": _compose_system_prompt()}]
+    session_id = None
+    if resume_id:
+        messages = _adopt_session(load_session(resume_id))
+        session_id = resume_id
+
+    config.next_turn()
+    first_request = len(config.token_history)
+    messages.append({"role": "user", "content": config.safe_text(prompt)})
+    session_id = save_session(messages, session_id)
+    tools.call_log = []
+    started = time.time()
+    try:
+        if config.DEEPTHINK:
+            text = await deepthink.run(messages)
+        else:
+            await manage_context(messages)
+            text = await chat_turn(messages)
+    finally:
+        calls, tools.call_log = tools.call_log, None
+        session_id = save_session(messages, session_id)
+        mcp_client.shutdown()
+    used = config.token_history[first_request:]
+    prompt_tokens = sum(entry.get("prompt", 0) or 0 for entry in used)
+    completion_tokens = sum(entry.get("completion", 0) or 0 for entry in used)
+    return {
+        "text": strip_thinking(text or "").strip(),
+        "tool_calls": calls,
+        "tokens": {"prompt": prompt_tokens, "completion": completion_tokens,
+                   "total": prompt_tokens + completion_tokens, "requests": len(used)},
+        "seconds": round(time.time() - started, 2),
+        "provider": provider.name,
+        "model": provider.model or config.MODEL,
+        "session": session_id or "",
+    }
+
+
+def _headless(args: argparse.Namespace, resume_id: str) -> int:
+    """`-p`: print the answer, or the JSON, and return the exit status."""
+    prompt = _headless_prompt(args.prompt or "")
+    if not prompt:
+        print("aetheris: -p was given nothing to answer - pass a prompt, or pipe one in.",
+              file=sys.stderr)
+        return 2
+    if args.auto_allow:
+        config.AUTO_ALLOW = True
+    out = sys.stdout
+    report, error, status = {}, "", 0
+    try:
+        # The turn draws for a person; the person is on stderr.
+        with contextlib.redirect_stdout(sys.stderr):
+            report = asyncio.run(run_headless(prompt, resume_id))
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        error, status = "interrupted", 130
+    except Exception as e:
+        error, status = str(e) or type(e).__name__, 1
+    if args.json_out:
+        report = report or {"text": "", "tool_calls": [], "tokens": {}, "seconds": 0}
+        report["error"] = error
+        print(json.dumps(report, ensure_ascii=False, default=str), file=out)
+    elif error:
+        print(f"aetheris: {error}", file=sys.stderr)
+    else:
+        print(report.get("text", ""), file=out)
+    out.flush()
+    return status
 
 
 def _session_to_resume(args: argparse.Namespace) -> str:
@@ -2709,12 +2848,15 @@ def cli() -> None:
     args = _parse_args(sys.argv[1:])
     # Before anything is started, and before the first turn can ask to run a
     # command: what this does to the machine it is on. Asked once per machine.
-    if not terms.require():
+    # Into stderr under -p, where stdout is the answer and nothing else.
+    if not terms.require(sys.stderr if args.prompt is not None else None):
         raise SystemExit(1)
     # Resolved here rather than inside `main()`: a name that matches nothing, or
     # matches several, is a mistake in the command that was typed, and the place
     # to answer it is before a screen has been cleared and servers started.
     resume_id = _session_to_resume(args)
+    if args.prompt is not None:
+        raise SystemExit(_headless(args, resume_id))
     try:
         asyncio.run(main(resume_id))
     except (KeyboardInterrupt, asyncio.CancelledError):

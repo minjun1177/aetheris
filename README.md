@@ -158,6 +158,20 @@ is.
    lists the candidates instead of choosing when a name matches more than one.
    `/sessions` inside a session lists them and opens the one you pick.
 
+4. **Or answer one prompt and exit** - for a pipe, a script or CI:
+   ```bash
+   aetheris -p "summarise CHANGELOG.md"           # the answer, on stdout
+   git diff | aetheris -p "review this"            # piped input is appended to the prompt
+   aetheris -p "fix the failing test" --auto-allow --json
+   ```
+   The work is drawn on stderr; stdout carries the answer alone, or with
+   `--json` one object: `text`, `tool_calls` (name, arguments, `ok` / `error` /
+   `refused`, seconds), `tokens`, `seconds`, `model`, `session` and `error`.
+   Without `--auto-allow` a tool that needs approval is refused unless there is
+   a terminal to ask at. The session is saved, so `aetheris -c` carries it on;
+   `-c` and `--resume` combine with `-p` too. Exit status 1 is a failure, 2 a
+   usage error.
+
 ### Running the tests
 
 No framework - each file is a script that prints `[ok]` / `[FAIL]` and exits
@@ -2356,6 +2370,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_terms.py`**: That the terms are shown before the harness can act, asked once, and never assumed from a pipe.
 - **`tests/test_tool_parsing.py`**: Every shape a model wraps a tool call in, and every shape that must not be read as one.
 - **`tests/test_retry.py`**: That a rate limit, an overloaded server or a dropped connection is tried again - after a wait that doubles, or as long as the server asks - and that a reply which has started arriving is never started over.
+- **`tests/test_headless.py`**: That `aetheris -p` puts the answer alone - or one JSON object naming every tool call and how it ended - on stdout, reads a piped prompt, never waits on a stdin nobody sent anything on, and reports a failure as an exit status.
 - **`tests/test_resume.py`**: That `--resume` and `-c` open the conversation they name - and that neither hands back a blank one, or guesses, when they cannot.
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.

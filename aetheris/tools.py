@@ -2293,7 +2293,38 @@ def _names_the_key_file(arguments: dict) -> str:
     return check(arguments, 0)
 
 
+# Every call dispatched while this is a list, for a caller that has to report
+# them afterwards - `aetheris -p --json`. None, the normal case, records nothing.
+call_log: list | None = None
+
+
+def _outcome(result) -> str:
+    if not isinstance(result, str):
+        return "unknown_tool"
+    if result.startswith(config.TOOL_ERROR_PREFIX):
+        return "error"
+    if result.startswith(config.TOOL_REFUSAL_PREFIX):
+        return "refused"
+    return "ok"
+
+
 def dispatch_tool(function_name: str, arguments: dict) -> str | None:
+    """Run one tool call, and note it in `call_log` when somebody is keeping one."""
+    started = time.time()
+    result = _dispatch(function_name, arguments)
+    if call_log is not None:
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                pass
+        call_log.append({"name": function_name, "arguments": arguments,
+                         "outcome": _outcome(result),
+                         "seconds": round(time.time() - started, 3)})
+    return result
+
+
+def _dispatch(function_name: str, arguments: dict) -> str | None:
     # Small models sometimes emit "arguments" as a JSON string rather than an
     # object. Normalise once here so no handler has to defend against it.
     if isinstance(arguments, str):
