@@ -99,7 +99,7 @@ check("fix_function: the fixture still has the bug", not passed, why)
 with open(os.path.join(w, "stats.py"), encoding="utf-8") as handle:
     source = handle.read()
 size = len(source)
-check("and is the size README says", 5000 <= size <= 6500, str(size))
+check("and is the size the docs say", 5000 <= size <= 6500, str(size))
 fixed = source.replace("    return ordered[middle]\n\n\ndef standard_deviation",
                        "    return (ordered[middle - 1] + ordered[middle]) / 2\n\n\n"
                        "def standard_deviation")

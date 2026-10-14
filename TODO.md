@@ -54,6 +54,7 @@
 * [x] update_todos: a checklist kept with the session, its open items shown before every request
 * [x] The nine on/off commands are /set switches; the old names still answer, for the session
 * [x] /help shows the six common commands; /help all shows every one
+* [x] README: a 150-line front page; the rest in docs/, one file per subject
 
 ## next
 

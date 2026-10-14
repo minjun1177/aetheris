@@ -49,14 +49,42 @@ def exists(name):
                for base in (ROOT, PKG, os.path.join(ROOT, "tests")))
 
 
-README = read("README.md")
+# README.md is the front page and docs/ is the rest of the user documentation.
+# What the checks below ask - is every tool, command, setting and test file
+# described somewhere a user would look - is asked of the two together.
+FRONT = read("README.md")
+DOCS_DIR = os.path.join(ROOT, "docs")
+DOC_FILES = sorted(f for f in os.listdir(DOCS_DIR) if f.endswith(".md"))
+README = "\n".join([FRONT] + [open(os.path.join(DOCS_DIR, f), encoding="utf-8").read()
+                              for f in DOC_FILES])
 ARCH = read("ARCHITECTURE.md")
 # Prose wraps, so a sentence to match against must be joined back up first.
 ARCH_FLAT = " ".join(ARCH.split())
 APP = read("app.py")
 TUI = read("tui.py")
 
-print("--- every tool is documented ---")
+print("--- README is a page, and docs/ is reachable from it ---")
+# It was 2,550 lines, and what a newcomer needed - install, run, the six
+# commands - was in the first hundred, with the rest of the program between
+# them and the end. The front page stays short; everything else is a link.
+front_lines = len(FRONT.splitlines())
+check("README.md is at most 150 lines", front_lines <= 150, f"{front_lines} lines")
+check("and links every page in docs/",
+      not [f for f in DOC_FILES if f"(docs/{f})" not in FRONT],
+      str([f for f in DOC_FILES if f"(docs/{f})" not in FRONT]))
+broken = []
+for name, text, base in [("README.md", FRONT, ROOT)] + [
+        (f"docs/{f}", open(os.path.join(DOCS_DIR, f), encoding="utf-8").read(), DOCS_DIR)
+        for f in DOC_FILES]:
+    for target in re.findall(r"\]\(([^)#\s]+)(?:#[^)]*)?\)", text):
+        if "://" not in target and not os.path.exists(os.path.join(base, target)):
+            broken.append(f"{name} -> {target}")
+check("every relative link in them opens", not broken, str(broken))
+check("and every page links back", all(
+    "(../README.md)" in open(os.path.join(DOCS_DIR, f), encoding="utf-8").read()
+    for f in DOC_FILES))
+
+print("\n--- every tool is documented ---")
 undocumented = [t.name for t in toolspec.TOOLS if f"`{t.name}`" not in README]
 check("README names every tool", not undocumented, str(undocumented))
 claimed = re.search(r"equips the model with (\d+) tools", README)
@@ -158,7 +186,10 @@ check("/help all is offered as you type", "/help all" in
 check("app.py answers /help all", 'arg == "all"' in APP)
 
 print("\n--- the settings README documents still exist ---")
-documented_settings = set(re.findall(r"^\| `([A-Z][A-Z0-9_]+)` \|", README, re.M))
+# docs/ only: README's own table is of environment variables, which are not
+# settings and are not expected to be names in config.py.
+documented_settings = set(re.findall(r"^\| `([A-Z][A-Z0-9_]+)` \|",
+                                     README[len(FRONT):], re.M))
 check("README has a settings table", len(documented_settings) > 10,
       f"{len(documented_settings)} settings")
 gone = [s for s in documented_settings if not hasattr(config, s)]

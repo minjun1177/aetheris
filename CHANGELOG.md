@@ -110,6 +110,11 @@ packages of their own rather than be imported from here.
   now shows `/connect`, `/sessions`, `/set`, `/undo`, `/clear` and `/exit`,
   the `@` and `!` prefixes, and how to see the rest: `/help all` is the old
   list, keys included. Typing `/` still opens every command as a menu.
+- **README is a page.** It was 2,550 lines; what a newcomer needs - install,
+  run, the six commands - is now the 150-line front page, and the rest moved
+  unchanged into `docs/`, one file per subject and each linked from it.
+  `test_docs.py` reads the two together, and fails if README grows past 150
+  lines or a link stops opening.
 
 ---
 

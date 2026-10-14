@@ -1,6 +1,6 @@
 """Measure a model on the harness's own tasks: `python bench/run.py --model gemma4:e4b`.
 
-README's model table rests on two kinds of task: five tool-calling ones - one
+The model table in docs/setup.md rests on two kinds of task: five tool-calling ones - one
 call, using the result, exact arguments, two calls in order, and correctly
 calling nothing - and two edits: creating a file, and fixing a function halfway
 down a 5,700-character file. They used to be run by hand, a few times each,

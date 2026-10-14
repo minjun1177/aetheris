@@ -2,8 +2,8 @@
 
 For anyone - person or model - about to change this codebase. It says where
 things are, what may not be broken, and what to touch for the change you have in
-mind. `README.md` says what the harness does and how to use it; this says how it
-is put together.
+mind. `README.md` and `docs/` say what the harness does and how to use it; this
+says how it is put together.
 
 Read §2 and §5 before editing anything. They are short and they are where the
 mistakes are.
@@ -1039,7 +1039,7 @@ processes at the board to check that giving up that easily still loses nothing.
 `vm.py`, behind the `run_python` tool. One `python` process is kept alive beside
 the harness with its globals intact, so the model can work something out in
 steps instead of guessing at it - which is the whole point for a 4B model, and
-the reason this is not simply `run_cmd python3 -c "..."`. `README.md` §9 has the
+the reason this is not simply `run_cmd python3 -c "..."`. `docs/running-commands.md` has the
 four differences that matter; this is how it is wired.
 
 ```
@@ -1462,12 +1462,12 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_notes.py` | That a note is one markdown file whose name is its id, that projects do not share notes while a subdirectory shares one, that a model-chosen id cannot write outside the notes directory, and that the prompt gets sorted titles only (5.16) |
 | `test_keys.py` | The harness's own keys: hidden in every tool result and never filled back in, `providers.json` refused to every tool by any path, absent from the model's environment, moved into a (fake) keyring with the file as fallback, and the home closed to other accounts |
 | `test_vault.py` | That a `.env` value never reaches the model by any route, that a placeholder reaches the shell as the real key, and that a file is neither how it gets out nor how it is lost (§8b) |
-| `test_docs.py` | That this file and `README.md` still describe the program that exists |
+| `test_docs.py` | That this file, `README.md` and `docs/` still describe the program that exists, and that README stays a short page |
 | `test_compat.py` | That the commands, settings, tool names and files people build habits on are still there under the same names (5.14) |
 
 `test_docs.py` is why the two documents can be trusted: it fails if either names
-a file, function or setting that is gone, if `README.md` misses a tool or a
-slash command, or if a number stated here stops matching the code. Prose cannot
+a file, function or setting that is gone, if the user docs (`README.md` and
+`docs/`) miss a tool or a slash command, or if a number stated here stops matching the code. Prose cannot
 be generated from the source the way the tool schemas are, but it can be held to
 it.
 
