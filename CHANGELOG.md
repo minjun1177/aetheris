@@ -31,7 +31,14 @@ packages of their own rather than be imported from here.
 
 ---
 
-## Unreleased
+## 1.1.0 - 2026-10-14
+
+Attacca is the headline: a machine that cannot run a model of its own can
+pair with an agent hosted there and keep every tool call here, under the same
+rules a local model works under. The rest is the terminal being easier to
+live in - a drag copies what was said rather than the gutter beside it, a
+paste is shown as its size, Ctrl+C stops before it leaves, and resizing the
+window redraws the conversation.
 
 ### Attacca: an agent somewhere else, the tools here
 

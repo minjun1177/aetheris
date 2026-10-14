@@ -6,4 +6,4 @@ every `from aetheris import ...` in the package, and the import order that
 invariant depends on would stop being obvious.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
