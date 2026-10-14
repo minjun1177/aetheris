@@ -43,6 +43,18 @@ def _requests():
     return requests
 
 
+class ProviderError(RuntimeError):
+    """A request the provider refused, with what deciding to retry it needs.
+
+    Still a RuntimeError, so everything that caught one before catches this.
+    """
+
+    def __init__(self, message: str, status: int = 0, retry_after: float | None = None):
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+
+
 # ---------------------------------------------------------------------------
 # message shaping
 # ---------------------------------------------------------------------------
@@ -575,6 +587,10 @@ class Provider:
                 + (f": {detail}" if detail else "")
                 + _key_hint(self, response.status_code))
 
+    def _refused(self, response) -> ProviderError:
+        return ProviderError(self._failed(response), response.status_code,
+                             retry_after(getattr(response, "headers", None) or {}))
+
     def _get_json(self, url: str, headers: dict) -> dict:
         response = _requests().get(url, headers=headers, timeout=30)
         # Not `raise_for_status`, which reports the status line and throws the
@@ -583,7 +599,7 @@ class Provider:
         # place a wrong API key shows up, and it used to show up as
         # "401 Client Error: Unauthorized" with no mention of a key at all.
         if response.status_code >= 400:
-            raise RuntimeError(self._failed(response))
+            raise self._refused(response)
         try:
             return response.json()
         except ValueError as error:
@@ -595,7 +611,7 @@ class Provider:
                                     data=json.dumps(payload).encode("utf-8"),
                                     stream=True, timeout=HTTP_TIMEOUT)
         if response.status_code >= 400:
-            raise RuntimeError(self._failed(response))
+            raise self._refused(response)
         return response
 
 
@@ -1466,6 +1482,112 @@ def _sync_config(provider: Provider) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# trying again
+# ---------------------------------------------------------------------------
+#
+# A rate limit, an overloaded server or a dropped connection says nothing about
+# the request, and one of them used to end a turn - or the twelfth request of a
+# deepthink chain, with the eleven before it thrown away. They are tried again,
+# with a wait that doubles, but only before anything has arrived: a reply that
+# has started streaming has been shown, and maybe paid for, and starting it over
+# would print it twice.
+
+RETRY_BASE_SECONDS = 1.0
+RETRY_AFTER_CEILING = 60.0      # a server asking for longer is not waited on
+_sleep = asyncio.sleep          # replaced by the tests
+
+
+def retry_after(headers) -> float | None:
+    """Seconds a `Retry-After` header asks for - a number or an HTTP date."""
+    try:
+        value = str(headers.get("retry-after") or headers.get("Retry-After") or "").strip()
+    except AttributeError:
+        return None
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+        when = parsedate_to_datetime(value)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+
+def _status_of(error: BaseException) -> int:
+    status = getattr(error, "status", None) or getattr(error, "status_code", None)
+    try:
+        return int(status or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _dropped_connection(error: BaseException) -> bool:
+    """Whether the request never got an answer at all."""
+    if isinstance(error, (ConnectionError, TimeoutError)):
+        return True
+    kinds = []
+    try:
+        import requests
+        kinds += [requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                  requests.exceptions.ChunkedEncodingError]
+    except ImportError:
+        pass
+    try:
+        import httpx                      # what the ollama client is built on
+        kinds += [httpx.TransportError]
+    except ImportError:
+        pass
+    return bool(kinds) and isinstance(error, tuple(kinds))
+
+
+def retry_delay(error: BaseException, attempt: int) -> float | None:
+    """How long to wait before try `attempt + 2`, or None to give up now."""
+    from aetheris import config
+    if attempt >= int(getattr(config, "PROVIDER_RETRIES", 0) or 0):
+        return None
+    status = _status_of(error)
+    if not (status == 429 or status >= 500 or (not status and _dropped_connection(error))):
+        return None
+    asked = getattr(error, "retry_after", None)
+    if asked is not None:
+        return float(asked) if asked <= RETRY_AFTER_CEILING else None
+    return RETRY_BASE_SECONDS * (2 ** attempt)
+
+
+async def stream_with_retry(open_stream, on_retry=None):
+    """`open_stream()`'s chunks, opening it again while nothing has arrived.
+
+    `on_retry(error, seconds, attempt)` is told before each wait, so the person
+    watching a spinner knows why it is still spinning.
+    """
+    attempt = 0
+    while True:
+        started = False
+        try:
+            async for chunk in open_stream():
+                started = True
+                yield chunk
+            return
+        except Exception as error:
+            if started:
+                raise
+            seconds = retry_delay(error, attempt)
+            if seconds is None:
+                raise
+            attempt += 1
+            if on_retry is not None:
+                on_retry(error, seconds, attempt)
+            await _sleep(seconds)
+
+
 async def complete(messages: list, max_tokens: int) -> str:
     """One short non-streamed answer - used for session titles and summaries."""
     provider = current()
@@ -1475,7 +1597,8 @@ async def complete(messages: list, max_tokens: int) -> str:
         raise RuntimeError(f"{provider.label} runs its own agent loop and cannot "
                            f"answer a one-off request like this one.")
     pieces = []
-    async for chunk in current().stream(messages, max_tokens=max_tokens):
+    async for chunk in stream_with_retry(
+            lambda: current().stream(messages, max_tokens=max_tokens)):
         if chunk.get("text"):
             pieces.append(chunk["text"])
     return "".join(pieces).strip()

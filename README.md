@@ -2118,6 +2118,7 @@ The settings worth knowing:
 | `OLLAMA_HOST` | `http://localhost:11434` | Where the Ollama daemon is. `/set OLLAMA_HOST http://box:11434` points the harness at another machine - the chat, the model list, the tool-support probe and the summariser all follow it. While this is at its default a `$OLLAMA_HOST` in the environment is honoured instead; changing it here wins over both |
 | `NUM_CTX` | 65536 | Context window asked of Ollama |
 | `NUM_PREDICT` | 6144 | Output cap. Must be an int - every hosted API rejects a float |
+| `PROVIDER_RETRIES` | 3 | Times a request refused with 429 or a 5xx, or a dropped connection, is tried again - after 1, 2 and 4 seconds, or as long as `Retry-After` asks, up to a minute. Never once a reply has started arriving. 0 turns it off |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded after a request. Its own default is five minutes, after which the next turn waits for the model to load again. `-1` keeps it loaded; empty leaves it to the server |
 | `OLLAMA_TEMPERATURE` | unset | Sampling temperature sent to Ollama. Unset sends nothing and the Modelfile decides; `/set OLLAMA_TEMPERATURE none` puts it back |
 | `OLLAMA_SEED` | unset | A fixed seed, for runs that have to be repeatable - a benchmark, a comparison |
@@ -2352,6 +2353,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_paths.py`**: That nothing personal is written into whatever directory you started in, and that state from an older version is named rather than moved.
 - **`tests/test_terms.py`**: That the terms are shown before the harness can act, asked once, and never assumed from a pipe.
 - **`tests/test_tool_parsing.py`**: Every shape a model wraps a tool call in, and every shape that must not be read as one.
+- **`tests/test_retry.py`**: That a rate limit, an overloaded server or a dropped connection is tried again - after a wait that doubles, or as long as the server asks - and that a reply which has started arriving is never started over.
 - **`tests/test_resume.py`**: That `--resume` and `-c` open the conversation they name - and that neither hands back a blank one, or guesses, when they cannot.
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.

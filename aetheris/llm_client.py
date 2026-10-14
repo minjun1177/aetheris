@@ -261,8 +261,17 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
     try:
         # Only mentioned when there is something to send: `tools=None` tells a
         # provider nothing, and not every provider has to know the word.
-        reply = (providers.current().stream(messages, tools=tools) if tools
-                 else providers.current().stream(messages))
+        def open_reply():
+            return (providers.current().stream(messages, tools=tools) if tools
+                    else providers.current().stream(messages))
+
+        def retrying(error, seconds, attempt):
+            why = (str(error).strip().splitlines() or [type(error).__name__])[0]
+            sys.stdout.write('\r\033[K')
+            print(f"  {S.WARN}⚠ {why[:120]} - trying again in {seconds:.0f}s "
+                  f"({attempt}/{config.PROVIDER_RETRIES}){S.R}")
+
+        reply = providers.stream_with_retry(open_reply, retrying)
 
         async for chunk in reply:
             if start_time is None:

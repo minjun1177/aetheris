@@ -1430,6 +1430,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |
+| `test_retry.py` | That a 429, a 5xx or a dropped connection is retried with backoff or `Retry-After`, a 4xx is not, and a reply that has started is never started over |
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |

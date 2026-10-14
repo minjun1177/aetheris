@@ -43,6 +43,7 @@
 * [x] Announce a big MCP server by name instead of describing it; use_mcp_server sends its tools when the model asks
 * [x] Remote control: `/remote on` opens one token-locked door into the running session - the transcript, the prompt, and the approvals, on a phone
 * [x] Ollama: keep the model loaded (OLLAMA_KEEP_ALIVE), and temperature / seed when they are set
+* [x] Retry 429 / 5xx / a dropped connection with backoff, never once the reply has started
 
 ## next
 

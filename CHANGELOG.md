@@ -42,6 +42,12 @@ packages of their own rather than be imported from here.
   decides. A low temperature suits tool calls; a fixed seed makes a measurement
   repeatable. `/set` gained its first settings that can be absent:
   `none` unsets one.
+- **A refused request is tried again.** A 429, a 5xx or a connection that
+  dropped before answering is retried up to `PROVIDER_RETRIES` times (3),
+  after 1, 2 and 4 seconds or as long as `Retry-After` asks. One overloaded
+  moment used to end the turn - and under deepthink, a chain of a dozen
+  requests. A reply that has started arriving is never started over: it has
+  already been printed.
 
 ---
 

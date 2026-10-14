@@ -343,6 +343,12 @@ NUM_PREDICT = 6144          # 2048 and 4096 both truncated file writes mid-way.
                             # Keep this an int: every hosted API rejects a float
                             # in max_tokens, and 4096*1.5 is a float.
 
+# A request refused with 429 or a 5xx, or a connection that dropped before any
+# answer, is tried again this many times - after 1, 2 and 4 seconds, or as long
+# as the server's Retry-After asks, up to a minute. Never once a reply has
+# started arriving. 0 turns it off.
+PROVIDER_RETRIES = 3
+
 # How long Ollama keeps the model loaded after a request. Its own default is
 # five minutes, and a test run or a long read of the output is longer than
 # that: the next turn then waits tens of seconds for the model to load again.
