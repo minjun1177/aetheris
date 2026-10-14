@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from aetheris.config import S, tw
+from aetheris.config import S, tw, wrap_cells
 
 
 _LATEX_SYMBOLS: list[tuple[str, str]] = [
@@ -185,7 +185,9 @@ def _render_line(line: str, in_code: bool, in_latex_block: bool = False) -> tupl
     if stripped.startswith("> "):
         inner = stripped[2:]
         inner = _apply_inline_md(inner)
-        return f"  {S.MUTED}┃{S.R} {S.ITAL}{S.GRAY}{inner}{S.R}", in_code, in_latex_block
+        rows = wrap_cells(inner, tw() - 5, by_word=True)
+        return ("\n".join(f"  {S.MUTED}┃{S.R} {S.ITAL}{S.GRAY}{row}{S.R}" for row in rows),
+                in_code, in_latex_block)
 
     line = _apply_inline_md(line)
 

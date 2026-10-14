@@ -1,9 +1,11 @@
 import argparse
 import asyncio
+import signal
 import sys
 import os
 import re
-import datetime
+import time
+from datetime import datetime
 from aetheris import __version__
 from aetheris import config
 from aetheris import paths
@@ -20,6 +22,8 @@ from aetheris import providers
 from aetheris import keystore
 from aetheris import connect
 from aetheris import remote
+from aetheris import screen
+from aetheris import promptkeys
 from aetheris import qr
 from aetheris import mentions
 from aetheris import tools
@@ -88,12 +92,19 @@ def _adopt_session(loaded) -> list[dict]:
         config.CUSTOM_PERSONA = loaded.get("persona", config.CUSTOM_PERSONA)
         config.SESSION_TITLE = loaded.get("title", "")
         config.ATTACCA_SESSION = loaded.get("attacca_session", "")
+        config.ATTACCA_JOB = str(loaded.get("attacca_job") or "")
+        try:
+            config.ATTACCA_CURSOR = int(loaded.get("attacca_cursor") or 0)
+        except (TypeError, ValueError):
+            config.ATTACCA_CURSOR = 0
     else:                                   # a transcript from before version 2
         messages = loaded
         config.token_history.clear()
         config.resume_turns()
         config.SESSION_TITLE = ""
         config.ATTACCA_SESSION = ""
+        config.ATTACCA_CURSOR = 0
+        config.ATTACCA_JOB = ""
     if not messages or messages[0].get("role") != "system":
         # Every later turn addresses messages[0] as the system message. A file
         # saved with none - or with none left after a repair - must not make the
@@ -123,6 +134,7 @@ _NOT_TYPED = ("[System]", "[System Note", "[Tool Error]", "[Channel]", "[Deepthi
 # attached and the `/tdd` note. Cut off, the line is what the prompt showed.
 _APPENDED = ("\n\n[Attached ", "\n\n[System Note:")
 
+IS_APRIL_FOOL = True if str(datetime.now().strftime("%m %d")) == "04 01" else False
 
 def _as_typed(content: str) -> str:
     cut = min((at for at in (content.find(mark) for mark in _APPENDED) if at >= 0),
@@ -174,7 +186,8 @@ def _replay_session(messages: list[dict]) -> None:
             c = strip_thinking(c).strip()
             calls = parse_tool_calls(content, quiet=True)
             if c:
-                print(_render_full(c))
+                with screen.block("answer"):
+                    print(_render_full(c))
                 if not calls:
                     print()
             for name, arguments in calls:
@@ -188,6 +201,56 @@ def _clear_screen() -> None:
     the old copy would show it all again, laid out the old way.
     """
     print("\033[2J\033[3J\033[H", end="")
+
+
+# How many saved sessions `/sessions` lists before it says there are more. The
+# rest are a few typed letters away, and a list longer than the screen scrolls
+# its newest rows - the ones most likely wanted - off the top.
+SESSIONS_SHOWN = 15
+
+
+def _pick_session(current: str, query: str = "") -> str:
+    """`/sessions`: the saved conversations, and which one to open. "" for none.
+
+    Listing and loading were two commands, with an id read off the first and
+    typed into the second. The list is numbered instead and asks; the answer is
+    a number from it, or a few letters of a title - which narrows the list and
+    asks again when they fit more than one.
+    """
+    rows = find_sessions(query) if query else list_sessions()
+    if query and len(rows) == 1:
+        return rows[0][0]
+    while True:
+        print(f"\n  {S.BOLD}{S.ACCENT}Saved Sessions{S.R}"
+              + (f" {S.MUTED}matching '{query}'{S.R}" if query else ""))
+        if not rows:
+            print(f"  {S.GRAY}  " + (f"No session matches '{query}'." if query
+                                     else "No saved sessions yet.") + f"{S.R}\n")
+            return ""
+        shown = rows[:SESSIONS_SHOWN]
+        for number, (sid, title, meta) in enumerate(shown, 1):
+            marker = f" {S.OK}◀ current{S.R}" if sid == current else ""
+            print(f"  {S.ACCENT}{number:3}.{S.R} {S.WHITE}"
+                  f"{title or S.GRAY + '(untitled)'}{S.R}{marker}")
+            print(f"       {S.MUTED}{sid}{S.R}  {S.GRAY}{meta}{S.R}")
+        if len(rows) > len(shown):
+            print(f"       {S.MUTED}… and {len(rows) - len(shown)} older - a few "
+                  f"letters of a title find them{S.R}")
+        print()
+        answer = connect._ask(
+            f"  {S.INFO}Open{S.R} {S.MUTED}(1~{len(shown)}, or part of a title; "
+            f"Enter to stay){S.R} {S.INFO}›{S.R} ",
+            title="Saved sessions",
+            options=[(str(n), title or sid) for n, (sid, title, _) in enumerate(shown, 1)])
+        if not answer:
+            print()
+            return ""
+        if answer.isdigit() and 1 <= int(answer) <= len(shown):
+            return shown[int(answer) - 1][0]
+        matches = find_sessions(answer)
+        if len(matches) == 1:
+            return matches[0][0]
+        rows, query = matches, answer
 
 
 def _show_ambiguous(query: str, matches: list, hint: str) -> None:
@@ -624,11 +687,21 @@ async def _watch_channel(session_pt=None) -> None:
 SHELL_STYLE = "fg:#fabd2f"          # S.WARN, in the spelling prompt_toolkit takes
 
 
-def _prompt_message() -> str:
-    """The prompt, which says `Shell` over itself while a `!` is being typed."""
-    if getattr(config, "typing_shell", None) and config.typing_shell():
+def _prompt_message(shell=None) -> str:
+    """The prompt, which says `Shell` over itself while a `!` is being typed.
+
+    `shell` says so for a line that is no longer being typed - the one the
+    prompt left on screen when it closed.
+    """
+    if shell is None:
+        shell = bool(getattr(config, "typing_shell", None)) and config.typing_shell()
+    if shell:
+        # What becomes of the output is the one thing not visible from the
+        # line itself, and `RETURN_SHELL_OUTPUT` decides it either way.
+        fate = ("the model sees it and its output with your next message"
+                if config.RETURN_SHELL_OUTPUT else "not shown to the model")
         return (f"  {S.WARN}{S.BOLD}Shell{S.R}{S.MUTED} - runs on this machine as "
-                f"you; not sent to the model{S.R}\n"
+                f"you; {fate}{S.R}\n"
                 f"  {S.WARN}{S.BOLD}❯{S.R} ")
     return f"  {S.USER_CLR}{S.BOLD}❯{S.R} "
 
@@ -659,6 +732,11 @@ def _echo_remote(line: str) -> str:
 # again without starting a turn.
 IDLE_CALL = object()
 _kept_typing = ""             # half a line, set aside while a call was served
+
+# What `_read_line` returns when a turn started somewhere else - a message typed
+# into Attacca's web app, on the session this terminal is in - has something to
+# show. The main loop draws it the way it draws a turn started here.
+WEB_TURN = object()
 
 # What `_read_line` returns when the terminal changed size under an open prompt:
 # the main loop draws the conversation again at the new size and opens the
@@ -738,12 +816,158 @@ async def _set_aside(session_pt, typed) -> None:
         pass
 
 
+# Ctrl+C stops what is running. Leaving takes a second one within this many
+# seconds - one press used to end the program from anywhere, a turn half
+# answered included, and the key that means "not that" is pressed too often
+# for it to also mean "and close everything".
+EXIT_WINDOW = 5.0
+_last_interrupt = 0.0         # when Ctrl+C was last pressed, by `time.monotonic`
+_leaving = False              # that press was the second inside the window
+_stoppable = False            # something is listening for a Ctrl+C right now
+_deferred_interrupt = False   # one was pressed where nothing was; say so later
+
+
+class _Signalled(KeyboardInterrupt):
+    """A Ctrl+C that arrived as a signal, and has been counted already."""
+
+
+def _count_interrupt() -> None:
+    global _last_interrupt, _leaving
+    now = time.monotonic()
+    _leaving = now - _last_interrupt <= EXIT_WINDOW
+    _last_interrupt = now
+
+
+def _interrupted(caught=None) -> bool:
+    """Whether the Ctrl+C just caught is the one that leaves.
+
+    One press is counted once. A signal is counted by the handler that
+    received it, and reaches here as `_Signalled` or as the cancellation the
+    handler asked for; a plain `KeyboardInterrupt` is the key itself, read by
+    an open prompt, and nobody has counted that yet.
+    """
+    global _leaving
+    if not isinstance(caught, (_Signalled, asyncio.CancelledError)):
+        _count_interrupt()
+    leaving, _leaving = _leaving, False
+    return leaving
+
+
+def _say_how_to_leave(stopped: bool = False) -> None:
+    what = f"{S.WARN}⏹ Stopped.{S.R} " if stopped else ""
+    print(f"\n  {what}{S.GRAY}Press Ctrl+C again within "
+          f"{EXIT_WINDOW:g} seconds to exit.{S.R}\n")
+
+
+async def _absorb_cancel() -> None:
+    """Take the cancellation a Ctrl+C left pending, so the next await is clean.
+
+    The handler cancels the main task *and* raises into whatever holds the
+    thread, because it cannot tell which of the two will be listened to. When
+    the raise was the one caught, the cancellation is still owed - and would
+    arrive at the next prompt as a second Ctrl+C nobody pressed.
+    """
+    try:
+        await asyncio.sleep(0)
+    except asyncio.CancelledError:
+        pass
+    task = asyncio.current_task()
+    uncancel = getattr(task, "uncancel", None)        # Python 3.11
+    while uncancel is not None and task.cancelling():
+        uncancel()
+
+
+def _own_ctrl_c():
+    """Take SIGINT for the life of the loop. Returns what puts it back.
+
+    `asyncio.run` installs a handler of its own: the first Ctrl+C cancels the
+    main task, and every one after it - an hour later, in another turn - is
+    raised as `KeyboardInterrupt` wherever the thread happens to be, the event
+    loop's own code included. That is a program that survives exactly one
+    stopped turn. This one stops what is running each time, and ends the
+    program only for a second press inside `EXIT_WINDOW`.
+
+    While a prompt is open the terminal is raw and Ctrl+C is a key, not a
+    signal, so none of this runs: the prompt raises `KeyboardInterrupt` itself.
+    """
+    try:
+        loop, task = asyncio.get_running_loop(), asyncio.current_task()
+        before = signal.getsignal(signal.SIGINT)
+    except (RuntimeError, ValueError):
+        return lambda: None
+
+    def pressed(signum, frame):
+        global _deferred_interrupt
+        _count_interrupt()
+        # Whether the main coroutine is what the signal interrupted: a tool
+        # running, a command being waited on. Otherwise the loop is idle and
+        # the coroutine is parked at an `await`.
+        holding = asyncio.current_task(loop) is task
+        # A question on screen catches its own Ctrl+C, wherever it was asked
+        # from - a slash command's "Select ›" as much as a turn's "Allow?" -
+        # and so does a pairing code waiting to be approved.
+        from aetheris import tui
+        heard = _stoppable or (holding and tui.listening)
+        if not heard and not _leaving:
+            # A slash command half-way through: nothing catches a Ctrl+C here,
+            # and raised it would end the program on one press. Said when the
+            # prompt opens; a second press is what the rest of this is for.
+            _deferred_interrupt = True
+            return
+        if _stoppable or _leaving:
+            task.cancel()
+        if holding:
+            raise _Signalled()
+        loop.call_soon_threadsafe(lambda: None)       # out of a long select()
+
+    try:
+        signal.signal(signal.SIGINT, pressed)
+    except (ValueError, OSError):                     # not the main thread
+        return lambda: None
+
+    def restore():
+        try:
+            signal.signal(signal.SIGINT, before)
+        except (ValueError, OSError, TypeError):
+            pass
+    return restore
+
+
+def _shut_down() -> None:
+    """What leaving does, however it was asked for."""
+    channel.leave()
+    remote.stop()
+    mcp_client.shutdown()
+    if providers.current().drives_turns:
+        from aetheris import attacca
+        attacca.disconnect()
+
+
 def _attacca_listening() -> bool:
     """Whether a call from Attacca can arrive while the prompt is open."""
     if not providers.current().drives_turns:
         return False
     from aetheris import attacca
     return attacca.connected()
+
+
+def _attacca_plans() -> bool:
+    """Whether Attacca's own plan mode takes the message, so no note has to ask.
+
+    Its agent is made to plan by how the message is sent - as a plan-mode job -
+    and telling it as well to call this machine's `submit_plan_for_approval`
+    would be asking for two plans.
+    """
+    if not providers.current().drives_turns:
+        return False
+    from aetheris import attacca
+    return attacca.plans_here()
+
+
+async def _attacca_activity() -> bool:
+    """Resolves once a turn started elsewhere has something to show here."""
+    from aetheris import attacca
+    return await attacca.activity()
 
 
 async def _attacca_call() -> bool:
@@ -771,6 +995,49 @@ def _serve_idle_calls() -> None:
     print()
 
 
+async def _follow_web_turn(messages: list, session_id):
+    """Draw a turn somebody started in Attacca's web app. Returns the session id.
+
+    What it said is kept in the conversation and saved with it, so the session
+    file reads as the session did - whichever screen each line was typed on.
+    A Ctrl+C is the caller's: it looks away from the turn rather than stopping
+    it, since it was never this terminal's turn to stop.
+    """
+    from aetheris import attacca
+    remote.set_busy(True)
+    try:
+        grew = await attacca.follow(messages)
+    except Exception as error:
+        grew = False
+        attacca.stop_watching_session()
+        connect._print_problem("Could not follow the turn on Attacca", error)
+    finally:
+        remote.set_busy(False)
+    if grew:
+        config.repair_messages(messages)
+        session_id = save_session(messages, session_id)
+        session_id = await _name_from_attacca(session_id)
+    return session_id
+
+
+async def _name_from_attacca(session_id):
+    """Take the session's title from Attacca, which wrote it. Returns the id.
+
+    A title is a side question to a model, and with Attacca driving there is
+    no model here to ask - but there is no need to: Attacca names every
+    session from its first message, in the language it was written in. So the
+    saved session is filed under the name the web app shows for it.
+    """
+    if not (config.AUTO_TITLE and not config.SESSION_TITLE and session_id):
+        return session_id
+    from aetheris import attacca
+    title = clean_title(await attacca.title_when_named())
+    if title:
+        session_id = rename_session(session_id, title)
+        print(f"  {S.MUTED}✎ session titled: {S.GRAY}{config.SESSION_TITLE}{S.R}\n")
+    return session_id
+
+
 async def _prompt(session_pt, message, kept: str):
     """The prompt, with Ctrl+C handed back as a value instead of raised.
 
@@ -782,13 +1049,33 @@ async def _prompt(session_pt, message, kept: str):
     as "Task exception was never retrieved". Returned, it is raised again by
     `_typed_or_remote`, which is an ordinary coroutine and can.
     """
+    left = None
     try:
         # `default` only when there is something to put back, so every prompt
         # that never met an Attacca call opens exactly the way it always did.
-        return await (session_pt.prompt_async(message, default=kept) if kept
+        left = await (session_pt.prompt_async(message, default=kept) if kept
                       else session_pt.prompt_async(message))
+        return left
     except KeyboardInterrupt as interrupt:
         return interrupt
+    finally:
+        _account_for_prompt(session_pt, left)
+
+
+def _account_for_prompt(session_pt, line) -> None:
+    """Tell `screen` what the prompt left behind when it closed.
+
+    The prompt draws straight on the terminal, so the ledger of what is on
+    screen never saw it - and the line it leaves is a row like any other,
+    between the answer above it and the one about to be printed.
+    """
+    try:
+        if line is None:
+            line = session_pt.default_buffer.text
+        shell = line.lstrip().startswith("!")
+        screen.typed(_prompt_message(shell) + (S.WARN if shell else ""), line)
+    except Exception:
+        pass          # a selection off by a row is not worth a failed prompt
 
 
 async def _typed_or_remote(session_pt, message) -> str:
@@ -808,12 +1095,22 @@ async def _typed_or_remote(session_pt, message) -> str:
     typed = asyncio.ensure_future(_prompt(session_pt, message, kept))
     called = (asyncio.ensure_future(_attacca_call()) if _attacca_listening()
               else None)
+    web = (asyncio.ensure_future(_attacca_activity()) if _attacca_listening()
+           else None)
     waiting = asyncio.ensure_future(_remote_line()) if remote.running() else None
     resized = asyncio.ensure_future(_resized())
-    contestants = {typed, resized} | {c for c in (waiting, called) if c is not None}
-    done, _ = await asyncio.wait(contestants, return_when=asyncio.FIRST_COMPLETED)
+    contestants = {typed, resized} | {c for c in (waiting, called, web) if c is not None}
+    try:
+        done, _ = await asyncio.wait(contestants, return_when=asyncio.FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        # `wait` does not cancel what it was waiting on. Left alone the prompt
+        # would go on holding the terminal under whatever is drawn next.
+        for contestant in contestants:
+            contestant.cancel()
+        await asyncio.gather(*contestants, return_exceptions=True)
+        raise
     if typed in done:
-        for other in (waiting, called, resized):
+        for other in (waiting, called, web, resized):
             if other is not None:
                 other.cancel()
         if waiting is not None:
@@ -821,27 +1118,40 @@ async def _typed_or_remote(session_pt, message) -> str:
         line = typed.result()
         if isinstance(line, KeyboardInterrupt):
             raise line
-        return line.strip()
+        # What was pasted goes as it was; the box only showed its size.
+        return promptkeys.expand_pastes(line).strip()
 
     if waiting is None or waiting not in done:
         if waiting is not None:
             waiting.cancel()
-        if called is not None and called in done:
+        heard = web is not None and web in done
+        rung = called is not None and called in done
+        for other in (called, web, resized):
+            if other is not None:
+                other.cancel()
+        if rung and not heard:
+            # A call is usually the first sign of a turn started in the web
+            # app, a moment ahead of the events that say whose it is.
+            from aetheris import attacca
+            heard = attacca.activity_now()
+        if heard:
+            # Somebody typed into this session from somewhere else. The box
+            # closes so their turn can be drawn; the line is kept, as below.
+            await _set_aside(session_pt, typed)
+            return WEB_TURN
+        if rung:
             # Attacca's agent wants a tool run, and nobody here asked it anything.
             # Whatever was half-typed is kept and put back when the prompt reopens -
             # it was not this person's mistake that the box closed under them.
-            resized.cancel()
             await _set_aside(session_pt, typed)
             return IDLE_CALL
         # Only the terminal changed size. Kept the same way: the box is closed
         # so the screen can be drawn again around it, not because of anything
         # typed in it.
-        if called is not None:
-            called.cancel()
         await _set_aside(session_pt, typed)
         return RESIZED
 
-    for other in (called, resized):
+    for other in (called, web, resized):
         if other is not None:
             other.cancel()
     typed.cancel()
@@ -867,6 +1177,7 @@ async def _read_line(session_pt) -> str:
     """
     global _auto_turns, _auto_woke, _auto_spent_said
     _auto_woke = False
+    screen.install()
     remote.ensure_mirror()
     remote.set_busy(False)
     if session_pt is None:
@@ -881,6 +1192,10 @@ async def _read_line(session_pt) -> str:
             return _echo_remote(waiting)
         if _attacca_listening():
             from aetheris import attacca
+            if attacca.look():
+                # The same, for a turn started in the web app: shown before
+                # `input()` blocks, or after the next Enter.
+                return WEB_TURN
             if attacca.call_waiting():
                 # Served before blocking, since nothing can interrupt `input()`;
                 # a call that lands while it waits is served after the Enter.
@@ -933,12 +1248,14 @@ async def _read_line(session_pt) -> str:
             with keep_prompt_intact(raw=True):
                 # Inside, not outside: `patch_stdout` replaces `sys.stdout` with
                 # a proxy of its own, and the tee has to sit over *that* to
-                # catch what is printed while the prompt is open.
+                # catch what is printed while the prompt is open. The recorder
+                # goes under it, for the same reason.
+                screen.install()
                 remote.ensure_mirror()
                 line = await _typed_or_remote(session_pt, message)
     finally:
         watcher.cancel()
-    if line is IDLE_CALL or line is RESIZED:
+    if line is IDLE_CALL or line is RESIZED or line is WEB_TURN:
         return line           # not somebody arriving here
     if not _auto_woke:
         # Somebody is at the keyboard. Whatever the channel spent answering on
@@ -1116,7 +1433,7 @@ def _export_command(rest: str, messages: list[dict]) -> None:
     if not name:
         # `/export ` with a stray space used to name no file at all and report
         # `Export failed: ''` instead of exporting.
-        name = f"export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        name = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
     try:
         with open(name, "w", encoding="utf-8") as f:
             for m in messages:
@@ -1438,6 +1755,7 @@ async def main(resume_id: str = "") -> None:
     if config.CURRENT_OS == "Windows":
         os.system("")
 
+    screen.install()
     print("\033[2J\033[H", end="")
     paths.close_home()
     providers.apply_startup()
@@ -1504,7 +1822,14 @@ async def main(resume_id: str = "") -> None:
             # happens to be: with a remote already open, `sys.stdout` is the
             # mirror, and everything this draws - the prompt itself included -
             # went out to the phone. See `remote.unmirrored_stdout`.
-            output=config.create_output(stdout=remote.unmirrored_stdout()),
+            # ... and beneath the recorder: `screen` keeps what the program
+            # prints, and is told separately what a closed prompt left behind.
+            output=config.create_output(
+                stdout=screen.beneath(remote.unmirrored_stdout())),
+            # A paste shown as its size, and a drag that selects by block.
+            key_bindings=promptkeys.bindings(),
+            mouse_support=config.Condition(lambda: config.MOUSE_SELECT),
+            rprompt=lambda: config.ANSI(promptkeys.note()),
             # What colours the line itself once it starts with `!`. The banner
             # above comes from `_prompt_message`; between them, a command for
             # this machine never looks like a message for the model.
@@ -1522,33 +1847,77 @@ async def main(resume_id: str = "") -> None:
         # cancels it, and the height it reserves is `while_typing OR a state is
         # open`, so without this the band outlives the line that earned it.
         session_pt.default_buffer.on_text_changed += _close_menu_when_unwanted
+        # So a drag knows which rows are above the prompt, wherever the
+        # prompt has pushed them to.
+        promptkeys.watch(session_pt.app)
 
     # Which MCP servers the system prompt was built for, so a load can be
     # noticed. Sorted, so the comparison is about the set and not the order.
     mcp_servers_in_prompt = sorted(config.LOADED_MCP_SERVERS)
 
+    global _stoppable, _deferred_interrupt
+    give_back_ctrl_c = _own_ctrl_c()
+
     while True:
+        if _deferred_interrupt:
+            _deferred_interrupt = False
+            _say_how_to_leave()
+        _stoppable = True
         try:
             user_input = await _read_line(
                 session_pt if config.PROMPT_TOOLKIT_AVAILABLE else None)
             # A console that hands back surrogate escapes would otherwise poison
             # the history: every later save and request would raise.
-            if user_input is not IDLE_CALL and user_input is not RESIZED:
+            if not any(user_input is other for other in (IDLE_CALL, RESIZED, WEB_TURN)):
                 user_input = config.safe_text(user_input)
-        except (EOFError, KeyboardInterrupt):
-            channel.leave()
-            remote.stop()
-            mcp_client.shutdown()
-            if providers.current().drives_turns:
-                from aetheris import attacca
-                attacca.disconnect()
+        except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+            leaving = _interrupted(pressed)
+            await _absorb_cancel()
+            if not leaving:
+                _say_how_to_leave()
+                continue
+            _shut_down()
             print(f"\n\n  {S.GRAY}Goodbye!{S.R}\n")
             break
+        except EOFError:
+            # Ctrl+D is not pressed by accident the way Ctrl+C is.
+            _shut_down()
+            print(f"\n\n  {S.GRAY}Goodbye!{S.R}\n")
+            break
+        finally:
+            _stoppable = False
 
         if user_input is IDLE_CALL:
             # Outside the `try` above on purpose: Ctrl+C at an approval prompt
             # for a call nobody here made means "not that", not "quit".
-            _serve_idle_calls()
+            _stoppable = True
+            try:
+                _serve_idle_calls()
+            finally:
+                _stoppable = False
+            continue
+
+        if user_input is WEB_TURN:
+            leaving = False
+            _stoppable = True
+            try:
+                current_session_id = await _follow_web_turn(messages, current_session_id)
+            except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+                leaving = _interrupted(pressed)
+                await _absorb_cancel()
+                # What had been said by then is in `messages` already.
+                config.repair_messages(messages)
+                current_session_id = save_session(messages, current_session_id)
+                if not leaving:
+                    print(f"\n  {S.WARN}⏹ Stopped following{S.GRAY} - the turn goes on "
+                          f"in Attacca. Press Ctrl+C again within {EXIT_WINDOW:g} "
+                          f"seconds to exit.{S.R}\n")
+            finally:
+                _stoppable = False
+            if leaving:
+                _shut_down()
+                print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+                break
             continue
 
         if user_input is RESIZED:
@@ -1567,9 +1936,18 @@ async def main(resume_id: str = "") -> None:
                 print(f"  {S.ERR}✗ Usage: !<shell command>{S.R}\n")
                 continue
             print(f"\n  {S.MUTED}${S.R} {S.WHITE}{command}{S.R}")
-            output = _run_user_command(command)
+            # Ctrl+C here stops the command - `safe_run_cmd` catches it - and
+            # the prompt that follows says how to leave.
+            _stoppable = True
+            try:
+                output = _run_user_command(command)
+            finally:
+                _stoppable = False
             _fmt_tool_result(command, output)
             print()
+            if not config.RETURN_SHELL_OUTPUT:
+                # Theirs alone: run, shown, and in no copy a model reads.
+                continue
             # On screen it is theirs and unredacted - they ran it. What goes
             # into the conversation is not: that reaches the provider and the
             # session file, and `!cat .env` should not be how a key gets there.
@@ -1601,9 +1979,7 @@ async def main(resume_id: str = "") -> None:
         if _refused_from_remote(cmd):
             continue
         if cmd in ("/exit", "/quit"):
-            channel.leave()
-            remote.stop()
-            mcp_client.shutdown()
+            _shut_down()
             print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
             break
         if cmd == "/usage":
@@ -1625,6 +2001,8 @@ async def main(resume_id: str = "") -> None:
             # A cleared conversation here is a new one there, too: Attacca
             # keeps its own context, and the old session would remember it all.
             config.ATTACCA_SESSION = ""
+            config.ATTACCA_CURSOR = 0
+            config.ATTACCA_JOB = ""
             config.token_history.clear()
             config.turn_index = 0
             config.LOADED_SKILLS.clear()
@@ -1663,21 +2041,19 @@ async def main(resume_id: str = "") -> None:
             connect.run(user_input.split(" ", 1)[1].strip() if " " in user_input else "")
             _refresh_system_prompt(messages)
             continue
-        if cmd == "/sessions":
-            sessions = list_sessions()
-            print(f"\n  {S.BOLD}{S.ACCENT}Saved Sessions{S.R}")
-            if not sessions:
-                print(f"  {S.GRAY}  No saved sessions yet.{S.R}")
-            for sid, title, meta in sessions:
-                marker = f" {S.OK}◀ current{S.R}" if sid == current_session_id else ""
-                print(f"  {S.GRAY}•{S.R} {S.WHITE}{title or S.GRAY + '(untitled)' + S.R}{S.R}{marker}")
-                print(f"    {S.MUTED}{sid}{S.R}  {S.GRAY}{meta}{S.R}")
-            print(f"\n  {S.GRAY}Load one with {S.ACCENT}/load <id or title>{S.GRAY}.{S.R}\n")
-            continue
+        if cmd == "/sessions" or cmd.startswith("/sessions ") or cmd == "/load":
+            # One step: the list asks which to open, and the answer goes on to
+            # `/load` below as if it had been typed there.
+            picked = _pick_session(current_session_id, user_input.partition(" ")[2].strip())
+            if not picked:
+                continue
+            user_input = f"/load {picked}"
+            cmd = user_input.lower()
         if cmd.startswith("/load"):
             parts = user_input.split(" ", 1)
             if len(parts) < 2 or not parts[1].strip():
-                print(f"  {S.ERR}✗ Usage: /load <id or title>{S.R}\n")
+                print(f"  {S.ERR}✗ Usage: /load <id or title>{S.MUTED} - or /sessions "
+                      f"to pick from the list{S.R}\n")
                 continue
             query = parts[1].strip()
             matches = find_sessions(query)
@@ -1764,14 +2140,30 @@ async def main(resume_id: str = "") -> None:
             _system_command(user_input[len("/system"):], messages)
             continue
         if cmd == "/planmode" or cmd.startswith("/planmode "):
+            elsewhere = providers.current().drives_turns
             chosen = _switch(
                 "/planmode", user_input[len("/planmode"):], config.PLANMODE,
                 "Plan mode",
                 "the model must submit a plan for approval before it changes anything",
-                on_note="It calls submit_plan_for_approval first and waits for you.",
+                on_note=("Your next message starts a plan-mode job on Attacca: its "
+                         "agent investigates, shows the plan here and waits for you."
+                         if elsewhere else
+                         "It calls submit_plan_for_approval first and waits for you."),
                 off_note="It goes straight at the work again.")
             if chosen is not None:
                 config.PLANMODE = chosen
+                if chosen and elsewhere:
+                    # Said again, it means "plan the next thing too".
+                    from aetheris import attacca
+                    attacca.plan_anew()
+            continue
+        if cmd == "/artifacts" or cmd.startswith("/artifacts "):
+            if not providers.current().drives_turns:
+                print(f"  {S.GRAY}/artifacts lists what an Attacca agent made; this "
+                      f"session is on {providers.current().label}.{S.R}\n")
+                continue
+            from aetheris import attacca
+            attacca.show_artifacts(user_input[len("/artifacts"):])
             continue
         if cmd == "/skills" or cmd.startswith("/skills "):
             arg = user_input.split(" ", 1)[1].strip().lower() if " " in user_input else ""
@@ -2022,13 +2414,22 @@ async def main(resume_id: str = "") -> None:
             print()
             user_input = rest          # and on to the fall-through below
 
+        if (cmd == "/aether" or cmd.startswith("/aether ")) and IS_APRIL_FOOL:
+            import webbrowser
+            try:
+                # With its scheme: a bare host is opened as a file in this
+                # directory, which is not there.
+                webbrowser.open("https://namu.wiki/w/%EC%97%AC%ED%96%89%EC%9E%90(%EC%9B%90%EC%8B%A0)")
+            except Exception:
+                pass
+            continue
         # Every slash command has had its turn and continued; what is left is a
         # message for the model, so this is where an `@path` becomes context.
         # Before the plan-mode note, so the attachment stays under the sentence
         # the user wrote rather than under a system aside.
         user_input, attached_images = _attach_mentions(user_input)
 
-        if config.PLANMODE and not config.DEEPTHINK:
+        if config.PLANMODE and not config.DEEPTHINK and not _attacca_plans():
             if config.AUTO_ALLOW:
                 plan_prompt = (
                     "\n\n[System Note: PLAN MODE is ON. For complex tasks or file modifications, you MUST use the `submit_plan_for_approval` tool before executing changes. Since AUTOMODE is ON, it will auto-approve. Follow your blueprint and verify afterwards.]"
@@ -2110,6 +2511,8 @@ async def main(resume_id: str = "") -> None:
         current_session_id = save_session(messages, current_session_id)
 
         driven_elsewhere = providers.current().drives_turns
+        leaving = False
+        _stoppable = True
         try:
             if driven_elsewhere:
                 # Attacca runs the loop - and its own context - on its side;
@@ -2130,11 +2533,12 @@ async def main(resume_id: str = "") -> None:
 
             current_session_id = save_session(messages, current_session_id)
 
-            # Name the session once, from the exchange that just finished. Not
-            # for Attacca: a title is a side question to a model, there is no
-            # model here to ask, and Attacca names its own sessions anyway.
-            if (config.AUTO_TITLE and not config.SESSION_TITLE and current_session_id
-                    and not driven_elsewhere):
+            # Name the session once, from the exchange that just finished. With
+            # Attacca the name is Attacca's own - it titles every session, and
+            # there is no model here to ask for another.
+            if driven_elsewhere:
+                current_session_id = await _name_from_attacca(current_session_id)
+            elif config.AUTO_TITLE and not config.SESSION_TITLE and current_session_id:
                 sys.stdout.write(f"  {S.MUTED}✎ naming session…{S.R}")
                 sys.stdout.flush()
                 title = await generate_session_title(messages)
@@ -2144,6 +2548,16 @@ async def main(resume_id: str = "") -> None:
                     current_session_id = rename_session(current_session_id, title)
                     print(f"  {S.MUTED}✎ session titled: {S.GRAY}{config.SESSION_TITLE}{S.R}\n")
 
+        except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+            # Ctrl+C in the middle of a turn stops the turn, not the program.
+            # What was already said and done stays in the conversation; the
+            # reply that was cut off was never appended, so the next message
+            # follows the question it would have answered.
+            leaving = _interrupted(pressed)
+            await _absorb_cancel()
+            current_session_id = save_session(messages, current_session_id)
+            if not leaving:
+                _say_how_to_leave(stopped=True)
         except Exception as e:
             # Wrapped rather than run off the edge: this catches a provider
             # refusing the request, and that message names the key, the quota
@@ -2151,6 +2565,7 @@ async def main(resume_id: str = "") -> None:
             print()
             connect._print_problem("Error", e)
         finally:
+            _stoppable = False
             remote.set_busy(False)
             _report_usage(messages)
             # `/tdd` is armed for one request and lifts itself here - including
@@ -2162,6 +2577,12 @@ async def main(resume_id: str = "") -> None:
                 config.TDD_LOCK = False
                 print(f"  {S.MUTED}◆ /tdd lifted - the test files are writable "
                       f"again.{S.R}\n")
+        if leaving:
+            _shut_down()
+            print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+            break
+
+    give_back_ctrl_c()
 
 
 def _use_utf8_output() -> None:
@@ -2267,7 +2688,8 @@ def cli() -> None:
     resume_id = _session_to_resume(args)
     try:
         asyncio.run(main(resume_id))
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # The second Ctrl+C, pressed where nothing was listening for the first.
         print(f"\n\n  {S.GRAY}Goodbye!{S.R}\n")
     except Exception as e:
         print(f"\n  {S.ERR}✗ Unexpected error: {e}{S.R}")

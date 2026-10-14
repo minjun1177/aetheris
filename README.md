@@ -42,11 +42,13 @@ exists to make small models genuinely usable rather than nearly usable.
 - **Images**: A model that can see is shown the picture. `@shot.png` in a typed message attaches it instead of pasting broken bytes into the prompt, and `view_image` lets the model look at one it found by itself - a screenshot in the repository, a chart it just produced. All four providers are covered, each in its own wire format. A photograph too large for any API is resized rather than refused. Whether the model can see at all is checked *before* the request: Ollama reports `vision` in a model's capabilities, and a model without it has the image dropped silently and answers about a picture it never saw, which is the one failure worth a probe to avoid.
 - **Per-Project Notes**: Markdown notes about one repository, kept apart from memory because memory is about *you* and follows you everywhere, while a note is about *this* project and is wrong anywhere else - why something is built the way it is, the order a job has to be done in, what is still open. One note is one `.md` file under `~/.aetheris/notes/<project>/`, so the directory opens in any editor and nothing appears inside your repository. The git working tree decides what a project is, so a terminal in `src/` sees what one at the root sees. Only the titles reach the system prompt; `read_note` fetches a body when the model recognises one it needs.
 - **Session & History Management**: Save, list, load, record, and export conversation transcripts in JSON or Markdown format.
-- **Named Sessions**: Sessions are filed under a readable title instead of a timestamp. The model names each new session after its first exchange (`/autotitle off` to stop it), `/title <name>` renames it by hand, and `/load` accepts either the title or the id.
+- **Named Sessions**: Sessions are filed under a readable title instead of a timestamp. The model names each new session after its first exchange (`/autotitle off` to stop it), `/title <name>` renames it by hand, `/sessions` lists them and opens the one you pick, and `/load` accepts either the title or the id.
 - **Resuming from the command line**: `aetheris --resume <id or title>` reopens a saved conversation, and `-c` reopens the newest one you were last working on *in this directory* - a session records where it was worked, so `-c` in a project picks up that project's thread rather than whatever you did most recently anywhere.
 - **Commands that preview themselves**: Typing `/` opens the command list with what each one does beside it, and typing a space asks the other question - `/mcp ` offers `tools`, `reload`, `connect`, `on`, `off`; `/set ` offers every setting with its current value; `/connect ` offers each provider and whether its key works. What you cannot remember is what comes next, so that is what the menu shows.
 - **`@` file attachments**: Typing `@` opens a list of what is in the directory you are standing in - arrow keys to move, Tab to insert, `/` to descend into a folder. `@src/main.py` sends that file with your message instead of spending a round trip on the model asking for it. Directories arrive as their listing, a path that does not exist is reported without stopping the turn, and one mention cannot swallow the context window (`MENTION_MAX_CHARS`).
-- **`!` shell escape**: A line starting with `!` runs as a shell command - yours, not the model's, so no approval prompt - and its output joins the conversation, so the next question can be about what it printed.
+- **`!` shell escape**: A line starting with `!` runs as a shell command - yours, not the model's, so no approval prompt - and its output joins the conversation, so the next question can be about what it printed. `/set RETURN_SHELL_OUTPUT off` keeps both from the model instead.
+- **A paste is shown as its size**: More than a line of pasted text appears in the box as `[Copied text Line:40 Chars:2113]` and is sent as what it was, so forty lines of a log do not bury the question typed after them.
+- **A drag selects what it means**: With the prompt open, dragging over a thought highlights the thought - not the `│` down its side - and dragging over an answer stops where the answer does. Letting go copies it, without the margin or the frame around a code block, and with a wrapped line put back as one. `/set MOUSE_SELECT off` hands the mouse back to the terminal.
 - **Enhanced Terminal Shell**: Input autocompletion for slash commands and persistent input history across restarts powered by `prompt_toolkit`.
 - **Hashline Line-Level Hashing**: File reading returns every line as `LINE_NUM:HASH|content`, and `edit_file` takes that row *back* as the whole edit: `38:ff7|print()` means line 38 becomes `print()`. No second block, no retyping the old line, no matching. The hash is checked against the file first, so an edit made against a stale reading is refused rather than landing a few lines off.
 - **Multi-Source Web Search**: Queries several keyless sources (DuckDuckGo, Wikipedia, Stack Exchange, GitHub, optional self-hosted SearXNG), reads the actual pages, ranks passages locally with BM25, and reports "no relevant results" rather than returning off-topic pages.
@@ -154,7 +156,7 @@ is.
    `-resume` and `-continue` are accepted too. Both stop with an error rather
    than opening a blank session when there is nothing to resume, and `--resume`
    lists the candidates instead of choosing when a name matches more than one.
-   `/sessions` inside a session shows the ids.
+   `/sessions` inside a session lists them and opens the one you pick.
 
 ### Running the tests
 
@@ -885,8 +887,8 @@ which on a phone is the box rather than the last line of the transcript.
 Typing `/` there lists the slash commands with what each one does, from the
 same table `/help` renders, and tapping one inserts it: a phone has not read
 `/help` and cannot be expected to remember forty names. Typing `!` turns the
-box amber and says **Shell - runs on that machine as you; not sent to the
-model**, which is the same warning the terminal puts over its own prompt and
+box amber and says **Shell - runs on that machine as you; a command, not a
+message**, which is the same warning the terminal puts over its own prompt and
 for the same reason - the two look identical until one of them runs.
 
 **Every question follows whoever is driving.** A turn started from the phone has its
@@ -1073,10 +1075,12 @@ it the way to use the harness on a machine that cannot run a model at all.
 
 **Pairing.** The first `/connect attacca` shows an eight-character code and the
 page to type it on - from any device with a browser - plus a QR code of that
-page. Approve all four scopes it asks for: `agents:read`, `sessions:read`,
-`sessions:write`, `events:read`. That is everything a turn uses and nothing
-more: jobs, works, files and peers are never touched, so they are never asked
-for. What comes back is a long-lived `zc_` credential, saved owner-only in
+page. Approve all five scopes it asks for: `agents:read`, `sessions:read`,
+`sessions:write`, `events:read` - everything a turn uses - and `jobs:write`,
+which is the one way into Attacca's plan mode (see below). Works, files and
+peers are never touched, so they are never asked for. A machine paired before
+`jobs:write` was asked for keeps working without it; `/connect forget attacca`
+and pairing again grants it. What comes back is a long-lived `zc_` credential, saved owner-only in
 `providers.json` like an API key; `ATTACCA_CREDENTIAL` supplies one from the
 environment instead. Revoking it from Attacca's settings ends it everywhere:
 the next connection is refused, and the harness forgets it and says to pair
@@ -1094,7 +1098,57 @@ there too; `/resume` picks the old one back up, because its id is saved with
 the session file. Ctrl+C stops the turn on Attacca as well, keeping only as
 much of the answer as was actually on your screen - and so does closing the
 terminal (SIGHUP) or a SIGTERM, which a turn left running there would go on
-paying for.
+paying for. An agent that speaks, calls a tool and speaks again has said two
+things, and both are kept in the saved conversation.
+
+**Messages typed in the web app show up here.** A session belongs to your
+account, not to a terminal: the one this terminal is on is open in Attacca's
+web app too. A message sent from there closes the prompt - what you had
+half-typed comes back - and its turn is drawn here the way one of your own is:
+the line itself, marked `↑ sent from Attacca's web app`, the answer as it
+streams, the tools it runs on this machine. Both go into the conversation and
+the session file. Messages sent while this terminal was closed are read back
+the next time it is at the prompt on that session, from the last event it had
+drawn. Ctrl+C there stops the *following*, not the turn - it was never this
+terminal's to stop. A question or a plan raised in such a turn is shown with a
+note instead of being asked a second time: your next message answers it, from
+either screen.
+
+**`/planmode` is Attacca's own plan mode.** With it on, your next message
+starts a plan-mode job: the agent investigates, hands the whole plan back and
+waits. It is drawn as it was written, and Enter approves it; anything else you
+type is sent as what to change, and the agent revises and submits again. There
+is no separate approve call - the decision is simply the next message - so this
+terminal and the web app decide the same way.
+
+| | |
+|:---|:---|
+| **A job has a session of its own** | The plan and the work happen there, and this terminal moves to it. What was said before stays in the earlier session - said when it happens |
+| **One job per stretch of work** | What you type after the plan goes on in the job's session. `/planmode on` again, or `/clear`, makes the next message a new plan |
+| **Without `jobs:write`** | A pairing that was not granted it is told so once, and the plan is asked for through this machine's own `submit_plan_for_approval` instead, as it is of a local model |
+
+**What `!commands` printed goes with your next message.** Attacca keeps its
+own conversation and is sent one message a turn, so the commands you ran since
+its last answer - and their output - are put in front of that message.
+`/set RETURN_SHELL_OUTPUT off` sends neither.
+
+**Artifacts are read here.** An agent files a long result as an artifact
+(`job_create_artifact`) rather than saying it. The call is shown with the
+artifact's title and first lines, and `/artifacts` shows it in full - read from
+the session's own history, so one made while this terminal was closed is there
+too.
+
+| Command | What it does |
+|:---|:---|
+| `/artifacts` | The artifact, or the list when the session has several |
+| `/artifacts <n>` | That one, in full |
+| `/artifacts open [n]` | Open it in the browser instead |
+
+**Important:** nothing a node can call reads an artifact back from Attacca, so
+what is shown is what the agent *wrote* - the content its call carried. One
+that is a page rather than text (HTML, SVG), or whose call carried no content,
+is opened in the browser: at its own address when the call gave one, at
+Attacca's web app otherwise.
 
 **What it is doing, as it does it.** Attacca titles each block of reasoning and
 heads each stretch of work, and those lines appear as they land:
@@ -1132,18 +1186,26 @@ half-typed comes back when it reopens - and is marked as coming from outside
 this terminal. It meets exactly the same rules and prompts; Ctrl+C at its
 approval prompt refuses that call rather than quitting.
 
-**What does not apply.** `/deepthink`, the context compaction and the session
-titles all work by asking a model this harness drives, and there is none here:
-Attacca keeps its own context and names its own sessions. A message sent while
-another turn is already running on the same Attacca session waits for that one
-to finish first.
+**The title is Attacca's.** Attacca names every session from its first
+message, in the language it was written in, and the saved session is filed
+under that name - the one the web app shows for it. Nothing here asks a model
+for a title; `/autotitle off` stops it being taken, and `/title` still renames
+by hand.
+
+**What does not apply.** `/deepthink` and the context compaction both work by
+asking a model this harness drives, and there is none here: Attacca keeps its
+own context. A message sent while another turn is already running on the same
+Attacca session waits for that one to finish first.
 
 **`/usage` asks Attacca.** The stream carries no token counts, and what the
 agent reads - Attacca's prompt, the tool table, every tool result - never
 passes through here. So `/usage` shows the session as Attacca meters it: the
 context the agent holds now, input and output summed over every request of
 every turn, and the credits used. Input runs far ahead of context, because each
-tool round re-reads the whole conversation.
+tool round re-reads the whole conversation. The account's plan and the balance
+left on it are shown above that, as Attacca words them, and the plan is named
+on the one-line cost under each answer - the "credits used" there is a share
+of it.
 
 ### Prompt caching
 
@@ -2170,8 +2232,8 @@ The interactive terminal supports special slash commands to control options and 
 | `/model` | Show the connected provider and pick another of its models |
 | `/models` | List the models the connected provider offers |
 | `/clear` | Clear the terminal display and reset conversation history |
-| `/sessions` | List saved conversation sessions, newest first, with their titles |
-| `/load <id or title>` | Load and render a past conversation session, found by id or title |
+| `/sessions [title]` | List saved sessions, newest first, numbered - and open one: answer with its number or a few letters of its title, or press Enter to stay. Letters that fit several narrow the list and ask again |
+| `/load <id or title>` | Open a saved session directly, found by id or title. On its own it is `/sessions` |
 | `/title` | Show the current session's title and id |
 | `/title <name>` | Retitle the current session and rename its file to match |
 | `/autotitle [on/off]` | Whether the model names a new session after its first exchange. On its own it says which |
@@ -2180,7 +2242,8 @@ The interactive terminal supports special slash commands to control options and 
 | `/record [on/off]` | Whether conversations are saved to disk at all. On its own it says which |
 | `/export [filename]` | Export current chat history into a Markdown file |
 | `/system <prompt>` | Set a custom system persona or reset to default (`/system reset`) |
-| `/planmode [on/off]` | Whether the model must submit a plan before it changes anything. On its own it says which |
+| `/planmode [on/off]` | Whether the model must submit a plan before it changes anything. On its own it says which. With Attacca it is Attacca's own plan mode |
+| `/artifacts [open] [n]` | What an Attacca agent made in this session: shown here, or opened in the browser |
 | `/skills` | List discovered skills with their descriptions and paths |
 | `/skills reload` | Rescan the skill directories and refresh the system prompt |
 | `/skill <name>` | Load a skill into the current conversation by hand |
@@ -2197,7 +2260,7 @@ Two prefixes act on the message itself rather than being commands:
 | Prefix | Description |
 | :--- | :--- |
 | `@<path>` | Attach a file (or a directory's listing) to this message. Typing `@` opens a completion menu of the current directory - arrows to move, Tab to insert |
-| `!<command>` | Run a shell command yourself. It skips the approval prompt, because you typed it, and its output is added to the conversation |
+| `!<command>` | Run a shell command yourself. It skips the approval prompt, because you typed it, and its output is added to the conversation - unless `RETURN_SHELL_OUTPUT` is off |
 | `/connect [provider] [model]` | Connect a provider, or pick one interactively |
 | `/connect attacca` | Pair this machine with Attacca by a code (once), then pick an agent |
 | `/connect status` | Show every provider and whether it is usable |
@@ -2229,6 +2292,20 @@ Two prefixes act on the message itself rather than being commands:
 | `/tdd` | Arm that for your next message |
 | `/tdd off` | Lift it without sending anything |
 | `/exit` or `/quit` | Exit the application |
+| `Ctrl+C` | Stop what is running: a reply being written, a tool, a `!command`. The conversation keeps what was said and done up to then, and the prompt comes back. Pressed again within five seconds it exits - once is never enough to close the program, wherever it is pressed |
+| `Ctrl+D` | Exit at once |
+| Mouse drag | Select and copy what is above the prompt: a thought without its `│`, an answer without what is under it. The highlight flashes and `⧉ copied` appears beside the prompt |
+| Right click | Paste. The terminal's own right-click paste stops while the mouse is the program's, so the program does it |
+| Mouse wheel | Scroll back, as always - see below |
+| `Shift` + drag | The terminal's own selection, as it was |
+
+**Important:** a terminal reports all of the mouse or none of it, so while
+`MOUSE_SELECT` is on and the prompt is open the wheel is reported too. The
+first turn of it therefore hands the mouse back to the terminal: that one
+notch does nothing, every one after it scrolls as usual, and the prompt says
+`scrolling - any key takes the mouse back`. Until a key is pressed a drag is
+the terminal's own selection again. `/set MOUSE_SELECT off` gives the mouse
+back for good.
 
 ---
 
@@ -2277,8 +2354,11 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.
 - **`tests/test_qr.py`**: That a symbol is one a scanner can read - it reads each one back the way a scanner does, from the mask in its own format bits through the zigzag and the blocks, and checks that every block still satisfies its Reed-Solomon parity; plus what fits in which version, and that the drawing is the symbol.
 - **`tests/test_zyris.py`**: The Zyris wire against a server written from the spec, not from this client - a msgpack handshake, answers matched by id, a stream that skips a chunk failed rather than delivered, a dropped connection failing what was in flight and coming back with its tools announced again, and a refused or revoked credential that stops it for good.
-- **`tests/test_attacca.py`**: Attacca's seam against a fake that plays scripted turns - pairing at the server's pace, a turn drawn by the ordinary renderer, a tool call refused by a deny rule exactly as a local one would be, a turn that waits out one already running, Ctrl+C reporting how much was seen, and a call from the web app that closes the prompt and gives the half-typed line back.
+- **`tests/test_attacca.py`**: Attacca's seam against a fake that plays scripted turns - pairing at the server's pace, a turn drawn by the ordinary renderer, a tool call refused by a deny rule exactly as a local one would be, a turn that waits out one already running, Ctrl+C reporting how much was seen, and a call from the web app that closes the prompt and gives the half-typed line back. Also: a plan handed back and approved with Enter or answered with what to change; a message typed in the web app drawn here live, read back from the cursor after being away, and never sent, answered or stopped from this end; an answer said in parts kept whole; and the session filed under Attacca's own title.
 - **`tests/test_resize.py`**: That a resized terminal is drawn again for its new size - once the size has settled rather than at every step of a drag, with the screen and its scrollback cleared, the conversation replayed, and whatever was half-typed given back to the prompt; and that Ctrl+C at the prompt reaches the main loop instead of escaping the event loop.
+- **`tests/test_interrupt.py`**: That Ctrl+C stops what is running rather than the program - one press is counted once however it arrives, a second within five seconds leaves, one pressed half-way through a slash command is put off instead of ending everything, and the thread behind a reply nobody is reading stops reading it.
+- **`tests/test_select.py`**: That a drag selects by block - the ledger of what was printed wraps where the terminal does, a selection stays inside the thought or answer it began in and inside the text of each row, the copy is the line as it was written, a terminal's and a Windows console's mouse reports are read alike, and a pasted block is shown as its size and sent whole.
+- **`tests/test_wrap.py`**: That a line too long for the window keeps its rail on every row - a thought's `│`, a tool result's, a quotation's `┃` - cut by terminal cells, so Hangul counts double and colour codes count nothing.
 - **`tests/test_remote.py`**: That the remote refuses a request with no token, a token that is nearly right and a `Host` this machine was never called by, that a `.env` value on this terminal does not go out over it, that a question cannot be answered by a phone still showing the last one, and that closing it frees the port and puts `sys.stdout` back.
 - **`tests/test_channel.py`**: That a file one harness is changing cannot be written from another, that the refusal names who to ask, that a claim dies with the terminal that took it, and that several processes writing to the board at once lose nothing.
 - **`tests/test_mentions.py`**: What `@` attaches and what it must leave alone - an email address is not a file - that the completion menu reads the real directory, and that the command menu previews what each command does and what may follow it.
@@ -2293,6 +2373,8 @@ The codebase is organized cleanly around the following components:
 - **`websearch.py`**: Multi-source retrieval, page extraction, and BM25 reranking.
 - **`context.py`**: Token budgeting, tool-result trimming, and context compression. The token estimate is script-aware and calibrates itself against the counts each provider reports.
 - **`renderer.py`** / **`tui.py`**: Markdown rendering and the terminal chrome.
+- **`screen.py`**: The program's own account of what is on screen, row by row - what a drag is selected from - and the clipboard.
+- **`promptkeys.py`**: What the prompt does with a paste and with the mouse.
 - **`session.py`**: Session save/load/list, the persistent memory store, and the block of `important` memories that goes into every session's system prompt.
 - **`systemprompt.py`**: The system prompt - the assistant's own instructions, plus the tool-protocol rules that `subagent.py` shares. The tool schemas themselves come from `toolspec.py`.
 - **`skills/`**: Project-level skills. Personal skills live in `~/.aetheris/skills/`.

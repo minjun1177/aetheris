@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import shutil
+import unicodedata
 
 from aetheris import atomic
 from aetheris import paths
@@ -293,6 +294,14 @@ SESSION_TITLE = ""
 # The Attacca session this conversation continues, when Attacca is the
 # provider. Saved with the session file, so /resume picks the same one up.
 ATTACCA_SESSION = ""
+# The last event of that session this terminal has drawn. What Attacca holds
+# past it was said somewhere else - a message typed into the web app - and is
+# what gets shown here the next time the prompt is open.
+ATTACCA_CURSOR = 0
+# The plan-mode job that session belongs to, when `/planmode` started it as one.
+# While it is set, what is typed goes on to that job's session rather than
+# starting another.
+ATTACCA_JOB = ""
 SESSION_TITLE_MAX_LEN = 60
 SESSION_SLUG_MAX_LEN = 48
 
@@ -335,7 +344,19 @@ NUM_PREDICT = 6144          # 2048 and 4096 both truncated file writes mid-way.
                             # in max_tokens, and 4096*1.5 is a float.
 
 AUTO_ALLOW = False
+# Whether a drag with the mouse, while the prompt is open, selects what it
+# crosses the way this program understands it - a thought without its gutter,
+# an answer without what is under it - and copies it. The terminal cannot do
+# both: with this on, the mouse belongs to the program for as long as the
+# prompt is open, and the terminal's own selection takes Shift. The wheel
+# still scrolls, by handing the mouse back until a key is pressed
+# (`promptkeys.hand_back`). Off leaves the mouse to the terminal altogether.
+MOUSE_SELECT = True
 RETURN_ALL_FILE_CONTENT = True
+# Whether a `!command` and what it printed are given to the model. On, both
+# join the conversation, so the next question can be about them; off, the
+# command is the person's alone - run, shown, and kept nowhere a model reads.
+RETURN_SHELL_OUTPUT = True
 SAVE_CHAT_HISTORY = True
 CUSTOM_PERSONA = ""
 
@@ -616,6 +637,66 @@ def _visible_len(text: str) -> int:
     return len(re.sub(r'\033\[[^m]*m', '', text))
 
 
+_ESCAPE = re.compile(r'(\033\[[0-9;?]*[A-Za-z])')
+
+
+def cell_width(char: str) -> int:
+    """How many terminal cells one character takes: 2, 1, or none at all."""
+    if unicodedata.combining(char) or char in "\u200b\u200d\ufe0e\ufe0f":
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in "WF" else 1
+
+
+def wrap_cells(text: str, width: int, by_word: bool = False,
+               joins: list | None = None) -> list[str]:
+    """`text` as rows no wider than `width` cells, for a line drawn in a gutter.
+
+    A terminal wraps a long line by itself, and the row it starts has nothing
+    in front of it: `│ a long thought` came out with the `│` on the first row
+    only, so every row after it read as text from outside the box. Cut here
+    instead, each row can be given its own gutter.
+
+    Measured in cells, not characters - Hangul and CJK take two - and with
+    colour codes counted as nothing. `by_word` breaks at a space where the row
+    has one, which is right for prose and wrong for a command's output.
+
+    `joins`, when given, is filled with what each cut took: a space, or
+    nothing. `joins[i]` puts row `i` and row `i + 1` back together as they were.
+    """
+    width = max(1, width)
+    took = joins if joins is not None else []
+    rows, row, used, gap = [], "", 0, None
+    for piece in _ESCAPE.split(text.expandtabs(8)):
+        if _ESCAPE.fullmatch(piece):
+            row += piece
+            continue
+        for char in piece:
+            cells = cell_width(char)
+            if used + cells > width:
+                if by_word and char == " ":
+                    rows.append(row)
+                    took.append(" ")
+                    row, used, gap = "", 0, None
+                    continue                      # the space the row broke on
+                if by_word and gap is not None:
+                    rows.append(row[:gap])
+                    took.append(" ")
+                    row = row[gap + 1:]
+                    used = sum(cell_width(c) for c in _ESCAPE.sub("", row))
+                else:
+                    rows.append(row)
+                    took.append("")
+                    row, used = "", 0
+                gap = None
+            if by_word and char == " ":
+                gap = len(row)
+            row += char
+            used += cells
+    if row or not rows:
+        rows.append(row)
+    return rows
+
+
 _SURROGATE_PATTERN = re.compile(r'[\ud800-\udfff]')
 
 
@@ -732,7 +813,8 @@ _NOT_A_SETTING = frozenset({
     "SYSTEM_PROMPT", "MODEL", "SESSION_TITLE", "CUSTOM_PERSONA",
     # Live state that happens to be spelled in capitals.
     "LOADED_SKILLS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
-    "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION",
+    "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION", "ATTACCA_CURSOR",
+    "ATTACCA_JOB",
     # Where the person's own files live. `AETHERIS_HOME` moves all of them
     # together; moving one by hand splits a memory or a session list in two.
     "MEMORY_FILE", "HISTORY_FILE", "SESSION_DIR", "NOTES_DIR",

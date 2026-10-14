@@ -245,6 +245,51 @@ try:
     check("!command as the shell block it printed, not as a message",
           "[Shell]" not in screen and "!echo 1" in screen and "$" in screen)
 
+    print("\n--- /sessions lists and opens in one step ---")
+    import builtins
+    rows = session.list_sessions()
+    numbered = {sid: n for n, (sid, _, _) in enumerate(rows, 1)}
+
+    def pick(answers, query=""):
+        """`_pick_session`, answered from a list. Returns (id, screen)."""
+        said = iter(answers)
+        asked = []
+
+        def typed(prompt=""):
+            asked.append(prompt)
+            return next(said)
+        real, builtins.input = builtins.input, typed
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as drawn:
+                chosen = app._pick_session(second, query)
+        finally:
+            builtins.input = real
+        return chosen, drawn.getvalue(), asked
+
+    chosen, screen, asked = pick([str(numbered[first])])
+    check("every saved session is numbered", all(f"{n}." in screen for n in numbered.values()))
+    check("the one being worked in is marked", "current" in screen)
+    check("a number opens that row", chosen == first, chosen)
+    chosen, _, _ = pick(["another"])
+    check("a few letters of a title open it too", chosen == elsewhere, chosen)
+    chosen, _, _ = pick([""])
+    check("Enter leaves without opening anything", chosen == "")
+    chosen, screen, asked = pick(["e", str(1)])
+    check("letters that fit several narrow the list and ask again",
+          len(asked) == 2 and "matching 'e'" in screen and chosen != "", repr(chosen))
+    chosen, screen, asked = pick([], query="another")
+    check("a title given with the command opens without asking",
+          chosen == elsewhere and asked == [], repr(chosen))
+    chosen, screen, _ = pick([], query="no such conversation")
+    check("and one that fits nothing says so", chosen == "" and "No session matches" in screen)
+    saved_shown, app.SESSIONS_SHOWN = app.SESSIONS_SHOWN, 2
+    chosen, screen, _ = pick([""])
+    check("a long list shows its newest and says how to reach the rest",
+          "older" in screen and "3." not in screen)
+    chosen, _, _ = pick(["9"])
+    check("a number past the rows shown is not a pick", chosen == "", chosen)
+    app.SESSIONS_SHOWN = saved_shown
+
 finally:
     os.chdir(origin)
     shutil.rmtree(HOME, ignore_errors=True)

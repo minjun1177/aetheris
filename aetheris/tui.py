@@ -1,7 +1,9 @@
+import contextlib
 import os
 import sys
 import subprocess
 import textwrap
+from datetime import datetime
 from aetheris import config
 from aetheris.config import S, tw, th, _hr, _visible_len
 from aetheris.session import load_memory, list_sessions
@@ -46,6 +48,7 @@ def _get_mcp_info() -> str:
         return "disabled"
     return mcp_client.status_summary()
 
+IS_APRIL_FOOL = True if str(datetime.now().strftime("%m %d")) == "04 01" else False
 
 # "AETHERIS" fits on one line in this face, at 64 columns. On a terminal too
 # narrow even for that, a three-row face carries the same name rather than
@@ -63,16 +66,29 @@ _LOGO_NARROW = """\
     ╠═╣║╣  ║ ╠═╣║╣ ╠╦╝║╚═╗
     ╩ ╩╚═╝ ╩ ╩ ╩╚═╝╩╚═╩╚═╝"""
 
+_LOGO_WIDE_APRIL = """\
+     █████╗ ███████╗████████╗██╗  ██╗███████╗██████╗ 
+    ██╔══██╗██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔══██╗
+    ███████║█████╗     ██║   ███████║█████╗  ██████╔╝
+    ██╔══██║██╔══╝     ██║   ██╔══██║██╔══╝  ██╔══██╗
+    ██║  ██║███████╗   ██║   ██║  ██║███████╗██║  ██║
+    ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"""
+
+_LOGO_NARROW_APRIL = """\
+    ╔═╗╔═╗╔╦╗╦ ╦╔═╗╦═╗
+    ╠═╣║╣  ║ ╠═╣║╣ ╠╦╝
+    ╩ ╩╚═╝ ╩ ╩ ╩╚═╝╩╚═"""
+
 # Derived rather than written down. It was a literal 66 until the rename
 # narrowed the face to 64, and a threshold that outlives the art it measures
 # shows the narrow face on a terminal with room to spare for the wide one.
-_LOGO_WIDTH = max(len(row) for row in _LOGO_WIDE.splitlines())
+_LOGO_WIDTH = max(len(row) for row in _LOGO_WIDE_APRIL.splitlines()) if IS_APRIL_FOOL else max(len(row) for row in _LOGO_WIDE.splitlines())
+
 
 
 # What `_welcome` prints besides the logo: the eleven fact lines, the hint, the
 # rule under it, one blank line, and the prompt the person then types at.
 _WELCOME_CHROME = 15
-
 
 def _logo() -> str:
     """The face, sized to the terminal it is about to be printed into.
@@ -83,6 +99,10 @@ def _logo() -> str:
     read it - the art went first, being at the top, so the one thing they
     were meant to see was the one thing they never did.
     """
+    if IS_APRIL_FOOL:
+        rows = len(_LOGO_WIDE_APRIL.splitlines()) + 2
+        fits = config.tw() >= _LOGO_WIDTH + 2 and th() >= rows + _WELCOME_CHROME
+        return f"{S.ACCENT}{S.BOLD}\n{_LOGO_WIDE_APRIL if fits else _LOGO_NARROW_APRIL}\n{S.R}"
     rows = len(_LOGO_WIDE.splitlines()) + 2        # a blank line above and below
     fits = config.tw() >= _LOGO_WIDTH + 2 and th() >= rows + _WELCOME_CHROME
     return f"{S.ACCENT}{S.BOLD}\n{_LOGO_WIDE if fits else _LOGO_NARROW}\n{S.R}"
@@ -153,8 +173,8 @@ COMMANDS = (
     ("/models", "List the models the connected provider offers"),
 
     # -- conversations -----------------------------------------------------
-    ("/sessions", "Saved conversations, newest first"),
-    ("/load <id|title>", "Open a saved conversation, by id or by title"),
+    ("/sessions [title]", "Saved conversations, newest first - pick one to open it"),
+    ("/load <id|title>", "Open a saved conversation directly, by id or by title"),
     ("/title [name]", "Show this session's title, or set it"),
     ("/autotitle [on/off]", "Whether the model names a new session after its first exchange"),
     ("/export [filename]", "Write the conversation out as markdown"),
@@ -167,6 +187,8 @@ COMMANDS = (
     ("/perms reload", "Re-read the permission rule files"),
     ("/perms allow|deny <rule>", "Add a rule, e.g. /perms allow run_cmd(git *)"),
     ("/planmode [on/off]", "Whether the model must submit a plan before it changes anything"),
+    ("/artifacts [open] [n]", "What an Attacca agent made in this session - shown "
+                              "here, or opened in the browser"),
     ("/tdd [request]", "Run one request with this project's test files locked, so "
                        "\"make the test pass\" cannot be answered by editing the test"),
     ("/tdd off", "Lift that lock again"),
@@ -222,6 +244,8 @@ COMMANDS = (
     ("/vm stop", "End the process; the next run_python starts a new one"),
 )
 
+if IS_APRIL_FOOL: COMMANDS += ("/aether", "What is Aether?"),
+
 # Not slash commands: these two act on the line being typed, so they are listed
 # apart from the table rather than pretending to belong to it.
 PREFIXES = (
@@ -229,6 +253,21 @@ PREFIXES = (
                 "list of what is here - arrows to move, Tab to insert"),
     ("!<command>", "Run a shell command yourself. Its output joins the "
                    "conversation, so the next question can be about it"),
+)
+
+# Keys rather than text. Apart from `PREFIXES` because that table is also what
+# the remote offers a phone, and a phone has no Ctrl key to press.
+KEYS = (
+    ("Ctrl+C", "Stop what is running - a reply, a command, a tool. Pressed "
+               "again within five seconds, leave"),
+    ("Ctrl+D", "Leave at once"),
+    ("Mouse drag", "Select and copy what is above the prompt - a thought without "
+                   "its gutter, an answer without what is under it. Shift+drag is "
+                   "the terminal's own selection; /set MOUSE_SELECT off leaves the "
+                   "mouse to the terminal"),
+    ("Mouse wheel", "Scroll back. The first notch hands the mouse to the terminal; "
+                    "any key takes it back"),
+    ("Right click", "Paste"),
 )
 
 
@@ -383,6 +422,10 @@ def _show_help():
     print(f"  {S.BOLD}{S.ACCENT}In a message{S.R}")
     print(f"  {_hr(width=44)}")
     _show_rows(PREFIXES)
+    print()
+    print(f"  {S.BOLD}{S.ACCENT}Keys{S.R}")
+    print(f"  {_hr(width=44)}")
+    _show_rows(KEYS)
     print()
 
 
@@ -553,7 +596,16 @@ def _fmt_tool_call(name: str, arguments: dict):
             val = str(v)
             if len(val) > 120:
                 val = val[:117] + "..."
-            print(f"  {S.MUTED}{connector}─{S.R} {S.GRAY}{k}:{S.R} {val}")
+            # One argument, one line - a newline inside it would start a row
+            # outside the tree just as a wrapped one does.
+            val = " ".join(val.split())
+            lead = f"{k}: "
+            room = tw() - 6 - sum(config.cell_width(c) for c in lead)
+            rows = config.wrap_cells(val, room) if room >= 16 else [val]
+            print(f"  {S.MUTED}{connector}─{S.R} {S.GRAY}{lead}{S.R}{rows[0]}")
+            rail = " " if is_last else "│"
+            for row in rows[1:]:
+                print(f"  {S.MUTED}{rail}{S.R}  {' ' * len(lead)}{row}")
 
 
 def _fmt_tool_result(name: str, result: str):
@@ -568,7 +620,9 @@ def _fmt_tool_result(name: str, result: str):
     lines = preview.split("\n")
     print(f"  {S.MUTED}│{S.R}")
     for line in lines:
-        print(f"  {S.MUTED}│{S.R}  {line}")
+        # Every row gets the rail, including the ones a long line runs on to.
+        for row in config.wrap_cells(line, tw() - 6):
+            print(f"  {S.MUTED}│{S.R}  {row}")
     if footer:
         print(f"  {S.MUTED}│{S.R}  {footer}")
     print(f"  {S.MUTED}│{S.R}")
@@ -699,6 +753,24 @@ def _set_aside_type_ahead() -> bool:
         return False          # no terminal to flush is not a failure
 
 
+# True while code that catches its own Ctrl+C is holding the thread: a question
+# waiting on an answer, a pairing code waiting to be approved. `app`'s Ctrl+C
+# handler reads it - that is somewhere a Ctrl+C is listened for, whatever
+# started it, so it is raised there rather than put off.
+listening = False
+
+
+@contextlib.contextmanager
+def hearing_ctrl_c():
+    """Mark the code inside as catching `KeyboardInterrupt` itself."""
+    global listening
+    before, listening = listening, True
+    try:
+        yield
+    finally:
+        listening = before
+
+
 def ask_the_driver(title: str, details, choices, prompt: str,
                    free_text: bool = False) -> str | None:
     """One question, put to whoever is actually driving this turn.
@@ -719,7 +791,8 @@ def ask_the_driver(title: str, details, choices, prompt: str,
     from aetheris import remote
     if remote.driven():
         print(f"  {S.MUTED}⇢ asked the remote, which is driving this turn…{S.R}")
-        answer = remote.ask(title, details, choices, free_text=free_text)
+        with hearing_ctrl_c():
+            answer = remote.ask(title, details, choices, free_text=free_text)
         if not answer:
             print(f"  {S.WARN}⇠ the remote did not answer{S.MUTED} - taking that "
                   f"as no.{S.R}")
@@ -730,10 +803,16 @@ def ask_the_driver(title: str, details, choices, prompt: str,
         print(f"  {S.MUTED}◆ what you were typing was set aside - this question "
               f"takes an answer of its own.{S.R}")
     try:
-        return input(prompt).strip()
+        with hearing_ctrl_c():
+            answer = input(prompt)
     except EOFError:
         print()
         return None
+    # `input` writes its prompt and the terminal echoes the answer, neither
+    # through `sys.stdout`: the row they left is told to `screen` by hand.
+    from aetheris import screen
+    screen.typed(prompt, answer)
+    return answer.strip()
 
 
 def _approval_prompt(action_label: str, details: list[tuple[str, str]], rule: str = "") -> bool:

@@ -65,6 +65,7 @@ PROGRAMS = {
                        "while time.time() - t < 3:\n    pass\nprint('crunched')\n"),
     "chatty":         ("import sys, time\nwhile True:\n"
                        "    print('spam')\n    sys.stdout.flush()\n    time.sleep(0.05)\n"),
+    "lingering":      "import time\ntime.sleep(20)\n",
     "spawner":        ("import subprocess, sys, time\n"
                        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
                        "time.sleep(300)\n"),
@@ -277,6 +278,29 @@ try:
 except Exception:
     pass
 check("close() really kills the process", not still_running, f"pid {pid}")
+
+
+# --- something left running in the background -------------------------------
+# `start /b server` on Windows hands the server every inheritable handle cmd
+# has, our pipes among them, so they stay open after cmd exits. Closing a pipe
+# another thread is reading used to block until the server printed again -
+# on the main thread, so a node stopped answering every call after it.
+
+print("\n=== leaving something running ===")
+if os.name == "nt":
+    backgrounded = f'start /b "" {command("lingering")} > nul 2>&1 & echo launched'
+else:
+    backgrounded = f'{command("lingering")} & echo launched'
+start = time.time()
+result = tools.safe_run_cmd(backgrounded)
+secs = time.time() - start
+check("the command is over when its shell is, not when the pipes close",
+      "launched" in result and "[Waiting]" not in result and secs < 8,
+      f"{secs:.1f}s {result[:60]!r}")
+check("and nothing is left behind to close later", shell_session.active() == [],
+      str([s.id for s in shell_session.active()]))
+check("the next command still runs",
+      tools.safe_run_cmd(f'"{sys.executable}" -c "print(7)"').strip() == "7")
 
 
 # --- ordinary commands are unaffected ---------------------------------------

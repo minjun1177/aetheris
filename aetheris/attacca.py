@@ -29,9 +29,12 @@ Three parts:
 the provider.
 """
 import asyncio
+import collections
+import json
 import os
 import platform
 import queue
+import re
 import socket
 import threading
 import time
@@ -44,9 +47,12 @@ PROGRAM = "aetheris"          # what the credential is issued to, fixed on it
 CAPABILITY = "aetheris"       # what the agent calls: aetheris.read_file, ...
 
 # Least privilege. zyris-code asks for every scope there is; this asks for what
-# a turn uses - read the agent list, open a session, post to it, watch it.
-# Jobs, works, files and peers are not touched, so they are not asked for.
-SCOPES = ("agents:read", "sessions:read", "sessions:write", "events:read")
+# a turn uses - read the agent list, open a session, post to it, watch it - and
+# for the one thing `/planmode` needs. Attacca's plan mode is entered by
+# creating a job with `plan_mode` and in no other way a node has, so jobs are
+# asked for to write. Works, files and peers are not touched, and not asked for.
+PLAN_SCOPE = "jobs:write"
+SCOPES = ("agents:read", "sessions:read", "sessions:write", "events:read", PLAN_SCOPE)
 
 # Tools that exist for the harness's *own* loop and mean nothing to an agent
 # that runs one of its own. `spawn_agent` starts a sub-agent on the local model;
@@ -88,6 +94,38 @@ LATE_TITLES = 2.0
 TYPED_MARK = "Typed:"
 NOT_ANSWERING = "I won't answer this question."
 ALL_SKIPPED = "Skipped them all."
+
+# A plan is decided by the message that follows it: Attacca reads the person's
+# next message as the decision, so approving is sending, and anything else
+# typed is what to change. These two are the messages for Enter and for nobody
+# being there to press it.
+PLAN_APPROVED = "Approved, go ahead with the plan."
+PLAN_LEFT = "I am not deciding on this plan now - do not start on it."
+APPROVALS = ("", "y", "yes", "ok", "approve", "approved")
+
+# A turn somebody else started is over when the session stops running - and,
+# for one read back out of the history, when nothing more has arrived for this
+# long: history carries the events and no `running: false` to end them on.
+FOLLOW_QUIET = 1.0
+WATCH_RETRY = 5.0             # seconds before a watch that failed is opened again
+
+# What a plan-mode job's opening message carries under the person's own line.
+# A job is given no preamble of its own, so what a session is told once - where
+# this machine is, the project's conventions - rides along here instead.
+PLAN_CONTEXT = "[Where this was typed - context, not part of the request]"
+
+# What goes in front of a message that follows `!commands`: they ran on this
+# machine, and Attacca's copy of the conversation never saw them.
+SHELL_MARK = "[Shell] $ "
+SHELL_CONTEXT = "[Run by the person in their own terminal before this message]"
+
+# How much of an artifact is shown under the call that made it; `/artifacts`
+# shows the rest.
+ARTIFACT_PREVIEW = 6
+
+# Attacca names a session from its first message, with a side model, a moment
+# after that message - so the first look is given this long to find it.
+TITLE_TRIES, TITLE_PAUSE = 4, 0.6
 
 
 class NotPaired(RuntimeError):
@@ -190,37 +228,14 @@ def pair(provider) -> bool:
     a fresh one rather than ending the attempt - walking to the other room
     for a laptop is not a reason to start over by hand.
     """
-    from aetheris import qr
+    from aetheris import qr, tui
     url = provider.base_url
     print(f"\n  {S.BOLD}{S.ACCENT}Pair this machine with Attacca{S.R}")
     try:
-        while True:
-            grant = authorize(url)
-            where, code = grant.get("verification_uri", ""), grant.get("user_code", "")
-            print(f"  {S.GRAY}Open{S.R}  {S.WHITE}{where}{S.R}")
-            print(f"  {S.GRAY}and enter{S.R}  {S.BOLD}{S.ACCENT}{code}{S.R}")
-            if where and qr.fits(where):
-                print(qr.render(where, colour=bool(S.R)))
-            print(f"  {S.MUTED}Approve every scope it asks for: {', '.join(SCOPES)}.{S.R}")
-            print(f"  {S.MUTED}⟳ waiting for approval… (Ctrl+C to cancel){S.R}")
-            interval = _clamp(grant.get("interval"))
-            deadline = time.time() + float(grant.get("expires_in") or 600)
-            while time.time() < deadline:
-                time.sleep(interval)
-                outcome, value = poll_once(url, grant.get("device_code", ""))
-                if outcome == "granted":
-                    return _paired(provider, value)
-                if outcome == "wait":
-                    if value:
-                        interval = _clamp(value)
-                elif outcome == "slow":
-                    interval = _clamp(value if value else interval + SLOW_DOWN_STEP)
-                elif outcome == "expired":
-                    break
-                else:
-                    print(f"  {S.ERR}✗ Pairing was refused: {value}{S.R}\n")
-                    return False
-            print(f"  {S.WARN}⚠ That code expired; here is a fresh one.{S.R}\n")
+        # Said to be cancellable, so it has to say it is listening: a Ctrl+C
+        # in the middle of a slash command is otherwise put off, not raised.
+        with tui.hearing_ctrl_c():
+            return _pair(provider, url, qr)
     except KeyboardInterrupt:
         print(f"\n  {S.GRAY}Pairing cancelled.{S.R}\n")
         return False
@@ -228,6 +243,37 @@ def pair(provider) -> bool:
         from aetheris.connect import _print_problem
         _print_problem("Could not pair with Attacca", error)
         return False
+
+
+def _pair(provider, url: str, qr) -> bool:
+    """`pair`'s loop: a code, the wait for it, and a fresh one if it expires."""
+    while True:
+        grant = authorize(url)
+        where, code = grant.get("verification_uri", ""), grant.get("user_code", "")
+        print(f"  {S.GRAY}Open{S.R}  {S.WHITE}{where}{S.R}")
+        print(f"  {S.GRAY}and enter{S.R}  {S.BOLD}{S.ACCENT}{code}{S.R}")
+        if where and qr.fits(where):
+            print(qr.render(where, colour=bool(S.R)))
+        print(f"  {S.MUTED}Approve every scope it asks for: {', '.join(SCOPES)}.{S.R}")
+        print(f"  {S.MUTED}⟳ waiting for approval… (Ctrl+C to cancel){S.R}")
+        interval = _clamp(grant.get("interval"))
+        deadline = time.time() + float(grant.get("expires_in") or 600)
+        while time.time() < deadline:
+            time.sleep(interval)
+            outcome, value = poll_once(url, grant.get("device_code", ""))
+            if outcome == "granted":
+                return _paired(provider, value)
+            if outcome == "wait":
+                if value:
+                    interval = _clamp(value)
+            elif outcome == "slow":
+                interval = _clamp(value if value else interval + SLOW_DOWN_STEP)
+            elif outcome == "expired":
+                break
+            else:
+                print(f"  {S.ERR}✗ Pairing was refused: {value}{S.R}\n")
+                return False
+        print(f"  {S.WARN}⚠ That code expired; here is a fresh one.{S.R}\n")
 
 
 def _paired(provider, token: dict) -> bool:
@@ -360,6 +406,7 @@ def _ensure_announced(live: zyris.Link) -> None:
 
 def disconnect() -> None:
     global _link, _link_key
+    stop_watching_session()
     if _link is not None:
         _link.close()
     _link, _link_key = None, ()
@@ -443,6 +490,9 @@ def session_id() -> str:
 def forget_session() -> None:
     """A new conversation here is a new session there."""
     config.ATTACCA_SESSION = ""
+    config.ATTACCA_CURSOR = 0
+    config.ATTACCA_JOB = ""
+    stop_watching_session()
 
 
 def _agent_id(live: zyris.Link, provider) -> str:
@@ -504,16 +554,149 @@ def _ensure_session(live: zyris.Link, provider) -> str:
     config.ATTACCA_SESSION = str((created or {}).get("id") or "")
     if not config.ATTACCA_SESSION:
         raise RuntimeError("Attacca created a session but did not say its id.")
+    config.ATTACCA_CURSOR = 0
+    # An untitled session reads back under a placeholder, not as untitled.
+    # What it is called now is therefore the one name that is not its title.
+    _placeholders[config.ATTACCA_SESSION] = str((created or {}).get("title") or "").strip()
     return config.ATTACCA_SESSION
+
+
+_placeholders: dict = {}      # session id -> what it was called before it had a name
+_title_waited: set = set()    # sessions whose title has been waited for once
+
+
+def session_title(live: zyris.Link | None = None) -> str:
+    """This session's name as Attacca gave it, or "" while it has none of its own."""
+    session = session_id()
+    if not session:
+        return ""
+    try:
+        rows = (live or link()).call("attacca_api.list_sessions",
+                                     {"filter": {"limit": 100}}, timeout=5) or []
+    except Exception:
+        return ""              # a title is not worth an error under an answer
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == session:
+            title = str(row.get("title") or "").strip()
+            return "" if title == _placeholders.get(session, "") else title
+    return ""
+
+
+async def title_when_named() -> str:
+    """The session's title, waited for briefly the first time it is asked.
+
+    Attacca writes the title; nothing here asks a model for one. It lands a
+    moment after the first message, which is usually before that message's
+    answer has finished - and when it is not, the next turn asks again, once
+    and without waiting.
+    """
+    session = session_id()
+    tries = 1 if session in _title_waited else TITLE_TRIES
+    _title_waited.add(session)
+    loop = asyncio.get_running_loop()
+    for attempt in range(tries):
+        title = await loop.run_in_executor(None, session_title)
+        if title or session_id() != session:
+            return title
+        if attempt + 1 < tries:
+            await asyncio.sleep(TITLE_PAUSE)
+    return ""
+
+
+_plan_scope_said = False      # that this pairing cannot plan was said already
+
+
+def plans_here() -> bool:
+    """Whether `/planmode` is Attacca's own plan mode on this pairing.
+
+    It is when the pairing was granted `jobs:write`. One made before that was
+    asked for was not, and scopes are fixed at approval - so that is said once,
+    with the fix, and the plan is asked for the way it is asked of a local
+    model: through this machine's `submit_plan_for_approval`.
+    """
+    global _plan_scope_said
+    try:
+        live = link()
+    except Exception:
+        return False              # the turn itself says what is wrong
+    granted = account(live).get("scopes")
+    if not isinstance(granted, list):
+        return False              # a deployment that does not say: assume the old way
+    if PLAN_SCOPE in granted:
+        return True
+    if not _plan_scope_said:
+        _plan_scope_said = True
+        print(f"  {S.WARN}◆ Attacca's own plan mode needs the {PLAN_SCOPE} scope, "
+              f"which this pairing was not granted.{S.MUTED} /connect forget attacca "
+              f"and pair again to get it; until then the plan is asked for through "
+              f"this machine's submit_plan_for_approval.{S.R}")
+    return False
+
+
+def plan_anew() -> None:
+    """`/planmode on`: the next message starts a plan of its own."""
+    config.ATTACCA_JOB = ""
+
+
+def _plan_job(live: zyris.Link, provider, line: str) -> str:
+    """Start a plan-mode job for `line`. Returns its session, now this terminal's.
+
+    A job runs on a session of its own, so what was said before it stays in
+    the session before it - said here, because nothing else would say it.
+    """
+    moved = bool(session_id())
+    job = live.call("attacca_api.create_job", {"job": {
+        "message": f"{line}\n\n{PLAN_CONTEXT}\n{_preamble(live)}",
+        "agent_id": _agent_id(live, provider),
+        "plan_mode": True}}) or {}
+    session = str(job.get("session_id") or "")
+    if not session:
+        raise RuntimeError("Attacca started a plan-mode job but did not say which "
+                           "session runs it.")
+    config.ATTACCA_SESSION, config.ATTACCA_CURSOR = session, 0
+    config.ATTACCA_JOB = str(job.get("id") or session)
+    # Titled in the background, like a session: what it is called now is the
+    # one name that is not its title.
+    _placeholders[session] = str(job.get("title") or "").strip()
+    print(f"  {S.ACCENT}▤{S.R} {S.GRAY}plan mode: a job on Attacca that plans first "
+          f"and waits for your decision{S.R}"
+          + (f"{S.MUTED} - on a session of its own; what was said before this "
+             f"stays in the earlier one{S.R}" if moved else ""))
+    return session
+
+
+def _with_shell(messages: list) -> str:
+    """The person's line, under the `!commands` they ran since the last answer.
+
+    A local model reads them in the conversation it is sent. Attacca keeps its
+    own conversation and is sent one message, so they go in front of it - the
+    ones not sent yet, which are the ones directly above the line.
+    """
+    line = str(messages[-1].get("content") or "") if messages else ""
+    ran = []
+    for message in reversed(messages[:-1]):
+        content = message.get("content") if isinstance(message, dict) else None
+        if (not isinstance(content, str) or message.get("role") != "user"
+                or not content.startswith(SHELL_MARK)):
+            break
+        ran.insert(0, content[len("[Shell] "):])
+    if not ran or not config.RETURN_SHELL_OUTPUT:
+        return line
+    return SHELL_CONTEXT + "\n" + "\n\n".join(ran) + "\n\n" + line
 
 
 class Turn:
     """One turn's state, shared by the segment reader and the turn loop."""
 
-    def __init__(self, live: zyris.Link, session: str):
+    def __init__(self, live: zyris.Link, session: str, foreign: bool = False):
         self.link = live
         self.session = session
+        # A turn nobody here started: a message typed into Attacca's web app,
+        # followed here. It is drawn the same way and never sent, cancelled or
+        # answered from this end.
+        self.foreign = foreign
         self.stream: zyris.Stream | None = None
+        self.backlog: collections.deque = collections.deque()   # frames read before it was a turn
         self.cursor = None            # the last durable event seen, for resuming
         self.request: zyris.Request | None = None
         self.notices: list = []       # lines to print between segments
@@ -525,15 +708,33 @@ class Turn:
         self.armed = False
         self.cancelled = False
         self.printed = 0              # characters of answer delivered, for cancel_turn
-        self.final = ""               # the answer as Attacca stored it
+        # The answer as Attacca stored it, a part per `chat_agent` event and in
+        # their order: an agent that speaks, calls a tool and speaks again has
+        # said two things, and keeping the last alone lost the first from the
+        # saved conversation - and from the screen at the next redraw.
+        self.said: dict = {}
         self.streamed = ""            # the answer as it arrived, if no final came
+        self.unsaid = 0               # characters streamed since the last `chat_agent`
+        self.sent: list = []          # what this end has sent in this turn
+        self.user_seen = False        # its own message has come back as an event
+        self.heard: list = []         # a foreign turn's exchanges: {"user", "said"}
+        self.running = False          # the session's own flag, for a foreign turn
+        self.last_frame = time.monotonic()
+        self.parked = False           # a foreign turn is waiting on the person
         self.stop = False
+        # Set whenever no segment is reading the stream. A segment runs on a
+        # worker thread and notices `stop` only between two reads, so whoever
+        # reads the stream next waits for this first - or shares it for a
+        # moment with a reader that is on its way out, and loses a frame to it.
+        self.released = threading.Event()
+        self.released.set()
         # Attacca writes an event and then rewrites it in place - a thinking
         # block gets its title later, a tool call its result, a work its
         # heading - and each rewrite arrives again. What was last shown for
         # each event, so a rewrite that changed nothing on screen draws nothing.
         self.shown: dict = {}
         self.question = None          # steps of a question waiting on the person
+        self.plan = None              # a plan waiting on the person's decision
         self.untitled: set = set()    # thinking blocks and works whose title is still owed
         self.closed_by = 0            # the signal that closed the window, if one did
 
@@ -541,6 +742,17 @@ class Turn:
         self.stream = self.link.open_stream(
             "attacca_api.turn_events",
             {"session_id": self.session, "after": self.cursor})
+        if self.foreign:
+            _watch.stream = self.stream       # the watch goes on from this one
+
+    @property
+    def answer(self) -> str:
+        """Everything the agent said this turn, as stored - or as it streamed."""
+        return _joined(self.said) or self.streamed.strip()
+
+
+def _joined(said: dict) -> str:
+    return "\n\n".join(part.strip() for part in said.values() if part.strip())
 
 
 current_turn: Turn | None = None
@@ -593,12 +805,15 @@ def questions(arguments) -> list:
     return steps
 
 
-def _answered(payload: dict) -> bool:
+def _answered(payload: dict, reply: str = "answer") -> bool:
     """Whether a `question` call's answer arrived - not whether the call returned.
 
     Attacca's waiter returns `status: "timeout"` as an ordinary success when
     nobody replied in time, and `run_in_background` returns at once, and in
     both the answer is still wanted. A call that failed will take none.
+
+    `submit_plan` waits the same way and is read the same way, with its reply
+    under `decision`.
     """
     if payload.get("error") is not None:
         return True
@@ -607,7 +822,28 @@ def _answered(payload: dict) -> bool:
         return False
     if "status" in result:
         return result.get("status") == "answered"
-    return result.get("answer") is not None
+    return result.get(reply) is not None
+
+
+def plan_of(arguments) -> str:
+    """The plan a `submit_plan` call carries: `{"markdown": "..."}`. "" for none."""
+    markdown = arguments.get("markdown") if isinstance(arguments, dict) else None
+    return markdown.strip() if isinstance(markdown, str) else ""
+
+
+def _plan_text(markdown: str) -> str:
+    from aetheris.renderer import _render_full
+    rule = f"  {S.MUTED}{'─' * max(8, min(config.tw() - 4, 60))}{S.R}"
+    return (f"\n  {S.ACCENT}▤{S.R} {S.BOLD}{S.WHITE}Plan from Attacca{S.R}\n{rule}\n"
+            f"{_render_full(markdown)}\n{rule}")
+
+
+def _from_the_web(text: str) -> str:
+    return (f"\n  {S.USER_CLR}{S.BOLD}❯{S.R} {text}\n"
+            f"  {S.MUTED}↑ sent from Attacca's web app{S.R}")
+
+
+_ours: set = set()            # `chat_user` events this terminal's own messages became
 
 
 def _report(payload: dict) -> tuple:
@@ -638,11 +874,38 @@ def _event(turn: Turn, event: dict) -> bool:
     payload = event.get("payload") or {}
     key = event.get("id") or event.get("seq")
     if kind == "chat_user":
-        # This message, as Attacca filed it: the turn is under way.
+        # A message, as Attacca filed it: the turn is under way.
+        text = str(payload.get("content") or "")
+        # The first one of a turn started here is the message that started it,
+        # whatever Attacca did to its spelling on the way in.
+        mine = not turn.foreign and (text.strip() in turn.sent or not turn.user_seen)
         turn.armed = True
-        return False
+        if mine:
+            turn.user_seen = True
+            if text.strip() in turn.sent:
+                turn.sent.remove(text.strip())
+            _ours.add(key)
+            return False
+        # Typed somewhere else - the web app - into the session this terminal
+        # is on. Shown as a line of the conversation, which is what it is.
+        if not text.strip() or key in _ours or not _once(turn, ("user", key), text):
+            return False
+        turn.heard.append({"user": text, "said": {}})
+        turn.unsaid = 0
+        turn.notices.append(_from_the_web(text))
+        return True
     if kind == "chat_agent":
-        turn.final = str(payload.get("content") or "")
+        content = str(payload.get("content") or "")
+        if turn.foreign and not turn.heard:
+            turn.heard.append({"user": "", "said": {}})     # joined after its question
+        (turn.heard[-1]["said"] if turn.foreign else turn.said)[key] = content
+        streamed, turn.unsaid = turn.unsaid, 0
+        # An answer that arrives whole was never drawn: one read back from the
+        # history, or one whose deltas were lost with a dropped connection.
+        if _once(turn, ("said", key), True) and content.strip() and not streamed:
+            from aetheris.renderer import _render_full
+            turn.notices.append(_render_full(content.strip()) + "\n")
+            return True
         return False
     if kind == "thinking":
         # A small model on Attacca titles each reasoning block, and the title
@@ -690,7 +953,7 @@ def _event(turn: Turn, event: dict) -> bool:
             steps = questions(payload.get("arguments"))
             if not steps or _answered(payload) or not _once(turn, ("question", key), True):
                 return False
-            if not settled:
+            if not settled and not turn.foreign:
                 # The agent is waiting on Attacca for the person's next message,
                 # inside this turn. Answered here and now, between segments -
                 # the prompt does not come back until the turn ends, and the
@@ -698,9 +961,29 @@ def _event(turn: Turn, event: dict) -> bool:
                 turn.question = steps
             else:
                 # Its waiter gave up or never waited: the answer is the next
-                # message, typed at the prompt like any other.
+                # message, typed at the prompt like any other. So is the answer
+                # to a question asked in a turn that was started elsewhere -
+                # asked here as well it would be asked twice, and answered in
+                # the web app it would leave this terminal waiting on nobody.
+                turn.parked = turn.parked or not settled
                 turn.notices.append(_question_text(steps) + f"\n  {S.MUTED}Answer at "
                                     f"the prompt - your next message is the answer.{S.R}")
+            return True
+        if tail == "submit_plan":
+            # Attacca's plan mode: the agent investigates, hands the whole plan
+            # over as this call's argument and waits. There is no approve call -
+            # the person's next message is the decision.
+            markdown = plan_of(payload.get("arguments"))
+            if (not markdown or _answered(payload, "decision")
+                    or not _once(turn, ("plan", key), markdown)):
+                return False
+            if not settled and not turn.foreign:
+                turn.plan = markdown
+            else:
+                turn.parked = turn.parked or not settled
+                turn.notices.append(_plan_text(markdown) + f"\n  {S.MUTED}Decide at the "
+                                    f"prompt - your next message is the decision: say "
+                                    f"it is approved, or what to change.{S.R}")
             return True
         if tail == "report_result":
             report = _report(payload)
@@ -711,7 +994,10 @@ def _event(turn: Turn, event: dict) -> bool:
                 return True
             return False
         if settled and not _is_ours(name) and _once(turn, ("tool", key), True):
-            turn.notices.append(_summary(payload))
+            made = artifact_of(payload)
+            turn.notices.append(_summary(payload) + (_artifact_note(made) if made else ""))
+            if made:
+                _made.setdefault(turn.session, {})[key] = made
             return True
         return False
     if kind == "subagent_update":
@@ -789,6 +1075,25 @@ def answer(steps: list):
     return "\n\n".join(parts) if parts else ALL_SKIPPED
 
 
+def decide(markdown: str) -> str:
+    """Show the plan and ask. Returns the message that is the decision.
+
+    Enter approves it, as it stands. Anything typed is sent as written - what
+    to change, or a question about it - and the agent revises and submits
+    again. Nobody answering is said too, so the turn is not left parked.
+    """
+    from aetheris import tui
+    print(_plan_text(markdown))
+    opening = " ".join(markdown.split())[:160]
+    reply = tui.ask_the_driver(
+        "Attacca's plan", [("plan", opening)], [("approve", "Approve the plan")],
+        f"  {S.INFO}›{S.R} {S.MUTED}(Enter approves; or say what to change){S.R} ",
+        free_text=True)
+    if reply is None:
+        return PLAN_LEFT
+    return PLAN_APPROVED if reply.strip().lower() in APPROVALS else reply.strip()
+
+
 def _segment(turn: Turn):
     """Chunks for `stream_reply`, until the agent wants something else.
 
@@ -796,6 +1101,15 @@ def _segment(turn: Turn):
     printing between replies, or at the end of the turn. It runs on a worker
     thread (`providers._as_stream`), so the spinner keeps turning.
     """
+    turn.released.clear()
+    try:
+        yield from _frames(turn)
+    finally:
+        turn.released.set()
+
+
+def _frames(turn: Turn):
+    """`_segment`'s reading: one frame at a time, until something ends it."""
     started = False               # whether this segment has drawn any answer yet
     while not turn.stop:
         request = zyris.take_request(turn.link)
@@ -804,8 +1118,14 @@ def _segment(turn: Turn):
             yield {"done": True}
             return
         try:
-            frame = turn.stream.get(timeout=0.05)
+            frame = (turn.backlog.popleft() if turn.backlog
+                     else turn.stream.get(timeout=0.05))
         except queue.Empty:
+            if (turn.foreign and not turn.running
+                    and time.monotonic() - turn.last_frame > FOLLOW_QUIET):
+                turn.finished = True
+                yield {"done": True}
+                return
             continue
         except zyris.ZyrisError as error:
             if not error.retriable:
@@ -820,15 +1140,19 @@ def _segment(turn: Turn):
             turn.finished = True
             yield {"done": True}
             return
+        turn.last_frame = time.monotonic()
         kind = frame.get("type")
         if kind == "delta":
             text = str(frame.get("text") or "")
+            if turn.foreign:
+                turn.armed = True     # words arriving: it is under way
             if frame.get("kind") == "reasoning":
                 yield {"thinking": text}
             else:
                 # Counted before anything is trimmed: `cancel_turn` cuts
                 # Attacca's own copy of the answer, which still has them.
                 turn.printed += len(text)
+                turn.unsaid += len(text)
                 if not started:
                     # Agents on attacca.cc open a reply with "\n\n" - live
                     # check #2 - which would draw as blank lines under the
@@ -849,6 +1173,7 @@ def _segment(turn: Turn):
         elif kind == "status":
             # The end of a turn is the edge from running to not running, the
             # way zyris-code reads it - never a `false` on its own.
+            turn.running = bool(frame.get("running"))
             if frame.get("running"):
                 turn.armed = True
             elif turn.armed:
@@ -874,36 +1199,60 @@ async def run_turn(messages: list) -> str:
     global current_turn
     provider = providers.build(NAME)
     live = link()
-    session = _ensure_session(live, provider)
-    user_line = str(messages[-1].get("content") or "") if messages else ""
+    user_line = _with_shell(messages)
 
+    # One reader per session: the idle watch would hear this turn as well, and
+    # show it a second time as somebody else's.
+    stop_watching_session()
+    # Plan mode is a job, and the job is how the message goes in. One per
+    # stretch of conversation: what is typed after it goes to its session.
+    planning = bool(config.PLANMODE and not config.ATTACCA_JOB and plans_here())
+    session = (_plan_job(live, provider, user_line) if planning
+               else _ensure_session(live, provider))
+    waiting_on_us = session in _parked
+    _parked.discard(session)
     turn = Turn(live, session)
+    if planning:
+        # Its turn began when it was created, so the stream is read from the
+        # session's first event rather than from now.
+        turn.cursor = 0
     # Opened before the message is sent: `after: None` means live frames only,
     # so a stream opened afterwards could miss the start of a fast reply.
     turn.open()
     current_turn = turn
     watched = _watch_for_closing(turn)
     try:
-        if (turn.stream.head or {}).get("running"):
+        if (turn.stream.head or {}).get("running") and not (waiting_on_us or planning):
             # Outside the cancel below on purpose: Ctrl+C while waiting on a
             # turn somebody else started must not cancel *their* turn.
+            # Not waited for when that turn is parked on a question or a plan
+            # shown here: this message is what it is waiting for.
             await _wait_for_quiet(turn)
-        await _drive(turn, messages, user_line)
+        if planning and (turn.stream.head or {}).get("running"):
+            turn.armed = turn.running = True      # under way before the stream opened
+        await _drive(turn, messages, None if planning else user_line)
         await _late_titles(turn)
-    except asyncio.CancelledError:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         if turn.closed_by:
             # The window is going. `_drive` has told Attacca already; a
             # traceback on the way out would be the last thing on the screen.
             raise SystemExit(128 + turn.closed_by) from None
+        # Stopped with Ctrl+C, and the program goes on: what was said before
+        # the stop is the answer the conversation keeps, as it is on Attacca.
+        if turn.answer:
+            messages.append({"role": "assistant", "content": turn.answer})
         raise
     finally:
         _stop_watching(watched)
         turn.stop = True
+        turn.released.wait(1.0)       # so the cursor below is the last one read
         current_turn = None
         if turn.stream is not None:
             turn.stream.cancel()
+        if turn.cursor:
+            config.ATTACCA_CURSOR = turn.cursor
 
-    answer = (turn.final or turn.streamed).strip()
+    answer = turn.answer
     if turn.cancelled and not answer:
         answer = "[The turn was stopped on Attacca before it answered.]"
     messages.append({"role": "assistant", "content": answer})
@@ -1001,13 +1350,24 @@ async def _wait_for_quiet(turn: Turn) -> None:
             return
 
 
-async def _drive(turn: Turn, messages: list, user_line: str) -> None:
-    """Send the line, then stream segments and serve calls until the turn ends."""
+async def _drive(turn: Turn, messages: list, user_line) -> None:
+    """Send the line, then stream segments and serve calls until the turn ends.
+
+    `user_line` is None when it has gone already - as the message a plan-mode
+    job was created with.
+    """
     from aetheris import llm_client
     live, session = turn.link, turn.session
-    try:
+
+    def send(text: str) -> None:
+        # Remembered, so the `chat_user` event it comes back as is known to be
+        # this end's and not somebody typing in the web app mid-turn.
+        turn.sent.append(text.strip())
         live.call("attacca_api.send_message",
-                  {"session_id": session, "message": user_line, "data": []})
+                  {"session_id": session, "message": text, "data": []})
+    try:
+        if user_line is not None:
+            send(user_line)
         while True:
             turn.request = None
             await llm_client.stream_reply(messages)
@@ -1019,9 +1379,14 @@ async def _drive(turn: Turn, messages: list, user_line: str) -> None:
                 reply = answer(steps)
                 # Closing it quietly would leave the agent waiting on an answer
                 # that never comes; saying so lets it carry on without one.
-                live.call("attacca_api.send_message", {
-                    "session_id": session, "message": reply or NOT_ANSWERING, "data": []})
+                send(reply or NOT_ANSWERING)
                 print(f"  {S.MUTED}⇢ answer sent{S.R}")
+            if turn.plan is not None:
+                markdown, turn.plan = turn.plan, None
+                decision = decide(markdown)
+                send(decision)
+                print(f"  {S.MUTED}⇢ " + ("plan approved" if decision == PLAN_APPROVED
+                                          else "sent") + f"{S.R}")
             if turn.request is not None:
                 serve(turn.request)
                 continue
@@ -1047,6 +1412,465 @@ async def _drive(turn: Turn, messages: list, user_line: str) -> None:
         raise
 
 
+# ---------------------------------------------------------------------------
+# a turn started somewhere else
+# ---------------------------------------------------------------------------
+
+class _Watch:
+    """The session's events while the prompt is open and nobody here has asked.
+
+    A session belongs to an account, not to a terminal: the same one is open
+    in Attacca's web app, and a message typed there starts a turn this machine
+    serves the tools for. Unwatched, all that showed here was a tool call
+    arriving from nowhere - the question it belonged to and the answer it led
+    to were on another screen.
+    """
+
+    def __init__(self):
+        self.session = ""
+        self.link: zyris.Link | None = None
+        self.stream: zyris.Stream | None = None
+        self.frames: collections.deque = collections.deque()
+        self.running = False          # the session's flag, as last heard
+        self.active = False           # the frames held are a turn worth showing
+        self.muted = False            # the person stopped following this turn
+        self.retry_at = 0.0
+
+
+_watch = _Watch()
+_watch_closed = 0             # counts closings, so an opening can tell it was overtaken
+_parked: set = set()          # sessions whose turn waits on a message from the person
+
+
+def stop_watching_session() -> None:
+    """Close the watch. The next open prompt starts one again, from the cursor."""
+    global _watch, _watch_closed
+    _watch_closed += 1
+    stream, _watch = _watch.stream, _Watch()
+    if stream is not None:
+        try:
+            stream.cancel()
+        except Exception:
+            pass
+
+
+def _open_watch() -> None:
+    """Start watching the current session, from the last event drawn here.
+
+    Blocking - it is a call to Attacca - so `activity` runs it off the loop.
+    """
+    live, session = _link, session_id()
+    stop_watching_session()
+    opened_at = _watch_closed
+    if live is None or not live.ready or not session or current_turn is not None:
+        return
+    try:
+        stream = live.open_stream("attacca_api.turn_events", {
+            "session_id": session, "after": config.ATTACCA_CURSOR or None}, timeout=10)
+    except Exception:
+        _watch.retry_at = time.monotonic() + WATCH_RETRY
+        return
+    if opened_at != _watch_closed or session != session_id() or current_turn is not None:
+        # Overtaken while it was opening: a turn started here, or the
+        # conversation changed. A watch left open now would hear that turn too
+        # and draw it a second time, as somebody else's.
+        stream.cancel()
+        return
+    _watch.session, _watch.link, _watch.stream = session, live, stream
+    _watch.running = bool((stream.head or {}).get("running"))
+    # Running already, and not on this terminal's account: somebody's turn.
+    # Unless it is parked on a question shown here - then it is waiting, with
+    # nothing more to draw until it is answered.
+    _watch.active = _watch.running and session not in _parked
+
+
+def _hear(frame: dict) -> None:
+    """Sort one frame of an idle session: part of a turn to show, or nothing."""
+    watch = _watch
+    kind = frame.get("type")
+    if kind == "status":
+        watch.running = bool(frame.get("running"))
+        if not watch.running:
+            # The end of whatever was running. Kept only as the end of a turn
+            # being shown; on its own it is the session saying it is idle.
+            if watch.muted:
+                watch.muted = False
+                return
+            if watch.active:
+                watch.frames.append(frame)
+            return
+        if not watch.muted:
+            watch.active = True
+            watch.frames.append(frame)
+        return
+    if watch.muted:
+        if kind == "event":
+            config.ATTACCA_CURSOR = frame.get("cursor") or config.ATTACCA_CURSOR
+        return
+    if kind == "delta":
+        watch.active = True
+        watch.frames.append(frame)
+        return
+    if kind != "event":
+        return
+    event = frame.get("event") or {}
+    key = event.get("id") or event.get("seq")
+    theirs = (event.get("kind") == "chat_user" and key not in _ours
+              and str((event.get("payload") or {}).get("content") or "").strip())
+    if theirs:
+        watch.active = True
+    if watch.active:
+        watch.frames.append(frame)
+    else:
+        # A rewrite of something already drawn - the title a reasoning block
+        # is given after its turn ended. Nothing to show; only the place moved.
+        config.ATTACCA_CURSOR = frame.get("cursor") or config.ATTACCA_CURSOR
+
+
+def activity_now() -> bool:
+    """Whether a turn started elsewhere has something to show. Never blocks."""
+    watch = _watch
+    if watch.stream is None or watch.session != session_id() or watch.link is not _link:
+        return False
+    while True:
+        try:
+            frame = watch.stream.get(timeout=0)
+        except queue.Empty:
+            break
+        except zyris.ZyrisError:
+            # The connection dropped, and every stream with it. Opened again
+            # from the cursor once the link is back, so nothing is missed.
+            stop_watching_session()
+            _watch.retry_at = time.monotonic() + WATCH_RETRY
+            return False
+        if frame is None:
+            stop_watching_session()
+            _watch.retry_at = time.monotonic() + WATCH_RETRY
+            return False
+        if isinstance(frame, dict):
+            _hear(frame)
+    return watch.active and bool(watch.frames or watch.running)
+
+
+def look() -> bool:
+    """`activity`, for a prompt that cannot be raced: open, look once, return."""
+    stale = (_watch.stream is None or _watch.session != session_id()
+             or _watch.link is not _link)
+    if stale and connected() and session_id() and time.monotonic() >= _watch.retry_at:
+        _open_watch()
+        # What was filed while this terminal was away is read back as the
+        # stream opens - a moment after it opens, so the look is given one.
+        deadline = time.monotonic() + 0.4
+        while not activity_now() and time.monotonic() < deadline:
+            time.sleep(0.02)
+    return activity_now()
+
+
+async def activity() -> bool:
+    """Resolves once a turn started elsewhere has something to show here."""
+    loop = asyncio.get_running_loop()
+    while True:
+        stale = (_watch.stream is None or _watch.session != session_id()
+                 or _watch.link is not _link)
+        if stale and connected() and session_id() and time.monotonic() >= _watch.retry_at:
+            await loop.run_in_executor(None, _open_watch)
+        if activity_now():
+            return True
+        await asyncio.sleep(IDLE_POLL)
+
+
+async def follow(messages: list) -> bool:
+    """Draw a turn that was started somewhere else, and keep what it said.
+
+    The same loop as a turn started here, minus everything that is not this
+    terminal's to do: nothing is sent, and stopping it with Ctrl+C stops the
+    following, not the turn. Calls it makes into this machine are served as
+    they come, under the same rules. Returns whether `messages` grew.
+    """
+    global current_turn
+    from aetheris import llm_client
+    watch = _watch
+    if watch.stream is None or watch.link is None:
+        return False
+    turn = Turn(watch.link, watch.session, foreign=True)
+    turn.stream, turn.backlog = watch.stream, watch.frames
+    turn.cursor = config.ATTACCA_CURSOR or None
+    turn.running = turn.armed = watch.running
+    current_turn = turn
+    stopped = False
+    try:
+        while True:
+            turn.request = None
+            await llm_client.stream_reply(messages)
+            for line in turn.notices:
+                print(line)
+            turn.notices.clear()
+            if turn.request is not None:
+                serve(turn.request)
+                continue
+            if turn.finished or turn.parked:
+                break
+        if not turn.parked:
+            await _late_titles(turn)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Somebody else's turn: looking away from it is all Ctrl+C can mean.
+        stopped = True
+        raise
+    finally:
+        turn.stop = True
+        turn.released.wait(1.0)       # the segment's reader, off the stream
+        current_turn = None
+        if turn.cursor:
+            config.ATTACCA_CURSOR = turn.cursor
+        if turn.parked:
+            _parked.add(turn.session)
+        if turn.stream is not None and turn.stream.finished:
+            stop_watching_session()           # it ended under us; opened again when idle
+        elif _watch.stream is turn.stream:
+            # The watch carries on from where this left it. A turn that was
+            # looked away from stays quiet until it ends.
+            _watch.running = turn.running
+            _watch.muted = stopped and turn.running
+            if stopped:
+                _watch.frames.clear()
+            # Frames left over belong to the turn after this one, already begun.
+            _watch.active = bool(_watch.frames)
+        grew = _keep(turn, messages)
+    if grew and not turn.parked:
+        _report_usage(turn.link, turn.session)
+    return grew
+
+
+def _keep(turn: Turn, messages: list) -> bool:
+    """Put a followed turn into the conversation, as the exchanges it was."""
+    before = len(messages)
+    heard = turn.heard or [{"user": "", "said": {}}]
+    for index, exchange in enumerate(heard):
+        if exchange["user"].strip():
+            messages.append({"role": "user", "content": exchange["user"]})
+        said = _joined(exchange["said"])
+        if not said and index == len(heard) - 1:
+            said = turn.streamed.strip()      # stopped, or parked, before it was stored
+        if said:
+            messages.append({"role": "assistant", "content": said})
+    return len(messages) > before
+
+
+# ---------------------------------------------------------------------------
+# what the agent made
+# ---------------------------------------------------------------------------
+#
+# An agent on Attacca files a long result as an artifact - `job_create_artifact`
+# - rather than saying it. The artifact lives on Attacca and no call a node has
+# reads one back, but the call that made it is an event of the session like any
+# other, and carries what was written. So that is what is shown here. The
+# tool's schema is Attacca's own and not part of what a node is told, so its
+# arguments are read by the names such things go under; one that cannot be
+# read that way is opened in the browser instead.
+
+_made: dict = {}              # session id -> {event key: artifact}, as seen live
+
+_ARTIFACT_VERBS = {"create", "write", "update", "append", "save", "publish"}
+_TITLE_KEYS = ("title", "name", "filename", "file_name", "path")
+_CONTENT_KEYS = ("content", "markdown", "body", "text", "html", "source", "data")
+_URL = re.compile(r"https?://[^\s\"'<>)\]]+")
+
+
+def _makes_artifact(name: str) -> bool:
+    words = set(_tool_name(name).lower().split("_"))
+    return bool(words & {"artifact", "artifacts"}) and bool(words & _ARTIFACT_VERBS)
+
+
+def _strings(value, key: str = ""):
+    """Every string in a JSON value, with the key it was found under."""
+    if isinstance(value, str):
+        yield key, value
+    elif isinstance(value, dict):
+        for name, inner in value.items():
+            yield from _strings(inner, str(name))
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _strings(inner, key)
+
+
+def _parsed(value):
+    """A result that is JSON in a string, as a tool's often is."""
+    if isinstance(value, str) and value.lstrip()[:1] in ("{", "["):
+        try:
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value
+
+
+def artifact_of(payload: dict):
+    """What a `…create_artifact` call made: {title, content, url}. None otherwise."""
+    if not _makes_artifact(str(payload.get("name") or "")) or payload.get("error"):
+        return None
+    arguments, result = _parsed(payload.get("arguments")), _parsed(payload.get("result"))
+    written = list(_strings(arguments))
+    named = [text for key, text in written if key in _CONTENT_KEYS and text.strip()]
+    # Under a name that says so, or - failing that - the one long thing in it.
+    longest = max((text for _, text in written), key=len, default="")
+    content = max(named, key=len) if named else (longest if "\n" in longest
+                                                 or len(longest) > 200 else "")
+    title = next((text.strip() for wanted in _TITLE_KEYS
+                  for key, text in written + list(_strings(result))
+                  if key == wanted and text.strip() and text is not content), "")
+    found = next((_URL.search(text) for _, text in list(_strings(result)) + written
+                  if text is not content and _URL.search(text)), None)
+    return {"title": title or "artifact", "content": content,
+            "url": found.group(0).rstrip(".,") if found else ""}
+
+
+def _readable(made: dict) -> bool:
+    """Whether it can be drawn here: text, and not a page meant for a browser."""
+    head = made["content"].lstrip()[:200].lower()
+    return bool(head) and not head.startswith(("<!doctype", "<html", "<svg", "<?xml"))
+
+
+def _artifact_note(made: dict) -> str:
+    """The lines under the call: what was made, and how to read it."""
+    if not _readable(made):
+        return (f"\n    {S.ACCENT}▤{S.R} {S.WHITE}{made['title']}{S.R} "
+                f"{S.MUTED}- /artifacts open shows it in the browser{S.R}")
+    lines = made["content"].strip().splitlines()
+    rail = f"    {S.MUTED}│{S.R} "
+    shown = [rail + S.GRAY + row + S.R for line in lines[:ARTIFACT_PREVIEW]
+             for row in config.wrap_cells(line, max(20, config.tw() - 8), by_word=True)]
+    more = len(lines) - ARTIFACT_PREVIEW
+    return (f"\n    {S.ACCENT}▤{S.R} {S.WHITE}{made['title']}{S.R} "
+            f"{S.MUTED}- {len(lines)} lines; /artifacts shows it all{S.R}\n"
+            + "\n".join(shown[:ARTIFACT_PREVIEW])
+            + (f"\n{rail}{S.MUTED}… {more} more{S.R}" if more > 0 else ""))
+
+
+def artifacts() -> list:
+    """Every artifact made in this session, oldest first.
+
+    Read from the session's history, so one made while this terminal was
+    closed - or in a turn started in the web app - is listed like any other.
+    What was seen live stands in when the history cannot be read.
+    """
+    session = session_id()
+    if not session:
+        return []
+    found = dict(_made.get(session, {}))
+    try:
+        rows = link().call("attacca_api.session_history",
+                           {"session_id": session, "query": {}}, timeout=15) or []
+    except Exception:
+        rows = []
+    for row in rows if isinstance(rows, list) else ():
+        if not isinstance(row, dict) or row.get("kind") != "tool_call":
+            continue
+        made = artifact_of(row.get("payload") or {})
+        if made and (row.get("payload") or {}).get("result") is not None:
+            found[row.get("id") or row.get("seq")] = made
+    return list(found.values())
+
+
+def web_address() -> str:
+    """Attacca's web app, for what cannot be shown in a terminal.
+
+    The host the socket is on, without the path the API lives under.
+    """
+    scheme, _, rest = http_base(providers.build(NAME).base_url).partition("://")
+    return f"{scheme}://{rest.split('/', 1)[0]}"
+
+
+def _open_in_browser(made: dict) -> None:
+    import webbrowser
+    address = made["url"] or web_address()
+    where = ("" if made["url"] else " - Attacca's web app; the artifact is under "
+             "this session there")
+    try:
+        opened = webbrowser.open(address)
+    except Exception:
+        opened = False
+    if opened:
+        print(f"  {S.OK}✓ Opened{S.R} {S.WHITE}{address}{S.R}{S.MUTED}{where}{S.R}\n")
+    else:
+        # No browser to hand it to - over SSH, in a container. The address is
+        # still the answer; it only has to be opened by hand.
+        print(f"  {S.WARN}◆ No browser could be opened here.{S.R} {S.WHITE}{address}"
+              f"{S.R}{S.MUTED}{where}{S.R}\n")
+
+
+def show_artifacts(argument: str = "") -> None:
+    """`/artifacts`: what the agent made in this session.
+
+    `/artifacts`            the list - or the artifact, when there is one
+    `/artifacts <n>`        that one, in full
+    `/artifacts open [n]`   it in the browser instead
+    """
+    from aetheris.renderer import _render_full
+    words = argument.strip().lower().split()
+    opening = bool(words) and words[0] == "open"
+    number = next((word for word in words if word.isdigit()), "")
+    if [word for word in words if word != "open" and not word.isdigit()]:
+        print(f"  {S.ERR}✗ Usage: /artifacts [open] [number]{S.R}\n")
+        return
+    found = artifacts()
+    if not found:
+        print(f"  {S.GRAY}No artifact has been made in this session.{S.R}\n")
+        return
+    if number and not 1 <= int(number) <= len(found):
+        print(f"  {S.ERR}✗ There is no artifact {number}; this session has "
+              f"{len(found)}.{S.R}\n")
+        return
+    if not number and len(found) > 1 and not opening:
+        print(f"\n  {S.BOLD}{S.ACCENT}Artifacts{S.R}")
+        for index, made in enumerate(found, 1):
+            size = (f"{len(made['content'].splitlines())} lines" if _readable(made)
+                    else "opens in the browser")
+            print(f"  {S.ACCENT}{index:3}.{S.R} {S.WHITE}{made['title']}{S.R} "
+                  f"{S.MUTED}{size}{S.R}")
+        print(f"  {S.MUTED}/artifacts <number> shows one; /artifacts open <number> "
+              f"opens it in the browser.{S.R}\n")
+        return
+    made = found[int(number) - 1] if number else found[-1]
+    if opening or not _readable(made):
+        if not opening:
+            print(f"  {S.MUTED}◆ {made['title']} is not something a terminal can "
+                  f"draw.{S.R}")
+        _open_in_browser(made)
+        return
+    rule = f"  {S.MUTED}{'─' * max(8, min(config.tw() - 4, 60))}{S.R}"
+    print(f"\n  {S.ACCENT}▤{S.R} {S.BOLD}{S.WHITE}{made['title']}{S.R}\n{rule}\n"
+          f"{_render_full(made['content'].strip())}\n{rule}")
+    if made["url"]:
+        print(f"  {S.MUTED}{made['url']}{S.R}")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# what it costs, and on which plan
+# ---------------------------------------------------------------------------
+
+_account_seen: tuple = (None, {})         # (the link it was asked over, the answer)
+
+
+def account(live: zyris.Link, fresh: bool = False) -> dict:
+    """Who this machine is paired as: `me` - the plan and the credit balance.
+
+    Asked once per connection unless `fresh`: the plan does not change between
+    two turns, and one more call under every answer is one more thing to wait
+    on. `me` needs no scope, so it answers whatever was granted.
+    """
+    global _account_seen
+    if not fresh and _account_seen[0] is live:
+        return _account_seen[1]
+    try:
+        seen = live.call("attacca_api.me", {}, timeout=5) or {}
+    except Exception:
+        seen = {}              # an older deployment, or a slow one
+    if not isinstance(seen, dict):
+        seen = {}
+    _account_seen = (live, seen)
+    return seen
+
+
 def _usage(live: zyris.Link, session: str) -> dict:
     try:
         return live.call("attacca_api.session_usage", {"session_id": session},
@@ -1069,8 +1893,22 @@ def _report_usage(live: zyris.Link, session: str) -> None:
         # Shown exactly as sent: attacca.cc sends a share of the plan ("0.42%"),
         # and another deployment may send something else entirely.
         parts.append(f"credits used {usage['credits_used']}")
+    if parts and account(live).get("plan"):
+        # Which plan that is a share of. Only beside the numbers it explains:
+        # a deployment that meters nothing has no line to put it on.
+        parts.append(f"{account(live)['plan']} plan")
     if parts:
         print(f"\n  {S.MUTED}─ Attacca · {' · '.join(parts)}{S.R}\n")
+
+
+def _show_account(live: zyris.Link) -> None:
+    """The account's plan and what is left on it, as Attacca words them."""
+    seen = account(live, fresh=True)
+    if seen.get("plan"):
+        print(f"  {S.GRAY}plan{S.R}     {S.WHITE}{seen['plan']}{S.R}")
+    if seen.get("credits"):
+        # A string the deployment formatted: its unit and precision, not ours.
+        print(f"  {S.GRAY}balance{S.R}  {S.WHITE}{seen['credits']}{S.R} {S.MUTED}credits{S.R}")
 
 
 def show_usage() -> None:
@@ -1085,15 +1923,17 @@ def show_usage() -> None:
     """
     print(f"\n  {S.BOLD}Attacca Session Usage{S.R}")
     session = session_id()
-    if not session:
-        print(f"  {S.GRAY}No Attacca session yet - it starts with the first message.{S.R}\n")
-        return
     try:
         live = link()
     except Exception as error:
         print(f"  {S.ERR}{error}{S.R}\n")
         return
+    if not session:
+        _show_account(live)
+        print(f"  {S.GRAY}No Attacca session yet - it starts with the first message.{S.R}\n")
+        return
     usage = _usage(live, session)
+    _show_account(live)
     if not usage:
         print(f"  {S.GRAY}Attacca did not say what this session has used.{S.R}\n")
         return

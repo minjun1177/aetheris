@@ -51,8 +51,9 @@ step aside for it; what stays is everything that touches this machine.
   `.env` vault, `/undo`, the file claims on the agent channel. The agent sees
   the harness's own tool table, MCP tools included, minus `spawn_agent` and
   `view_image`, which only mean something to the local loop.
-- **The narrowest grant that works.** Four scopes - `agents:read`,
-  `sessions:read`, `sessions:write`, `events:read` - and a `zc_` credential
+- **The narrowest grant that works.** Five scopes - `agents:read`,
+  `sessions:read`, `sessions:write`, `events:read`, and `jobs:write` for plan
+  mode - and a `zc_` credential
   saved owner-only like an API key, or read from `ATTACCA_CREDENTIAL`. A
   credential revoked in Attacca is forgotten here, with the way to pair again.
 - **Reachable between turns.** An agent in Attacca's web app can use this
@@ -164,6 +165,107 @@ main loop catches it.
 `providers.json` (0600) at once, rather than at whatever saves next; switched
 on, they move back into the keyring. The environment variable still switches
 it off when set, and `/set` says so instead of appearing to work.
+
+### A server started in the background no longer freezes the harness
+
+On Windows, `start /b node server.js > server.log 2>&1` hung the harness for
+good: the tool call never returned, and on an Attacca node every call after it
+went unanswered. cmd hands everything it starts every inheritable handle it
+has, so the server held our output pipes open after cmd had exited. The
+command was then taken for one waiting at a prompt, and closing it closed
+pipes that another thread was still reading - which on Windows waits for that
+read to finish, and the server never printed again. Now a command is over when
+its shell is, whatever it left running, and only the thread reading a pipe
+ever closes it.
+
+### Ctrl+C stops what is running; a second one leaves
+
+One Ctrl+C used to end the program from anywhere - half-way through an answer,
+with a command still running. It now stops the thing that is running and gives
+the prompt back: the reply being written, a tool, a `!command`. The
+conversation keeps what was said and done up to then. Pressed again within
+five seconds it exits, and Ctrl+D still exits at once. The reply that was
+stopped is no longer read to its end in the background either - the request
+under it is closed.
+
+### `/sessions` opens what it lists
+
+Finding a session and loading it were two commands, with an id read off the
+first and typed into the second. `/sessions` now numbers its list and asks
+which to open: a number, a few letters of a title - which narrow the list when
+they fit several - or Enter to stay. `/sessions <title>` opens a single match
+straight away, and `/load` on its own is the same picker.
+
+### A long line keeps its rail
+
+A thought longer than the window wrapped with its `│` on the first row only,
+so the rest read as text from outside the box. Thoughts, tool results, tool
+arguments and quoted lines are now cut to the window before they are drawn -
+by terminal cells, so Hangul counts double and colour codes count nothing -
+and every row gets the mark.
+
+### Attacca: the web app's messages, plans, and the session's own title
+
+- **Messages sent from the web app are shown here.** A message typed into
+  Attacca's web app, on the session this terminal is in, closes the prompt and
+  is drawn as a turn - the line, its answer as it streams, the tools it runs
+  here - and both are kept in the conversation. Ones sent while the terminal
+  was away are read back from the last event it had drawn. Ctrl+C there stops
+  following, not the turn.
+- **A plan can be approved.** A plan handed back by Attacca's plan mode is
+  drawn in full: Enter approves it, anything typed is what to change.
+- **The session title is Attacca's.** Sessions driven by Attacca were saved
+  untitled; they are now filed under the title Attacca gives them.
+- **The plan is shown.** `/usage` names the account's plan and its balance,
+  and the cost line under each answer names the plan its share is of.
+- **An answer said in parts is kept whole.** An agent that spoke, ran a tool
+  and spoke again had only its last part saved - and shown, after a resize.
+
+### A drag selects the thought, not the `│` beside it
+
+Selecting a thought with the mouse took the `│` in front of every row, and a
+drag down an answer ran on into whatever was printed under it. A terminal
+selects cells and cannot be told what they are, so while the prompt is open the
+mouse is now the program's (`MOUSE_SELECT`, on by default).
+
+- **By block.** A drag that starts in a thought highlights the thought and
+  stops at its last word; one that starts in an answer stays in the answer.
+- **Only the text.** No gutter, no margin, no frame around a code block.
+- **As it was written.** A line the terminal wrapped is copied as one line,
+  and so is a thought this program cut to fit.
+- **Copied on release**, by the platform's own tool (`clip`, `pbcopy`,
+  `wl-copy`, `xclip`) and by OSC 52, which is what works over SSH.
+
+**What it costs:** a terminal reports all of the mouse or none of it. So the
+first turn of the wheel hands the mouse back to the terminal - that notch is
+lost, the rest scroll as always - and the next key pressed takes it again. The
+terminal's own selection needs Shift, and right-click paste is done by the
+program instead, since the terminal's stops. `/set MOUSE_SELECT off` puts it
+all back.
+
+### A paste is shown as its size
+
+More than a line of pasted text filled the box with itself. It is now shown as
+`[Copied text Line:3 Chars:100]` and sent as what it was. A single short line
+is typed, as before.
+
+### `/set RETURN_SHELL_OUTPUT`
+
+A `!command` and its output have always joined the conversation. Off, they are
+run and shown and kept from the model. With Attacca they never reached the
+agent at all - it is sent one message a turn - so they now go in front of the
+next message. The banner over a `!` line says which of the two will happen; it
+used to say "not sent to the model" either way.
+
+### Attacca: its own plan mode, and the artifacts it makes
+
+- **`/planmode` enters Attacca's plan mode.** The next message starts a
+  plan-mode job: the agent investigates, the plan is drawn here, Enter
+  approves it. This needs one more scope, `jobs:write`; a machine paired before
+  is told once to pair again, and plans the old way until it does.
+- **`/artifacts`.** What an agent filed with `job_create_artifact` is shown
+  under the call - title and first lines - and in full by `/artifacts`. One
+  that is a page rather than text is opened in the browser.
 
 ---
 

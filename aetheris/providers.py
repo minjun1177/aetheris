@@ -439,24 +439,46 @@ def _as_stream(make_chunks):
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         done = object()
+        abandoned = threading.Event()
+
+        def hand_over(item) -> None:
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+            except RuntimeError:
+                pass                  # the loop is gone, and so is the reader
 
         def worker():
+            chunks = make_chunks()
             try:
-                for item in make_chunks():
-                    loop.call_soon_threadsafe(queue.put_nowait, item)
+                for item in chunks:
+                    if abandoned.is_set():
+                        break
+                    hand_over(item)
             except BaseException as error:               # noqa: BLE001 - re-raised below
-                loop.call_soon_threadsafe(queue.put_nowait, error)
+                hand_over(error)
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, done)
+                # Closing the generator is what closes the request under it. A
+                # reply stopped with Ctrl+C would otherwise be read to its end
+                # by a thread nobody is listening to, and paid for.
+                close = getattr(chunks, "close", None)
+                if close is not None:
+                    try:
+                        close()
+                    except Exception:
+                        pass
+                hand_over(done)
 
         threading.Thread(target=worker, daemon=True).start()
-        while True:
-            item = await queue.get()
-            if item is done:
-                return
-            if isinstance(item, BaseException):
-                raise item
-            yield item
+        try:
+            while True:
+                item = await queue.get()
+                if item is done:
+                    return
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            abandoned.set()
 
     return stream()
 

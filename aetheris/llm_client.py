@@ -22,6 +22,7 @@ from aetheris import images
 from aetheris import context
 from aetheris import mcp_client
 from aetheris import providers
+from aetheris import screen
 from aetheris import toolspec
 from aetheris import verify
 
@@ -182,7 +183,8 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
 
     def flush_table():
         if table_buffer:
-            for t_line in _format_table(table_buffer): print(t_line)
+            with screen.block("answer"):
+                for t_line in _format_table(table_buffer): print(t_line)
             table_buffer.clear()
 
     def process_line(line: str, in_c: bool) -> bool:
@@ -194,8 +196,11 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
         else:
             flush_table()
             rendered, out_c, in_latex_block = _render_line(line, in_c, in_latex_block)
-            for r_line in rendered.split('\n'):
-                print(r_line)
+            # Said to be the answer, so a drag over it selects the answer and
+            # stops where it stops (`screen`).
+            with screen.block("answer"):
+                for r_line in rendered.split('\n'):
+                    print(r_line)
             return out_c
 
     def emit(text: str, in_c: bool) -> bool:
@@ -211,14 +216,25 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                 line_buffer += char
         return in_c
 
+    def show_thought(line: str) -> None:
+        # Cut to the terminal here rather than left to it: a row the terminal
+        # wraps starts at column 0, outside the `│` that says it is a thought.
+        sys.stdout.write('\r\033[K')
+        sys.stdout.flush()
+        took = []
+        rows = config.wrap_cells(line, config.tw() - 5, by_word=True, joins=took)
+        for index, row in enumerate(rows):
+            # A thought, and - past the first row - what the cut before it
+            # took, so a copy of it reads as the line it was.
+            with screen.block("thinking", took[index - 1] if index else None):
+                print(f"  {S.MUTED}│ {row}{S.R}")
+
     def emit_thought(text: str) -> None:
         """Reasoning, shown dimmed and unrendered - it is not the answer."""
         nonlocal think_buffer
         for char in text:
             if char == '\n':
-                sys.stdout.write('\r\033[K')
-                sys.stdout.flush()
-                print(f"  {S.MUTED}│ {think_buffer}{S.R}")
+                show_thought(think_buffer)
                 think_buffer = ""
             else:
                 think_buffer += char
@@ -228,9 +244,7 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
         if not thought_open:
             return
         if think_buffer.strip():
-            sys.stdout.write('\r\033[K')
-            sys.stdout.flush()
-            print(f"  {S.MUTED}│ {think_buffer}{S.R}")
+            show_thought(think_buffer)
         think_buffer = ""
         print(f"  {S.MUTED}╰─{S.R}")
         thought_open = False

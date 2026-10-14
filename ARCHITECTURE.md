@@ -12,7 +12,7 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~21,600 lines of Python, no framework. It talks to
+A terminal AI assistant, ~24,900 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
 model 40 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
@@ -555,6 +555,58 @@ picture back through a string, so it leaves the path with `images` and
 `llm_client` hangs it on the tool-result message it is already appending - the
 same arrangement `verify` uses for a check it wants run after the turn.
 
+**5.18 One Ctrl+C stops what is running; only a second one leaves.** Left to
+`asyncio.run`, the first Ctrl+C cancels the main task - which nothing caught,
+so it ended the program from the middle of an answer - and every later one is
+raised as `KeyboardInterrupt` wherever the thread is, the event loop's own
+code included. `app._own_ctrl_c` takes SIGINT for the life of the loop instead,
+and the rule it keeps is that a press is *heard where something is listening
+and nowhere else*:
+
+| Where it lands | What the handler does |
+|:---|:---|
+| A turn, the prompt, a `!command`, a followed web turn (`_stoppable`) | Cancels the main task, and raises `_Signalled` as well when that task's own code is holding the thread - a tool running cannot be reached by a cancellation |
+| Code that catches its own Ctrl+C (`tui.listening`: a question, a pairing code being waited on) | Raises only: every caller of `ask_the_driver` already reads Ctrl+C as its own "no" |
+| Anywhere else - a slash command half-way through | Nothing now. `_deferred_interrupt` has the next prompt say how to leave, because raised here it would end the program on one press |
+| Any of them, as the second press inside `EXIT_WINDOW` | Cancels and raises regardless: that one means it |
+
+Three things follow from it. *A press is counted once*: by the handler for a
+signal, by the catch site for the key an open prompt reads (the terminal is
+raw there and no signal is sent), and `_interrupted` can tell the two apart by
+the type it was handed. *Both a cancellation and an exception may be owed for
+one press*, since the handler cannot know which will be listened to, so every
+catch site calls `_absorb_cancel` - otherwise the leftover arrives at the next
+prompt as a second Ctrl+C nobody pressed. And *a stopped turn is a turn that
+did not finish, not one that did not happen*: the user's line and every tool
+result stay in `messages`, the cut-off reply was never appended, and
+`providers._as_stream` closes the generator behind the stream so the request
+under it is not read to its end by a thread nobody is listening to.
+
+To make new code stoppable, run it between `_stoppable = True` and a `finally`
+that clears it, and catch `(KeyboardInterrupt, asyncio.CancelledError)` there.
+
+### 5.19 The screen is selected from the program's account of it
+
+A terminal selects cells and cannot be told that the `│` down a thought is not
+part of the thought. So with `MOUSE_SELECT` on the prompt takes the mouse, and
+a drag is resolved against `screen.ledger`: every row the program printed, as
+the row it became.
+
+| Rule | Why |
+|:---|:---|
+| Everything printed goes through `screen.Recorder` on `sys.stdout` | The ledger is only right if nothing reaches the terminal behind its back. It sits *under* the remote's tee and *over* `patch_stdout`'s proxy, so `screen.install()` is called wherever `remote.ensure_mirror()` is |
+| What bypasses `sys.stdout` is told to it by hand (`screen.typed`) | The prompt draws on the real stream and `input()` writes from C. Both leave a row; `_account_for_prompt` and `ask_the_driver` say what it was |
+| A row's block is said by whoever prints it (`screen.block`) | `"thinking"` and `"answer"` are set in `stream_reply` and `_replay_session`. A block is a run of rows of one kind, so anything unmarked between two answers already separates them |
+| Where a row's text starts is read off the row (`Row.bounds`) | A gutter (`│`, `┃`, `❯`), a frame (`╭─`, `╰─`), or the two-space margin. The renderer is not asked: it has no say in what a tool result looks like |
+| `promptkeys.press` repaints every row above the prompt before lighting one | The ledger is an account, not a reading. Drawn from it first, the screen *is* the ledger for the length of the drag, so what is copied is what was lit even where the two had drifted |
+| A highlight is put out before the rows move (`Ledger.on_change`, and `watch`'s `closing`) | Lit rows that scroll take the highlight into the scrollback with them, where nothing can repaint it. A prompt closing on the last row scrolls too, so it is put out before that drawing, not after |
+| Where the prompt is comes from `promptkeys.watch`, not `rows_above_layout` | prompt_toolkit knows its row as of the last time it asked the terminal. A command menu opening under a prompt at the bottom pushes every row up, and when it closes `rows_above_layout` goes back to the old figure - eight rows out. `watch` keeps the tallest the prompt has been since it asked |
+| The wheel hands the mouse back (`hand_back`), a key takes it again (`take_back`) | A terminal reports all of the mouse or none. Scrolling back matters more than the one notch it costs to find out the person wants to |
+
+To make something new selectable as a unit, print it inside
+`with screen.block("<kind>"):`. To print something that does not go through
+`sys.stdout`, call `screen.typed` with what it left on the row.
+
 ---
 
 ## 6. Module map
@@ -620,6 +672,8 @@ app.py            the loop, slash commands, session lifecycle
 | `websearch.py` | Retrieval, extraction, BM25 reranking | |
 | `skills.py` | Skill discovery and loading | |
 | `tui.py` / `renderer.py` | Terminal chrome and markdown | Decisions |
+| `screen.py` | The ledger of printed rows, selection by block, the clipboard (5.19) | Reading the terminal - it is told what was printed, never asks |
+| `promptkeys.py` | The prompt's paste placeholder and mouse reports | What a row *is* - `screen` knows that |
 | `atomic.py`, `sse.py`, `paths.py` | One job each. Stdlib only, importing nothing local. `paths` also owns the two names derived from something that was not chosen to be a filename: `safe_name` and `workspace_slug` | |
 | `terms.py` | What the harness does to this machine, asked once before it does it | |
 
@@ -1207,6 +1261,82 @@ remote included), and the answer is sent mid-turn with its question. One
 whose waiter gave up (`status: "timeout"`, or `run_in_background`) is printed
 instead, and the next message at the prompt answers it.
 
+**Plan mode is a job.** The protocol has one way into Attacca's plan mode:
+`create_job` with `plan_mode`, which needs `jobs:write`. So with `/planmode`
+on, `run_turn` does not `send_message`: `_plan_job` creates the job, the job's
+`session_id` becomes `config.ATTACCA_SESSION`, and the stream is opened with
+`after: 0` - the turn began when the job did, so it is read from the session's
+first event rather than from now, and `_drive` is handed `None` for the line
+it would otherwise send. A job takes no preamble, so `_preamble` rides under
+the message (`PLAN_CONTEXT`). `config.ATTACCA_JOB` marks the session as a
+job's, saved with it: while it is set a message goes to that session instead
+of starting a second job. `plans_here` reads the grant off `me`; without the
+scope `app` falls back to the local `[System Note: PLAN MODE …]`, and
+`_attacca_plans` is what keeps the two from both asking.
+
+**A plan is decided by the next message.** `submit_plan` is Attacca's own tool
+and parks the turn the way `question` does, with the plan as its `markdown`
+argument. There is no approve call in the protocol: Attacca reads the person's
+next message as the decision. So a pending one ends the segment, `decide`
+draws the plan and asks, and Enter sends `PLAN_APPROVED` while anything typed
+is sent as written. `_answered` reads both tools' results - a `status:
+"timeout"` is a wait that ran out, not a decision, and the plan is still open.
+
+**A turn started somewhere else.** The session is the account's, and the web
+app posts into the same one. While the prompt is open `_Watch` holds a
+`turn_events` stream on it, resumed from `config.ATTACCA_CURSOR` - the last
+event this terminal drew, saved with the session file - and `_hear` sorts what
+arrives: a `chat_user` this end did not send, a delta or `running: true` is a
+turn to show; anything else is a rewrite of something already drawn (a late
+title) and only moves the cursor. `app._typed_or_remote` races
+`attacca.activity` with the keyboard, and `WEB_TURN` sends the main loop to
+`attacca.follow`, which is `_drive` without the three things that are not this
+terminal's to do: it sends nothing, answers nothing and cancels nothing. The
+frames already read are handed over as the turn's `backlog`, so nothing is
+drawn out of order. Three rules keep it honest:
+
+- *One reader per session.* `run_turn` closes the watch before it opens its
+  own stream; a watch left open would hear that turn too and draw it again as
+  somebody else's. `_open_watch` runs on a worker thread and checks, after the
+  call returns, that no turn started while it was opening. And a segment reads
+  on a worker thread that notices `stop` only between two reads, so a turn
+  waits on `Turn.released` before the watch takes the stream back - otherwise
+  the reader on its way out takes one more frame, and if that frame was the
+  `running: false` the watch never hears the turn end.
+- *Whose message it is.* The stream does not say who sent a `chat_user`. A turn
+  started here remembers what it sent (`Turn.sent`) and the events those became
+  (`_ours`), so its own question and its own answers to a `question` are never
+  shown back as the web app's.
+- *When it is over.* A live turn ends on `running: false`. One read back from
+  the history has no such frame after its events, so a followed turn also ends
+  when the session is not running and nothing has arrived for `FOLLOW_QUIET`.
+
+A question or a plan raised in such a turn is printed, not asked: asked here
+as well it would be asked twice, and answered in the web app it would leave
+this terminal blocked on nobody. The session is marked `_parked`, and the next
+`run_turn` sends at once instead of waiting for the turn to go quiet - that
+message is what it is waiting for.
+
+**An artifact is read off the call that made it.** `job_create_artifact` is
+Attacca's tool and its result lives on Attacca; `attacca_api` has no call that
+reads one back. But the `tool_call` event carries the arguments, and those are
+the artifact. `artifact_of` finds title, content and address by the names such
+things go under - the tool's schema is not part of what a node is told, so a
+name it does not know falls through to the longest string, and from there to
+the browser. `/artifacts` re-reads them from `session_history`, with what was
+seen live (`_made`) standing in when that call fails.
+
+**`!commands` ride with the next message.** `_with_shell` walks back from the
+person's line over the `[Shell] $ …` messages directly above it - the ones no
+turn has carried yet, since any turn would have put an answer between - and
+puts them in front. A local model needs none of this; it is sent the list.
+
+**The title is read, not written.** `list_sessions` carries each session's
+title, and an untitled one reads back under a placeholder rather than as
+absent - so `_ensure_session` keeps what the new session was called, and
+`session_title` treats exactly that as no title. `title_when_named` waits
+briefly the first time, since the title lands a moment after the first message.
+
 **A closed window stops the turn.** `_watch_for_closing` hooks SIGHUP and
 SIGTERM for the length of a turn and turns either into the Ctrl+C path -
 `cancel_turn`, given `CLOSING_GRACE` seconds - and then `SystemExit`.
@@ -1305,8 +1435,11 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |
 | `test_qr.py` | That a symbol is one a scanner can read: read back through its own format bits, zigzag and blocks, every block still satisfies its parity (§8c) |
 | `test_zyris.py` | The wire against a server written from the spec: msgpack handshake, answers by id, a stream with a gap failed rather than delivered, in-flight calls failed on a drop and tools re-announced after it, a refused or revoked credential that stops redialling (§8d) |
-| `test_attacca.py` | Pairing at the server's pace, a turn drawn by `stream_reply`, a stale `running: false` not ending a turn, a deny rule refusing the agent's call, a busy session waited out, Ctrl+C reporting what was seen, an idle call closing the prompt and keeping the half-typed line (§8d) |
+| `test_attacca.py` | Pairing at the server's pace, a turn drawn by `stream_reply`, a stale `running: false` not ending a turn, a deny rule refusing the agent's call, a busy session waited out, Ctrl+C reporting what was seen, an idle call closing the prompt and keeping the half-typed line (§8d); a plan decided by the next message, a web-app turn followed live and from the cursor, an answer in parts kept whole, and the title read from Attacca |
 | `test_resize.py` | That a resize under the prompt closes it once the size settles, keeps the half-typed line, and redraws the banner and conversation for the new size; that Ctrl+C at the prompt reaches the main loop |
+| `test_interrupt.py` | That one Ctrl+C stops what is running and only a second inside the window leaves, that a press is counted once however it is caught, that it is put off where nothing is listening, and that a stream nobody reads is closed |
+| `test_select.py` | That the ledger wraps where the terminal does, a selection stays inside its block and its text, the copy is the line as written, both kinds of mouse report are read alike, and a paste is shown as its size |
+| `test_wrap.py` | That a long thought, tool result, argument or quotation is cut to the window by cells - wide characters and colour codes included - so every row keeps its rail |
 | `test_remote.py` | That no token, a nearly-right token and a foreign `Host` each get nothing, that a `.env` value does not go out over the wire, that a stale question cannot be answered, and that closing the door frees the port (§8c) |
 | `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, that a message sent mid-turn is read inside that turn rather than after it, and that concurrent writes to the board lose nothing (5.11, §8) |
 | `test_hashline_edit.py` | That an anchor reaches the line it names, and that a stale one is refused rather than applied a few lines off (5.12) |
@@ -1345,6 +1478,15 @@ it.
 - **`git_ops._git` never raises.** No git installed is a "no", not a crash.
 - **Ollama's tool support is per model.** `providers.OllamaProvider.supports_native_tools`
   is a property; reading it off the class gives you the property object, not a bool.
+- **Ctrl+C is not `asyncio.run`'s here.** `app._own_ctrl_c` replaces its SIGINT
+  handler; a `KeyboardInterrupt` you see in a turn is `_Signalled`, and it comes
+  with a cancellation that has to be absorbed. See 5.18.
+- **The mouse is the program's while the prompt is open.** `MOUSE_SELECT` is
+  on by default: a right click is reported rather than pasted, so `promptkeys`
+  pastes, and the first notch of the wheel is spent handing the mouse back to
+  the terminal. See 5.19.
+- **`print` is recorded.** `sys.stdout` is a `screen.Recorder`; writing to
+  `sys.__stdout__` directly leaves a row the ledger does not know about.
 - **`stream_reply` returns text only.** Native tool calls come back through the
   `calls_out` list you pass in.
 - **The token estimate calibrates itself** against `prompt_tokens` from each

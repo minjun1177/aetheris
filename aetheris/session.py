@@ -262,6 +262,10 @@ def save_session(messages: list[dict], session_id: str) -> str:
         # Only when there is one, so a session that never went near Attacca is
         # written byte for byte as it always was.
         data["attacca_session"] = config.ATTACCA_SESSION
+        if config.ATTACCA_CURSOR:
+            data["attacca_cursor"] = config.ATTACCA_CURSOR
+        if config.ATTACCA_JOB:
+            data["attacca_job"] = config.ATTACCA_JOB
 
     try:
         # Owner-only: a conversation holds whatever was pasted into it.

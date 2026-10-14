@@ -66,8 +66,11 @@ if claimed:
           f"README says {claimed.group(1)}, there are {len(toolspec.TOOLS)}")
 
 print("\n--- every slash command is documented, completable and in /help ---")
-commands = sorted(set(re.findall(r'cmd == "(/[a-z]+)"', APP))
-                  | set(re.findall(r'cmd\.startswith\("(/[a-z]+)', APP)))
+# `/aether` answers on one day of the year and is meant to be found, not read
+# about: it is left out of the table, the menu and the README on purpose.
+UNLISTED = {"/aether"}
+commands = sorted((set(re.findall(r'cmd == "(/[a-z]+)"', APP))
+                   | set(re.findall(r'cmd\.startswith\("(/[a-z]+)', APP))) - UNLISTED)
 check("app.py defines commands", len(commands) > 15, f"{len(commands)} found")
 check("README documents every one",
       not [c for c in commands if f"`{c}" not in README],

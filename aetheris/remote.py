@@ -1199,7 +1199,7 @@ input:focus { outline:1px solid var(--accent); }
 </div>
 <div id="ask"><h3></h3><dl></dl><div class="row"></div></div>
 <div id="menu"></div>
-<div id="shell"><b>Shell</b> - runs on that machine as you; not sent to the model</div>
+<div id="shell"><b>Shell</b> - runs on that machine as you; a command, not a message</div>
 <div id="cost" hidden><span id="spin"></span><span class="grow"></span>
   <span id="costtext"></span><span class="bar"><i></i></span></div>
 <form id="say"><input id="text" placeholder="message, or /command"

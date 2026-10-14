@@ -123,6 +123,14 @@ class Session:
         not to be UTF-8 - a Python older than 3.15 printing to a pipe on Korean
         Windows, say - the code page takes over from there, for what this
         program sends *and* for what we send back to it.
+
+        The pump closes its own end of the pipe, and nothing else may. On
+        Windows `os.read` holds the C runtime's lock on the descriptor for as
+        long as it waits, and closing that descriptor waits for the same lock -
+        so a `close()` from another thread blocks until something is printed.
+        A program the command left running in the background (`start /b`)
+        holds the pipe open and may never print again, and the thread that
+        closed would be the main one, which every tool call is waiting on.
         """
         fd = stream.fileno()
         buffer = b""
@@ -156,6 +164,10 @@ class Session:
             if buffer:
                 self._queue.put(buffer.decode(encoding, "replace"))
             self._queue.put(None)
+            try:
+                stream.close()
+            except Exception:
+                pass
 
     def _choose_encoding(self) -> str:
         """The child is not speaking UTF-8; fall back to the console's code page."""
@@ -252,6 +264,11 @@ class Session:
         With none of them, the silence has to last `patience` seconds before it
         counts as a question.
 
+        A shell that has exited is not asking anything, so silence after it
+        has gone means the command is over - even though the pipes are still
+        open, because something it started in the background inherited them
+        and will hold them for as long as it runs.
+
         Returns (text, ended, timed_out).
         """
         if patience is None:
@@ -275,6 +292,8 @@ class Session:
                     return "".join(chunks), False, True
 
                 text = "".join(chunks)
+                if not self.alive:
+                    return text, True, False            # only the background is left
                 if quiet_since is None:
                     quiet_since = time.time()
                     cpu_mark = self.cpu_seconds()
@@ -335,12 +354,12 @@ class Session:
 
     def close(self) -> int | None:
         kill_process_tree(self.process)
-        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
-            try:
-                if stream is not None:
-                    stream.close()
-            except Exception:
-                pass
+        # Only stdin: the pumps close stdout and stderr themselves (`_pump`).
+        try:
+            if self.process.stdin is not None:
+                self.process.stdin.close()
+        except Exception:
+            pass
         _sessions.pop(self.id, None)
         try:
             return self.process.wait(timeout=3)
