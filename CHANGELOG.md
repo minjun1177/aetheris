@@ -66,6 +66,11 @@ packages of their own rather than be imported from here.
   `--auto-allow` runs tools without asking. The session is saved like any
   other, and `-c` / `--resume` combine with `-p`. The thinking spinner no
   longer animates into something that is not a terminal.
+- **`bench/run.py`.** The five tool-calling tasks and two edits README's
+  model table was measured on, run N times each through `aetheris -p`, graded
+  from what actually happened and saved as JSON. `--compare` holds a run
+  against an earlier one; `--seed` makes runs repeatable. They used to be run
+  by hand, which told "works" from "does not" and nothing finer.
 
 ---
 

@@ -181,6 +181,23 @@ non-zero on failure. They need no Ollama daemon and no network:
 for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 ```
 
+### Measuring a model
+
+`bench/run.py` runs the tasks the table above was measured on - five tool
+calls and two edits - through `aetheris -p --json --auto-allow`, N times each,
+grades every run from the files on disk and the tool calls made, and saves the
+result as JSON under `bench/results/`:
+
+```bash
+python bench/run.py --model gemma4:e4b -n 5 --seed 1     # 7 tasks x 5 runs
+python bench/run.py --list                                # what the tasks are
+python bench/run.py -n 5 --seed 1 --compare bench/results/<earlier>.json
+```
+
+Each run gets an empty working directory and a throwaway harness home, so runs
+cannot see each other. With `--seed S`, run i is sent seed S + i: repeatable,
+and still N different samples.
+
 `tests/test_platform.py` is the one worth running on any new machine, and
 especially on Windows: it checks what that machine can tell you about a command
 waiting for input. `tests/test_vm.py` starts and kills real Python processes,
@@ -2371,6 +2388,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_tool_parsing.py`**: Every shape a model wraps a tool call in, and every shape that must not be read as one.
 - **`tests/test_retry.py`**: That a rate limit, an overloaded server or a dropped connection is tried again - after a wait that doubles, or as long as the server asks - and that a reply which has started arriving is never started over.
 - **`tests/test_headless.py`**: That `aetheris -p` puts the answer alone - or one JSON object naming every tool call and how it ended - on stdout, reads a piped prompt, never waits on a stdin nobody sent anything on, and reports a failure as an exit status.
+- **`tests/test_bench.py`**: That each benchmark grader passes a right answer and fails the wrong ones a small model actually gives - a file rewritten down to the one function asked about, a call made when none was wanted - and that the edit fixture still has its bug.
 - **`tests/test_resume.py`**: That `--resume` and `-c` open the conversation they name - and that neither hands back a blank one, or guesses, when they cannot.
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.

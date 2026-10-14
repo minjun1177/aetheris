@@ -1432,6 +1432,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |
 | `test_retry.py` | That a 429, a 5xx or a dropped connection is retried with backoff or `Retry-After`, a 4xx is not, and a reply that has started is never started over |
 | `test_headless.py` | That `-p` writes only the answer or one JSON object to stdout, with every tool call and its outcome, and fails with an exit status |
+| `test_bench.py` | That the benchmark graders pass a right answer and fail the wrong ones small models give, and that the edit fixture still carries its bug |
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |
