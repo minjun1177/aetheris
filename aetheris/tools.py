@@ -19,6 +19,7 @@ from aetheris import images
 from aetheris import git_ops
 from aetheris import permissions
 from aetheris import shell_session
+from aetheris import todos
 from aetheris import toolspec
 from aetheris import vault
 from aetheris import verify
@@ -2637,6 +2638,7 @@ def _handlers() -> dict:
             "get_system_info": handle_get_system_info,
             "search_in_file": handle_search_in_file,
             "find_files": handle_find_files,
+            "update_todos": todos.handle_update_todos,
             "call_api": handle_call_api,
             "get_code_skeleton": handle_get_code_skeleton,
             "query_ast_node": handle_query_ast_node,

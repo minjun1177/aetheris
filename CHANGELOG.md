@@ -91,6 +91,11 @@ packages of their own rather than be imported from here.
   ends the turn. A file written in between starts the count again, because
   "test, fix, test" is progress, and an empty `send_input` polling a running
   command is left alone.
+- **`update_todos`.** What a small model loses first on a long job is its
+  place - it does step three twice, or stops after four. It can now write the
+  plan as a checklist the harness keeps with the session; before every request
+  the open items are put back in front of it, on what is sent rather than in
+  the stored conversation, and only while something is left.
 
 ---
 

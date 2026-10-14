@@ -299,6 +299,15 @@ TOOLS = (
         ),
     ),
     Tool(
+        name='update_todos',
+        description='Keep a checklist for a request that takes several steps. Write the plan once at the start, then send the whole list again each time an item is finished, marked [x]. The open items are shown to you again before every request, so you do not lose your place. Skip it for a one-step request.',
+        params=(
+            Param(name='todos', aliases=('content', 'text', 'items'), block=True,
+                  description='The whole list, in a <content> raw block, one item per line: "[ ] step" for an open one, "[x] step" for a finished one. Each call replaces the list; an empty block clears it.',
+                  native_description='The whole list, one item per line: "[ ] step" for an open one, "[x] step" for a finished one. Each call replaces the list; empty clears it.'),
+        ),
+    ),
+    Tool(
         name='get_system_info',
         description='Show system usage.',
     ),

@@ -50,7 +50,7 @@ _TEXT_PROTOCOL = """2. If you need to use a tool to get more information, you MU
    </content>
    </tool_call>
    Inside a raw block write the text EXACTLY as it must appear in the file: real line breaks, real quotes, real backslashes, no escaping of any kind. This is the reliable way to write a file - escaping a whole file into a JSON string goes wrong far too easily.
-   The block tags are <content> for write_file and run_python, <old_content> / <new_content> for edit_file, and <stdin> for run_cmd, send_input and run_python. Everything else (the file path, the command, flags, short values) stays in the JSON.
+   The block tags are <content> for write_file, run_python and update_todos, <old_content> / <new_content> for edit_file, and <stdin> for run_cmd, send_input and run_python. Everything else (the file path, the command, flags, short values) stays in the JSON.
    To try out a program you just wrote, run it and then answer its prompts one at a time. run_cmd returns what it printed plus a session id, you read the prompt, and send_input answers it:
    <tool_call>
    {"name": "run_cmd", "arguments": {"command": "python3 game.py"}}

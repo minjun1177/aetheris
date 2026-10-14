@@ -24,6 +24,7 @@ from aetheris import context
 from aetheris import mcp_client
 from aetheris import providers
 from aetheris import screen
+from aetheris import todos
 from aetheris import toolspec
 from aetheris import verify
 
@@ -991,8 +992,9 @@ async def chat_turn(messages: list[dict]) -> str:
                 
         native_calls: list = []
         use_native = native_enabled()
+        # The checklist's open items ride on what is sent, not on what is kept.
         response_text = await stream_reply(
-            messages,
+            todos.with_reminder(messages),
             tools=native_tools() if use_native else None,
             calls_out=native_calls if use_native else None)
         stored = response_text if config.STORE_THINKING else strip_thinking(response_text)

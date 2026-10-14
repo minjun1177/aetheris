@@ -14,7 +14,7 @@ mistakes are.
 
 A terminal AI assistant, ~24,900 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
-model 42 tools, and runs them with the user's approval. It can also hand whole
+model 43 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
 for (§8d).
 
@@ -1435,6 +1435,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_bench.py` | That the benchmark graders pass a right answer and fail the wrong ones small models give, and that the edit fixture still carries its bug |
 | `test_search.py` | That `search_in_file` honours `.gitignore`, skips binaries, narrows by glob, shows context, and says the same with or without ripgrep |
 | `test_loops.py` | That the same call a third time is warned and a fourth refused, that a write resets the count, and that refusals in a row still end the turn |
+| `test_todos.py` | That the checklist is read in any shape, reminded on what is sent but never stored in the history, and kept with the session |
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |
 | `test_tool_reporting.py` | That the result markers are read as anchors (5.9), and that nothing warns onto stderr mid-tool |
 | `test_mentions.py` | What `@` attaches, what it refuses to, that the menu reads the real directory, and that the command menu previews what each command does and what may follow it |

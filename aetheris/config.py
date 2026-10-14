@@ -461,6 +461,9 @@ DEEPTHINK_READONLY = False      # set per stage by deepthink.py; not a user sett
 DEEPTHINK_MAX_PASSES = 3
 
 LOADED_SKILLS = []
+# The model's checklist for this conversation, written by `update_todos` and
+# kept in the session file. See todos.py. Live state, not a setting.
+TODOS = []
 
 # --- secrets -----------------------------------------------------------------
 # A `.env` is the one file whose contents are the secret, and a value the model
@@ -833,7 +836,7 @@ _NOT_A_SETTING = frozenset({
     # Built, or owned by a command of their own.
     "SYSTEM_PROMPT", "MODEL", "SESSION_TITLE", "CUSTOM_PERSONA",
     # Live state that happens to be spelled in capitals.
-    "LOADED_SKILLS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
+    "LOADED_SKILLS", "TODOS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
     "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION", "ATTACCA_CURSOR",
     "ATTACCA_JOB",
     # Where the person's own files live. `AETHERIS_HOME` moves all of them

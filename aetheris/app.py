@@ -29,6 +29,7 @@ from aetheris import screen
 from aetheris import promptkeys
 from aetheris import qr
 from aetheris import mentions
+from aetheris import todos
 from aetheris import tools
 from aetheris import vault
 from aetheris import verify
@@ -96,6 +97,7 @@ def _adopt_session(loaded) -> list[dict]:
         config.SESSION_TITLE = loaded.get("title", "")
         config.ATTACCA_SESSION = loaded.get("attacca_session", "")
         config.ATTACCA_JOB = str(loaded.get("attacca_job") or "")
+        todos.restore(loaded.get("todos"))
         try:
             config.ATTACCA_CURSOR = int(loaded.get("attacca_cursor") or 0)
         except (TypeError, ValueError):
@@ -108,6 +110,7 @@ def _adopt_session(loaded) -> list[dict]:
         config.ATTACCA_SESSION = ""
         config.ATTACCA_CURSOR = 0
         config.ATTACCA_JOB = ""
+        todos.restore([])
     if not messages or messages[0].get("role") != "system":
         # Every later turn addresses messages[0] as the system message. A file
         # saved with none - or with none left after a repair - must not make the
@@ -2033,6 +2036,7 @@ async def main(resume_id: str = "") -> None:
             config.token_history.clear()
             config.turn_index = 0
             config.LOADED_SKILLS.clear()
+            config.TODOS.clear()
             # The prompt was just rebuilt for an empty set of loaded servers,
             # so what it was built for has to move with it - otherwise the next
             # message sees a difference that is not there and rebuilds again.

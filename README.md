@@ -212,7 +212,7 @@ by a server on a loopback port.
 
 ## 4. Tool Capabilities
 
-The client equips the model with 42 tools. They are listed in one table in
+The client equips the model with 43 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -478,6 +478,7 @@ that says what went wrong.
 - `get_memory_list`: List stored memory IDs with timestamp and preview, marking the ones saved as `important`.
 - `edit_memory`: Update content of an existing memory record.
 - `delete_memory`: Remove a memory entry from disk.
+- `update_todos`: The model's checklist for a request of several steps, one `[ ]` / `[x]` line per item. The harness keeps it with the session and shows the open items to the model again before every request - on what is sent, never in the stored conversation - so it does not lose its place.
 
 ### Project Note Tools
 Markdown notes about *this* project, kept separately from memory - memory is about you and follows you everywhere, a note is about one repository and is wrong anywhere else. One note is one `.md` file under `~/.aetheris/notes/<project>/`, so the directory can be opened in any editor. Only the titles go into the system prompt; a body is read when it is asked for.
@@ -2392,6 +2393,7 @@ The codebase is organized cleanly around the following components:
 - **`tests/test_bench.py`**: That each benchmark grader passes a right answer and fails the wrong ones a small model actually gives - a file rewritten down to the one function asked about, a call made when none was wanted - and that the edit fixture still has its bug.
 - **`tests/test_search.py`**: That `search_in_file` leaves out what `.gitignore` excludes and binaries, narrows by glob, shows context once per stretch - and that ripgrep and the Python fallback give the same answer; and that `find_files` finds by name at any depth, by path with a `/`, and stops at 200.
 - **`tests/test_loops.py`**: That the third identical tool call carries a warning and the fourth is not run, that a file written in between resets the count, that polling a running command is left alone, and that a model which keeps going is ended by the same escalation refusals get.
+- **`tests/test_todos.py`**: That `update_todos` reads a list in any shape a model sends it, that the open items reach the model before every request and never the stored conversation, and that the list is saved and resumed with its session.
 - **`tests/test_resume.py`**: That `--resume` and `-c` open the conversation they name - and that neither hands back a blank one, or guesses, when they cannot.
 - **`tests/test_tool_reporting.py`**: That a tool result is judged by the marker it *starts* with, not one it happens to contain, and that no library writes an unasked-for paragraph to stderr while a tool is running.
 - **`tests/test_hashline_edit.py`**: That `38:ff7|print()` reaches the line it names, that a stale or mistyped anchor is refused rather than applied a few lines off, and that everything which is not an anchor still behaves as it did.
