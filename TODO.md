@@ -57,8 +57,9 @@
 * [x] README: a 150-line front page; the rest in docs/, one file per subject
 * [x] Classifiers: 3.14, and Linux/macOS/Windows instead of OS Independent
 * [x] .github/check_dist.py: wheel, sdist and classifiers checked in CI; the sdist runs the suite
+* [x] py.typed, and a library: MCPServer, start_shell in aetheris.__all__
 
 ## next
 
 * [ ] Whole-project Tree-sitter index (symbol table) instead of plain text search
-* [ ] Split the reusable parts out to PyPI (JSON repair, MCP client, shell sessions)
+* [ ] Split a part out to its own PyPI package only when someone asks for it - `mcp_client` first (the library in `aetheris.__all__` comes before any split)

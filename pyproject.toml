@@ -90,5 +90,10 @@ aetheris = "aetheris.app:cli"
 [tool.setuptools]
 packages = ["aetheris"]
 
+# `py.typed`: the annotations are the types (PEP 561), for the names in
+# `aetheris.__all__` and for anyone reading further in at their own risk.
+[tool.setuptools.package-data]
+aetheris = ["py.typed"]
+
 [tool.setuptools.dynamic]
 version = { attr = "aetheris.__version__" }

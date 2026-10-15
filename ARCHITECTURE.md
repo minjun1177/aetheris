@@ -411,21 +411,24 @@ each other and the holder replied *in its own answer* - "you have my agreement
 to proceed" - addressed to the other agent and delivered to nobody. A broadcast
 never sets it: news needs no answer.
 
-**5.14 The public surface only grows.** Five things belong to the people using
+**5.14 The public surface only grows.** Six things belong to the people using
 this and not to whoever is editing it: slash command names, `/set` setting
-names, tool names, the `~/.aetheris` layout, and the project files
+names, tool names, the `~/.aetheris` layout, the project files
 (`.permissions.json`, `.mcp.json`, `skills/<name>/SKILL.md`) that are read from
-the working directory first. `tests/test_compat.py` lists all five and fails
-when one disappears; adding is free and reported, never failed.
+the working directory first, and the library - the names in `aetheris.__all__`.
+`tests/test_compat.py` lists all six and fails when one disappears; adding is
+free and reported, never failed.
 
 Two of them are less obviously public than the rest. A **setting name** is
 public the moment it exists, because `/set` derives its list from `config.py`
 rather than a table - so a rename there renames a key in somebody's saved
 `settings.json`. A **tool name** is written into the history as `<tool_call>`
 text whatever protocol produced it (§2), so renaming one does not just change a
-prompt: it stops an old session from replaying. Nothing inside
-`aetheris.*` is covered - the modules are an implementation, and the
-reusable pieces are meant to leave for packages of their own.
+prompt: it stops an old session from replaying. Nothing else inside
+`aetheris.*` is covered - the modules are an implementation. `__init__.py`
+exports the library lazily, through `__getattr__`, so it still imports nothing
+(5.2). The parts read their timeouts through `_cfg`, so their first call loads
+`config` after all - late, when nothing is half-imported, and writing nothing.
 
 While the major version is 0 this is a record rather than a guarantee, and
 `CHANGELOG.md` says so in as many words. It exists from 0.6.0 so that 1.0.0 can

@@ -480,7 +480,7 @@ def _build_transport(spec: dict):
 # ---------------------------------------------------------------------------
 
 class MCPServer:
-    def __init__(self, name: str, spec: dict, source: str):
+    def __init__(self, name: str, spec: dict, source: str = ""):
         self.name = name
         self.slug = _slug(name)
         self.spec = spec

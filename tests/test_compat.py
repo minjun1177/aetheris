@@ -11,7 +11,7 @@ deliberate act. It is also the diff a reviewer sees, which is the whole point:
 `- "/undo",` in a changed file is a conversation, and a quietly deleted command
 is not.
 
-Four of the five surfaces are less obvious than they look:
+Five of the six surfaces are less obvious than they look:
 
 - **Setting names are public the moment they exist.** `/set` derives its list
   from the UPPER_CASE names in `config.py` rather than a table (invariant 5.1
@@ -26,6 +26,10 @@ Four of the five surfaces are less obvious than they look:
 - **Project files are read from the working directory first.** That precedence
   is the feature - a repository can carry its own permissions and its own MCP
   servers - so it is pinned, not just the filenames.
+- **The library is `aetheris.__all__` and nothing else.** Those names, how they
+  are called and what they hand back are promised; every other module is the
+  harness's implementation. `import aetheris` loading nothing is part of it - a
+  program that only wants the MCP client should not pay for the harness.
 
 From 1.0.0 this is a guarantee rather than a record. It was written down at
 0.6.0 for exactly that reason: the promise is one the project had already been
@@ -38,11 +42,14 @@ still preferred where it exists. That fallback is itself pinned below, because
 it is the only reason the rename was not a broken promise.
 """
 import contextlib
+import inspect
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -54,6 +61,7 @@ import aetheris
 from aetheris import mcp_client
 from aetheris import paths
 from aetheris import permissions
+from aetheris import shell_session
 from aetheris import skills
 from aetheris import terms
 from aetheris import toolspec
@@ -272,7 +280,63 @@ check("and the project's skills still beat the user's",
       str([label for label, _ in skills.skill_dirs()]))
 
 # ---------------------------------------------------------------------------
-# 6. the version says which promise this is
+# 6. the library: the names `aetheris` exports, and how they are called
+# ---------------------------------------------------------------------------
+
+LIBRARY = ("MCPError", "MCPServer", "ShellSession", "start_shell")
+# A parameter list is the call people wrote; a method is something they call.
+SIGNATURES = {
+    "MCPServer": ["self", "name", "spec", "source"],
+    "start_shell": ["command", "env"],
+}
+METHODS = {
+    "MCPServer": ("connect", "call_tool", "read_resource", "get_prompt", "close"),
+    "ShellSession": ("read_until_idle", "send", "close"),
+}
+
+print("\n--- the library still has every name it exported, called the same way ---")
+gone = missing(LIBRARY, aetheris.__all__)
+check("every exported name is still exported", not gone, str(gone))
+report_new(aetheris.__all__, LIBRARY)
+check("and each is the object it always was",
+      aetheris.MCPServer is mcp_client.MCPServer and aetheris.MCPError is mcp_client.MCPError
+      and aetheris.ShellSession is shell_session.Session
+      and aetheris.start_shell is shell_session.start)
+for name, params in SIGNATURES.items():
+    target = getattr(aetheris, name)
+    target = target.__init__ if inspect.isclass(target) else target
+    have = list(inspect.signature(target).parameters)
+    check(f"{name} still takes {', '.join(p for p in params if p != 'self')}",
+          have[:len(params)] == params and all(
+              p.default is not p.empty
+              for p in list(inspect.signature(target).parameters.values())[len(params):]),
+          str(have))
+check("an MCPServer needs no `source` - that is the harness's bookkeeping",
+      inspect.signature(mcp_client.MCPServer).parameters["source"].default == "")
+for name, methods in METHODS.items():
+    lost = [m for m in methods if not callable(getattr(getattr(aetheris, name), m, None))]
+    check(f"{name} still has {', '.join(methods)}", not lost, str(lost))
+check("a name that is not exported is not invented",
+      not hasattr(aetheris, "parse_tool_calls") and "config" not in aetheris.__all__)
+
+loaded = subprocess.run(
+    [sys.executable, "-c", "import sys, aetheris; "
+     "print(sorted(m for m in sys.modules if m.startswith('aetheris.')))"],
+    capture_output=True, text=True, cwd=ROOT, timeout=60).stdout.strip()
+check("`import aetheris` loads nothing else", loaded == "[]", loaded)
+check("and ships `py.typed`, so the annotations count",
+      os.path.isfile(os.path.join(ROOT, "aetheris", "py.typed")))
+
+echo = aetheris.start_shell(f'"{sys.executable}" -c "print(input()[::-1])"')
+try:
+    echo.send("sirehtea")
+    text, ended, _ = echo.read_until_idle(0.3, time.time() + 20, patience=5)
+finally:
+    echo.close()
+check("start_shell runs a command and talks to it", "aetheris" in text, repr(text))
+
+# ---------------------------------------------------------------------------
+# 7. the version says which promise this is
 # ---------------------------------------------------------------------------
 
 print("\n--- the changelog accounts for the version being shipped ---")

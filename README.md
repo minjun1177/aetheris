@@ -72,8 +72,7 @@ pip install "aetheris[keyring]"      # + keep API keys in the OS keyring
 git clone https://github.com/minjun1177/aetheris && cd aetheris
 # 2. Install it editable, so a change takes effect without reinstalling
 pip install -e .
-# ...or only the dependencies, and run it with: python -m aetheris
-pip install -r requirements.txt
+pip install -r requirements.txt   # ...or only the dependencies; then run: python -m aetheris
 ```
 
 ### Carrying on, and running without the prompt box
@@ -83,9 +82,13 @@ aetheris -c                                    # the newest session worked on in
 aetheris --resume <id or title>                # a particular one
 aetheris -p "summarise CHANGELOG.md"           # one answer on stdout, then exit
 git diff | aetheris -p "review this" --json    # piped input + JSON: text, tool calls, tokens
+aetheris -p "fix the test" --auto-allow        # tools run without asking: scripts and CI
 ```
 
-`-p --auto-allow` runs tools without asking, for scripts and CI - see [docs/setup.md](docs/setup.md).
+### Using the parts
+
+It is also a typed library: `aetheris.MCPServer` (MCP without an SDK) and `aetheris.start_shell`
+(a command you can answer while it runs). Only `aetheris.__all__` is promised - [docs/library.md](docs/library.md).
 
 ### Documentation
 
@@ -109,8 +112,7 @@ git diff | aetheris -p "review this" --json    # piped input + JSON: text, tool 
 
 ## Configuration / Environment Variables
 
-Settings are changed with `/set` and saved to `~/.aetheris/settings.json`; `/set` alone
-lists all of them. The full table is in [docs/configuration.md](docs/configuration.md).
+`/set` changes a setting and saves it to `~/.aetheris/settings.json`; all of them: [docs/configuration.md](docs/configuration.md).
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -119,8 +121,6 @@ lists all of them. The full table is in [docs/configuration.md](docs/configurati
 | `OLLAMA_HOST` | `http://localhost:11434` | The Ollama daemon (also `/set OLLAMA_HOST`) |
 | `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GEMINI_API_KEY` | unset | Hosted keys; `/connect` can save one instead |
 | `AETHERIS_KEYRING` | on | `off` keeps saved keys in `providers.json` (0600) |
-
----
 
 ---
 
@@ -146,5 +146,5 @@ aetheris/
 | :--- | :--- |
 | **Python** | 3.10 - 3.14 |
 | **OS** | **Linux**, **macOS**, **Windows** (waiting-for-input detection is best on Linux) |
-| **Stable surface** | Slash commands, `/set` names, tool names and the `~/.aetheris` layout - see `CHANGELOG.md` |
+| **Stable surface** | Slash commands, `/set` names, tool names, the `~/.aetheris` layout and `aetheris.__all__` - see `CHANGELOG.md` |
 | **License** | Apache-2.0 - see [LICENSE](LICENSE). Provided **"AS IS"**; the first run says what it can do to your machine and asks once |

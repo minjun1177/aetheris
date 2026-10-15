@@ -13,7 +13,7 @@ rewritten to use the new name.
 
 ## Compatibility
 
-Five things are the contract. `tests/test_compat.py` fails when one of them
+Six things are the contract. `tests/test_compat.py` fails when one of them
 disappears, so removing or renaming any of it takes a deliberate edit to that
 file - which is the point.
 
@@ -24,10 +24,11 @@ file - which is the point.
 | Tool names | Model-facing, and written into saved sessions - a rename breaks replay, not just a prompt |
 | State layout | `~/.aetheris/`: `sessions/`, `memory.json`, `settings.json`, `permissions.json`, `mcp.json`, `history`, `skills/` - and `AETHERIS_HOME` to move all of them. `~/.localchat` and `LOCALCHAT_HOME` are still read, and the old directory still wins where it exists |
 | Project files | `.permissions.json`, `.mcp.json`, `skills/<name>/SKILL.md`, read from the working directory first |
+| Library | The names in `aetheris.__all__` - `MCPServer`, `MCPError`, `start_shell`, `ShellSession` - their parameters and methods, and that `import aetheris` loads nothing else |
 
-Not promised: anything inside `aetheris.*`. The modules are an
-implementation, not an API, and the reusable pieces are meant to leave for
-packages of their own rather than be imported from here.
+Not promised: anything else inside `aetheris.*`. The modules are an
+implementation, not an API. A piece moves into `__all__` when it works on its
+own, and out to a package of its own only when someone needs it there.
 
 ---
 
@@ -127,6 +128,12 @@ packages of their own rather than be imported from here.
   file, and classifiers that disagree with the CI matrix. The tests stay out of
   the wheel: half the size of the package again, for something one
   `pip download` fetches.
+- **A small typed library.** `py.typed` ships, and `aetheris` exports four
+  names that work on their own: `MCPServer` and `MCPError`, an MCP
+  client with no SDK, and `start_shell` and `ShellSession`, a command that can
+  be answered while it runs. They are the sixth surface `test_compat.py`
+  pins. `import aetheris` still loads nothing - each is imported when first
+  used. See `docs/library.md`.
 
 ---
 
