@@ -2181,6 +2181,38 @@ async def main(resume_id: str = "") -> None:
             current_session_id = rename_session(current_session_id, new_title)
             print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
             continue
+        if cmd == "/btw" or cmd.startswith("/btw "):
+            question = user_input[len("/btw"):].strip()
+            if not question:
+                print(f"  {S.ERR}✗ Usage: /btw <question>{S.R}\n")
+                continue
+            if providers.current().drives_turns:
+                print(f"  {S.WARN}⚠ Attacca answers inside its own conversation, so a "
+                      f"question there would be kept. Ask it as a message.{S.R}\n")
+                continue
+            # Its own bar in /usage: it was paid for, and it is not the turn
+            # before it.
+            config.next_turn()
+            leaving = False
+            _stoppable = True
+            try:
+                await llm_client.side_question(messages, question)
+                print(f"  {S.MUTED}↳ /btw - not kept in the conversation{S.R}\n")
+            except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+                leaving = _interrupted(pressed)
+                await _absorb_cancel()
+                if not leaving:
+                    _say_how_to_leave(stopped=True)
+            except Exception as e:
+                print()
+                connect._print_problem("Error", e)
+            finally:
+                _stoppable = False
+            if leaving:
+                _shut_down()
+                print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+                break
+            continue
         if cmd == "/rewind" or cmd.startswith("/rewind "):
             current_session_id = _rewind(messages, user_input[len("/rewind"):].strip(),
                                          current_session_id)

@@ -143,6 +143,11 @@ own, and out to a package of its own only when someone needs it there.
   nudges are user messages too and compaction rewrites the list mid-turn. The
   files stay as they are; the AI commits those turns made are listed for
   `/undo`.
+- **`/btw <question>`.** A passing question asked as a message stayed in the
+  context for the rest of the session. This one is answered from the
+  conversation and then dropped: no tool runs, nothing is saved, and the
+  request is the conversation unchanged plus the question, so the provider's
+  cache still covers it.
 
 ---
 

@@ -19,6 +19,7 @@ The interactive terminal supports special slash commands to control options and 
 | `/title <name>` | Retitle the current session and rename its file to match |
 | `/export [filename]` | Export current chat history into a Markdown file |
 | `/rewind [n]` | Take back the last prompt and everything said and done after it - or the last `n` - and put that prompt back in the box to edit or send again. Files stay as they are: it lists the AI commits those turns left, for `/undo`. It reaches the prompts sent since the conversation was opened, up to 20 |
+| `/btw <question>` | A side question: answered from the conversation so far, with no tool run and nothing kept, so the next turn never sees it. The request is the conversation as it stands plus the question, so a provider's prompt cache still applies |
 | `/system <prompt>` | Set a custom system persona or reset to default (`/system reset`) |
 | `/artifacts [open] [n]` | What an Attacca agent made in this session: shown here, or opened in the browser |
 | `/skills` | List discovered skills with their descriptions and paths |

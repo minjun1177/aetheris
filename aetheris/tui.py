@@ -180,6 +180,8 @@ COMMANDS = (
     ("/export [filename]", "Write the conversation out as markdown"),
     ("/rewind [n]", "Take back the last prompt and everything after it - or the last n - "
                     "and put it back in the box to edit. Files stay; /undo is for those"),
+    ("/btw <question>", "Ask on the side: answered from this conversation, never kept "
+                        "in it, and no tool is run"),
 
     # -- what the model is allowed to do -----------------------------------
     ("/perms", "The rules that decide what runs without asking"),

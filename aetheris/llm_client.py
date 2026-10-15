@@ -922,6 +922,36 @@ def _last_said(messages: list[dict]) -> str:
     return ""
 
 
+# What rides on a `/btw` question. "Briefly" and "do not carry on" because a
+# small model given the whole conversation tends to resume the task it sees in
+# it; "nothing would run" because one that calls a tool anyway should at least
+# know the call went nowhere.
+SIDE_NOTE = ("[A side question, asked while the work waits. Answer it briefly from "
+             "this conversation and what you know. Call no tool - nothing would run "
+             "- and do not carry on with the task. This exchange is not kept.]")
+
+
+async def side_question(messages: list[dict], question: str) -> str:
+    """Answer `question` from the conversation without becoming part of it.
+
+    The request is the history plus the question, with the same tools a turn
+    would offer: identical up to the last message, so a provider's prompt
+    cache and Ollama's loaded context are reused rather than paid for again.
+    A tool the model calls anyway is reported and not run. Nothing is appended
+    to `messages`.
+    """
+    ask = messages + [{"role": "user", "content": f"{question}\n\n{SIDE_NOTE}"}]
+    use_native = native_enabled()
+    calls: list = []
+    text = await stream_reply(ask, tools=native_tools() if use_native else None,
+                              calls_out=calls if use_native else None)
+    reached = [name for name, _ in _from_native(calls) + parse_tool_calls(text, quiet=True)]
+    if reached:
+        print(f"  {S.MUTED}◆ It reached for {', '.join(reached)} - /btw runs no "
+              f"tools. Ask in the conversation for that.{S.R}")
+    return re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.DOTALL).strip()
+
+
 async def chat_turn(messages: list[dict]) -> str:
     call_count = 0
     parse_failures = 0

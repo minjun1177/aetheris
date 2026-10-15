@@ -59,6 +59,7 @@
 * [x] .github/check_dist.py: wheel, sdist and classifiers checked in CI; the sdist runs the suite
 * [x] py.typed, and a library: MCPServer, start_shell in aetheris.__all__
 * [x] /rewind: the conversation before the last prompt, and that prompt back in the box
+* [x] /btw: a side question answered from the conversation and not kept
 
 ## next
 
