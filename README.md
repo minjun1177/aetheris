@@ -144,7 +144,7 @@ aetheris/
 
 | | |
 | :--- | :--- |
-| **Python** | 3.10 - 3.13 |
+| **Python** | 3.10 - 3.14 |
 | **OS** | **Linux**, **macOS**, **Windows** (waiting-for-input detection is best on Linux) |
 | **Stable surface** | Slash commands, `/set` names, tool names and the `~/.aetheris` layout - see `CHANGELOG.md` |
 | **License** | Apache-2.0 - see [LICENSE](LICENSE). Provided **"AS IS"**; the first run says what it can do to your machine and asks once |

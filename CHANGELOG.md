@@ -115,6 +115,10 @@ packages of their own rather than be imported from here.
   unchanged into `docs/`, one file per subject and each linked from it.
   `test_docs.py` reads the two together, and fails if README grows past 150
   lines or a link stops opening.
+- **The metadata says what is tested.** The classifiers stopped at 3.13 while
+  3.14 was being run, and said "OS Independent" about the one module written
+  per platform. They now list 3.10 to 3.14 and Linux, macOS and Windows, and
+  CI tests 3.14.
 
 ---
 
