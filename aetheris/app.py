@@ -118,6 +118,90 @@ def _rewind(messages: list, arg: str, session_id):
     return session_id
 
 
+_CODE_BLOCK = re.compile(r"^```[^\n`]*\n(.*?)\n?^```", re.M | re.S)
+
+
+def _answers(messages: list) -> list:
+    """What the model said, newest first: its replies without calls or thinking."""
+    said = []
+    for message in reversed(messages):
+        if message.get("role") != "assistant" or not isinstance(message.get("content"), str):
+            continue
+        text = re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", message["content"],
+                      flags=re.DOTALL)
+        text = strip_thinking(text).strip()
+        if text:
+            said.append(text)
+    return said
+
+
+def _copy(messages: list, arg: str) -> None:
+    """`/copy [n] [file]`: an answer, or one of its code blocks, to the clipboard.
+
+    A code block is drawn in a frame, wrapped to the window and often taller
+    than it, so the terminal's own selection takes the frame with it and stops
+    at the top of the screen. This copies what the model wrote instead. With a
+    file name it is written there - over SSH that is sometimes the only way
+    out that works.
+    """
+    words = arg.split(maxsplit=1)
+    nth, target = (int(words[0]), words[1] if len(words) > 1 else "") \
+        if words and words[0].isdigit() else (1, arg.strip())
+    said = _answers(messages)
+    if not said:
+        print(f"  {S.WARN}⚠ There is no answer to copy yet.{S.R}\n")
+        return
+    if not 1 <= nth <= len(said):
+        print(f"  {S.ERR}✗ /copy can reach answers 1 to {len(said)}; 1 is the "
+              f"latest.{S.R}\n")
+        return
+    text = said[nth - 1]
+    blocks = _CODE_BLOCK.findall(text)
+    if blocks:
+        rows = [("The whole answer", text)] + [
+            (f"Code block {i}: {(b.strip().splitlines() or [''])[0][:60]}", b)
+            for i, b in enumerate(blocks, 1)]
+        chosen = connect._choose("Copy which part?", rows,
+                                 lambda row: f"{row[0]} {S.MUTED}"
+                                             f"({row[1].count(chr(10)) + 1} lines){S.R}")
+        if chosen < 0:
+            print()
+            return
+        text = rows[chosen][1]
+    size = f"{text.count(chr(10)) + 1} lines" if "\n" in text else f"{len(text)} characters"
+    if target:
+        path = os.path.abspath(os.path.expanduser(target))
+        try:
+            with open(path, "x", encoding="utf-8") as handle:
+                handle.write(text if text.endswith("\n") else text + "\n")
+        except FileExistsError:
+            print(f"  {S.ERR}✗ {target} already exists - /copy will not write over "
+                  f"it.{S.R}\n")
+            return
+        except OSError as e:
+            print(f"  {S.ERR}✗ Could not write {target}: {e}{S.R}\n")
+            return
+        print(f"  {S.OK}✓ Wrote {size} to {path}{S.R}\n")
+        return
+    took = screen.copy(text)
+    asked = screen.osc52(text)
+    if asked:
+        # Sent as well as the tool, never instead: over SSH the tool fills the
+        # clipboard of the wrong machine, and the terminal is on the right one.
+        out = screen.beneath(sys.stdout)
+        out.write(asked)
+        out.flush()
+    if took:
+        print(f"  {S.OK}⧉ Copied {size}.{S.R}\n")
+    elif asked:
+        print(f"  {S.OK}⧉ Sent {size} to the terminal's clipboard.{S.R} {S.MUTED}"
+              f"Whether it arrives is the terminal's decision; /copy {nth} <file> "
+              f"writes it out instead.{S.R}\n")
+    else:
+        print(f"  {S.WARN}⚠ Nothing here can reach the clipboard, and it is too long "
+              f"to hand to the terminal. /copy {nth} <file> writes it out.{S.R}\n")
+
+
 def _adopt_session(loaded) -> list[dict]:
     """Make a loaded session file the live conversation. Returns its messages.
 
@@ -2180,6 +2264,9 @@ async def main(resume_id: str = "") -> None:
                 continue
             current_session_id = rename_session(current_session_id, new_title)
             print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
+            continue
+        if cmd == "/copy" or cmd.startswith("/copy "):
+            _copy(messages, user_input[len("/copy"):].strip())
             continue
         if cmd == "/btw" or cmd.startswith("/btw "):
             question = user_input[len("/btw"):].strip()

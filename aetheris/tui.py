@@ -182,6 +182,8 @@ COMMANDS = (
                     "and put it back in the box to edit. Files stay; /undo is for those"),
     ("/btw <question>", "Ask on the side: answered from this conversation, never kept "
                         "in it, and no tool is run"),
+    ("/copy [n] [file]", "Copy the latest answer - or the nth latest, or one of its code "
+                         "blocks - without its frame; with a file name, write it there"),
 
     # -- what the model is allowed to do -----------------------------------
     ("/perms", "The rules that decide what runs without asking"),

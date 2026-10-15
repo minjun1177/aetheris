@@ -148,6 +148,11 @@ own, and out to a package of its own only when someone needs it there.
   conversation and then dropped: no tool runs, nothing is saved, and the
   request is the conversation unchanged plus the question, so the provider's
   cache still covers it.
+- **`/copy [n] [file]`.** A code block is drawn in a frame and wrapped to the
+  window, so the terminal's selection took the frame along and stopped at the
+  top of the screen. `/copy` takes the latest answer - or one of its code
+  blocks - as it was written, to the clipboard tool and the terminal both, or
+  into a new file.
 
 ---
 
