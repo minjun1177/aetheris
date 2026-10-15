@@ -124,6 +124,18 @@ non-zero on failure. They need no Ollama daemon and no network:
 for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 ```
 
+Without a clone, the source release of the version you installed carries the
+same suite and every file it reads. It runs that version's source, not the
+installed files, against the dependencies and the platform you actually have:
+
+```bash
+# 1. Fetch the source release of the installed version, and unpack it
+pip download "aetheris==$(aetheris --version | cut -d' ' -f2)" --no-binary :all: --no-deps -d src
+tar xzf src/aetheris-*.tar.gz -C src && cd src/aetheris-*/
+# 2. Run it
+for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
+```
+
 ### Measuring a model
 
 `bench/run.py` runs the tasks the table above was measured on - five tool

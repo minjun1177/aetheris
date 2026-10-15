@@ -56,6 +56,7 @@
 * [x] /help shows the six common commands; /help all shows every one
 * [x] README: a 150-line front page; the rest in docs/, one file per subject
 * [x] Classifiers: 3.14, and Linux/macOS/Windows instead of OS Independent
+* [x] .github/check_dist.py: wheel, sdist and classifiers checked in CI; the sdist runs the suite
 
 ## next
 

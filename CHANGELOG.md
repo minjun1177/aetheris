@@ -119,6 +119,14 @@ packages of their own rather than be imported from here.
   3.14 was being run, and said "OS Independent" about the one module written
   per platform. They now list 3.10 to 3.14 and Linux, macOS and Windows, and
   CI tests 3.14.
+- **The source release can check an install.** It carried `tests/`, but not the
+  CHANGELOG, `docs/` or `bench/` three of them read, so the suite failed from
+  an unpacked sdist. It now holds every tracked file, and
+  `.github/check_dist.py` - run on every push and before every upload -
+  refuses a wheel missing a module or carrying the tests, an sdist missing a
+  file, and classifiers that disagree with the CI matrix. The tests stay out of
+  the wheel: half the size of the package again, for something one
+  `pip download` fetches.
 
 ---
 

@@ -1,0 +1,14 @@
+# The sdist is the source a user can check their install with: the suite runs
+# from an unpacked one. That takes more than tests/ - the files the tests read
+# come too. `.github/check_dist.py` fails the build when a tracked file is left
+# out, so a new one at the top level needs a line here.
+include CHANGELOG.md ARCHITECTURE.md TODO.md
+include requirements.txt requirements-lock.txt
+include .mcp.json.example .permissions.json.example .gitignore
+graft tests
+graft docs
+graft skills
+graft bench
+graft .github
+prune bench/results
+global-exclude __pycache__ *.py[cod]

@@ -35,6 +35,9 @@ jobs:
       - name: Check the metadata PyPI will reject
         run: python -m twine check --strict dist/*
 
+      - name: The files hold what the checkout holds
+        run: python .github/check_dist.py dist
+
       - name: The tag must be the version being published
         # An upload cannot be taken back, so a tag that disagrees with
         # `aetheris.__version__` stops the release here rather than
