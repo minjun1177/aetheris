@@ -134,6 +134,15 @@ own, and out to a package of its own only when someone needs it there.
   be answered while it runs. They are the sixth surface `test_compat.py`
   pins. `import aetheris` still loads nothing - each is imported when first
   used. See `docs/library.md`.
+- **`/rewind`.** A turn that went wrong stayed in the context, and a small
+  model wrote its next answer on top of the failed calls and the abandoned
+  plan; asking it to ignore them only added to the pile. `/rewind` puts the
+  conversation back as it was before the last prompt - or the last `n` - and
+  the prompt back in the box. The history is restored from a copy taken before
+  each prompt rather than cut at a user message, because tool results and
+  nudges are user messages too and compaction rewrites the list mid-turn. The
+  files stay as they are; the AI commits those turns made are listed for
+  `/undo`.
 
 ---
 

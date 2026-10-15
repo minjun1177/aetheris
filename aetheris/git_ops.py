@@ -283,6 +283,26 @@ def diff_since(sha: str, max_chars: int = 12000) -> str:
     return patch
 
 
+def ai_commits_since(sha: str) -> list:
+    """The AI commits made on top of `sha`, newest first. [] when unknown.
+
+    `/rewind` reports these: the conversation goes back, the files do not, and
+    a person who is not told that finds out from a test run.
+    """
+    root = repo_root()
+    if not root or not sha:
+        return []
+    result = _git("log", f"{sha}..HEAD", "--format=%h%x00%s%x00%ar", cwd=root)
+    if result.returncode != 0:
+        return []
+    commits = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\x00")
+        if len(parts) == 3 and parts[1].startswith(MESSAGE_PREFIX):
+            commits.append({"sha": parts[0], "subject": parts[1], "when": parts[2]})
+    return commits
+
+
 def recent_ai_commits(limit: int = 10) -> list:
     """The AI commits at the top of the branch, newest first."""
     root = repo_root()

@@ -25,6 +25,7 @@ from aetheris import providers
 from aetheris import keystore
 from aetheris import connect
 from aetheris import remote
+from aetheris import rewind
 from aetheris import screen
 from aetheris import promptkeys
 from aetheris import qr
@@ -80,6 +81,43 @@ def _refresh_system_prompt(messages: list[dict]) -> None:
     messages[0]["content"] = _compose_system_prompt(summary)
 
 
+def _rewind(messages: list, arg: str, session_id):
+    """`/rewind [n]`: the conversation as it was before the last n prompts.
+
+    The first prompt taken back goes into the box, to be edited or sent as it
+    was. Returns the session id, which saving may have just assigned.
+    """
+    global _kept_typing
+    if providers.current().drives_turns:
+        print(f"  {S.WARN}⚠ Attacca keeps this conversation on its side, so a turn "
+              f"cannot be taken back from here.{S.R}\n")
+        return session_id
+    if arg and not arg.isdigit():
+        print(f"  {S.ERR}✗ Usage: /rewind [n] - n is how many prompts to take back{S.R}\n")
+        return session_id
+    turns, have = int(arg or 1), rewind.available()
+    if not have:
+        print(f"  {S.WARN}⚠ Nothing to take back. /rewind reaches the prompts sent "
+              f"since this conversation was opened.{S.R}\n")
+        return session_id
+    if not 1 <= turns <= have:
+        print(f"  {S.ERR}✗ /rewind can go back 1 to {have} "
+              f"{'prompt' if have == 1 else 'prompts'} here.{S.R}\n")
+        return session_id
+    taken = rewind.rewind(messages, turns)
+    session_id = save_session(messages, session_id)
+    _kept_typing = taken["prompt"]
+    print(f"  {S.OK}✓ Took back {turns} {'turn' if turns == 1 else 'turns'}.{S.R} "
+          f"{S.MUTED}The prompt is back in the box, to edit or send again.{S.R}")
+    if taken["commits"]:
+        print(f"  {S.WARN}⚠ The files are as those turns left them:{S.R}")
+        for commit in taken["commits"]:
+            print(f"  {S.MUTED}│ {commit['sha']}  {commit['subject']}{S.R}")
+        print(f"  {S.MUTED}╰─ /undo takes back the newest, one at a time{S.R}")
+    print()
+    return session_id
+
+
 def _adopt_session(loaded) -> list[dict]:
     """Make a loaded session file the live conversation. Returns its messages.
 
@@ -88,6 +126,7 @@ def _adopt_session(loaded) -> list[dict]:
     skills all belong to the conversation being resumed, not to the one being
     left behind.
     """
+    rewind.forget()
     if isinstance(loaded, dict):
         messages = loaded.get("messages", [])
         config.token_history.clear()
@@ -2056,6 +2095,7 @@ async def main(resume_id: str = "") -> None:
             config.turn_index = 0
             config.LOADED_SKILLS.clear()
             config.TODOS.clear()
+            rewind.forget()
             # The prompt was just rebuilt for an empty set of loaded servers,
             # so what it was built for has to move with it - otherwise the next
             # message sees a difference that is not there and rebuilds again.
@@ -2140,6 +2180,10 @@ async def main(resume_id: str = "") -> None:
                 continue
             current_session_id = rename_session(current_session_id, new_title)
             print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
+            continue
+        if cmd == "/rewind" or cmd.startswith("/rewind "):
+            current_session_id = _rewind(messages, user_input[len("/rewind"):].strip(),
+                                         current_session_id)
             continue
         if cmd == "/autotitle" or cmd.startswith("/autotitle "):
             chosen = _switch(
@@ -2550,6 +2594,9 @@ async def main(resume_id: str = "") -> None:
         # `view_image` whose turn died before its result was appended would
         # otherwise hang its picture on a later, unrelated message.
         images.forget_pending()
+        # What `/rewind` goes back to: everything up to here, the channel's
+        # notes included, and not this prompt.
+        rewind.mark(messages, user_input)
         turn = {"role": "user", "content": user_input}
         if attached_images:
             # Beside `content`, never inside it: invariant 5.3 wants the stored

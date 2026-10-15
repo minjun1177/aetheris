@@ -58,6 +58,7 @@
 * [x] Classifiers: 3.14, and Linux/macOS/Windows instead of OS Independent
 * [x] .github/check_dist.py: wheel, sdist and classifiers checked in CI; the sdist runs the suite
 * [x] py.typed, and a library: MCPServer, start_shell in aetheris.__all__
+* [x] /rewind: the conversation before the last prompt, and that prompt back in the box
 
 ## next
 
