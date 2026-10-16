@@ -181,6 +181,10 @@ own, and out to a package of its own only when someone needs it there.
   they scroll past, results to 600, and thinking is hidden unless
   `SHOW_THINKING` is on. Ctrl+O at the prompt prints all of it, and puts back
   what was half-typed.
+- **`/update`, and a daily check.** A newer version on PyPI is mentioned once,
+  between turns; `/update` installs it with pip or pipx, whichever installed
+  this one, after showing the command and asking. A git checkout is told to
+  `git pull`. `UPDATE_CHECK` turns the check off.
 
 ---
 

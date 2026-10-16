@@ -343,6 +343,10 @@ NUM_PREDICT = 6144          # 2048 and 4096 both truncated file writes mid-way.
                             # Keep this an int: every hosted API rejects a float
                             # in max_tokens, and 4096*1.5 is a float.
 
+# Look once a day, in the background, for a newer Aetheris on PyPI, and say so
+# once between turns. Nothing is installed without /update and a yes.
+UPDATE_CHECK = True
+
 # Ring the terminal bell when a turn that took at least this many seconds ends,
 # so a long one can be left to run in another window. 0 turns it off.
 TURN_BELL_SECONDS = 30

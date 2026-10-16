@@ -40,6 +40,12 @@ will have its conversation compressed early and often; 32k is workable, below
 window of its own - e.g. `/context 16k` for a small model on a small GPU - and
 a hosted model that reports its window gets that one without being told.
 
+**Updating.** `/update` asks PyPI for the newest version and, if you say yes,
+runs `pip install --upgrade aetheris` - or `pipx upgrade aetheris` when that is
+how it was installed. From a git checkout it names `git pull` instead of
+running anything. Once a day the program also checks on its own and says so
+once; `/set UPDATE_CHECK off` stops that.
+
 Measured on this project's own test tasks - creating a file, and fixing a
 function halfway down a 5,700-character file - on the machine it was written
 on. Sample sizes are small (6-15 runs); treat them as the difference between

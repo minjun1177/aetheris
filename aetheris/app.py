@@ -32,6 +32,7 @@ from aetheris import qr
 from aetheris import mentions
 from aetheris import todos
 from aetheris import transcript
+from aetheris import update
 from aetheris import tui
 from aetheris import tools
 from aetheris import vault
@@ -2063,6 +2064,7 @@ async def main(resume_id: str = "") -> None:
         current_session_id = resume_id
 
     _welcome()
+    update.start_check()
     _report_mcp_problems(failed_mcp)
     _report_strays()
     _report_keyring()
@@ -2147,6 +2149,7 @@ async def main(resume_id: str = "") -> None:
         if _deferred_interrupt:
             _deferred_interrupt = False
             _say_how_to_leave()
+        update.announce()
         _stoppable = True
         try:
             user_input = await _read_line(
@@ -2387,6 +2390,9 @@ async def main(resume_id: str = "") -> None:
                 continue
             current_session_id = rename_session(current_session_id, new_title)
             print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
+            continue
+        if cmd == "/update":
+            update.run(connect._ask)
             continue
         if cmd == "/context" or cmd.startswith("/context "):
             _context(user_input[len("/context"):])

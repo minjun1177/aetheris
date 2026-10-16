@@ -165,6 +165,7 @@ COMMANDS = (
                "cumulative total, and what every request pays before the "
                "conversation is even counted"),
     ("/exit", "Leave the chat. /quit does the same"),
+    ("/update", "Whether a newer Aetheris is out, and install it if you say so"),
 
     # -- which model answers -----------------------------------------------
     ("/connect", "Pick a provider and one of its models, step by step"),

@@ -67,6 +67,7 @@
 * [x] Independent read-only calls may share a reply
 * [x] Deepthink stage 1 names all six stages
 * [x] Ctrl+O: the last turn uncut
+* [x] /update and a once-a-day check against PyPI
 
 ## next
 
