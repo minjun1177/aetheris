@@ -61,6 +61,8 @@
 * [x] /rewind: the conversation before the last prompt, and that prompt back in the box
 * [x] /btw: a side question answered from the conversation and not kept
 * [x] /copy: an answer or a code block of it, without the frame, to the clipboard or a file
+* [x] /context: a window per model - the model's own where it reports one, or set by hand
+* [x] /effort: reasoning effort per provider (Anthropic, OpenAI, Gemini, Ollama think)
 
 ## next
 

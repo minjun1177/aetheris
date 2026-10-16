@@ -585,14 +585,70 @@ class Provider:
         detail = _error_detail(response)
         return (f"{self.label} returned HTTP {response.status_code}"
                 + (f": {detail}" if detail else "")
-                + _key_hint(self, response.status_code))
+                + _key_hint(self, response.status_code)
+                + self._failed_hint(response.status_code))
 
     def _refused(self, response) -> ProviderError:
         return ProviderError(self._failed(response), response.status_code,
                              retry_after(getattr(response, "headers", None) or {}))
 
-    def _get_json(self, url: str, headers: dict) -> dict:
-        response = _requests().get(url, headers=headers, timeout=30)
+    # -- how much room, and how hard --------------------------------------
+
+    # The levels `/effort` offers, in this provider's own words and in the
+    # order they are offered. Empty where there is no such control.
+    effort_levels: tuple = ()
+
+    @property
+    def effort(self) -> str:
+        """The level chosen with `/effort`, or "" - the model's own default.
+
+        Kept per provider, not as one setting, because the words differ: a
+        level one API takes is a 400 from the next.
+        """
+        return str(self.settings.get("effort") or "").strip().lower()
+
+    def wants_effort(self, max_tokens: int | None) -> str:
+        """The level to send with this request, or "".
+
+        Only a turn's request carries it. A short side call - a title, a yes or
+        no, a summary - is sent with its own `max_tokens`, and a model told to
+        think hard about a six-token answer spends the six on thinking.
+        """
+        return self.effort if max_tokens is None else ""
+
+    def window_limit(self) -> int:
+        """How much this model takes in, as the provider reports it. 0: unknown.
+
+        Asked once per model and remembered, including a failure: a provider
+        that will not say now will not say on the next request either.
+        """
+        key = (self.name, self.base_url, self.model)
+        if key not in _windows:
+            try:
+                _windows[key] = int(self._ask_window() or 0)
+            except Exception:
+                _windows[key] = 0
+        return _windows[key]
+
+    def _ask_window(self) -> int:
+        return 0
+
+    def _note_window(self, model: str, tokens) -> None:
+        """Remember a limit a model listing happened to carry."""
+        try:
+            if model and int(tokens or 0) > 0:
+                _windows[(self.name, self.base_url, model)] = int(tokens)
+        except (TypeError, ValueError):
+            pass
+
+    def _failed_hint(self, status: int) -> str:
+        if status == 400 and self.effort:
+            return (f" (/effort is set to {self.effort} for {self.label}; "
+                    f"/effort default stops sending it)")
+        return ""
+
+    def _get_json(self, url: str, headers: dict, timeout: float = 30) -> dict:
+        response = _requests().get(url, headers=headers, timeout=timeout)
         # Not `raise_for_status`, which reports the status line and throws the
         # body away - and the body is the whole of what a person needs here.
         # This is the call `/connect` and `/models` make, so it is the first
@@ -613,6 +669,15 @@ class Provider:
         if response.status_code >= 400:
             raise self._refused(response)
         return response
+
+
+# What each hosted model says it takes in, keyed by (provider, base_url,
+# model) for the reason the capability cache below is keyed by host.
+_windows: dict = {}
+
+# How far a model to be asked about its window may hold up a turn. It is asked
+# once, before the first request needs the number.
+WINDOW_TIMEOUT = 5
 
 
 # What each local model says it can do, asked once per model. `ollama.show`
@@ -649,7 +714,8 @@ def ollama_request(model: str, messages: list, max_tokens: int | None = None) ->
     nobody chose would change every model's behaviour behind the person's back.
     """
     from aetheris import config
-    options = {"num_ctx": config.NUM_CTX, "num_predict": token_budget(max_tokens)}
+    options = {"num_ctx": chosen_window("ollama", model) or config.NUM_CTX,
+               "num_predict": token_budget(max_tokens)}
     if config.OLLAMA_TEMPERATURE is not None:
         options["temperature"] = float(config.OLLAMA_TEMPERATURE)
     if config.OLLAMA_SEED is not None:
@@ -826,6 +892,25 @@ class OllamaProvider(Provider):
         """
         return "vision" in ollama_capabilities(self.model, self.host)
 
+    # Ollama's `think`: off and on for every thinking model, and a named level
+    # for the ones that have levels. A name a model does not have is answered
+    # at its default, by Ollama, rather than refused.
+    effort_levels = ("off", "on", "low", "medium", "high")
+
+    def thinks(self) -> bool:
+        return "thinking" in ollama_capabilities(self.model, self.host)
+
+    def think_value(self, max_tokens: int | None = None):
+        """`think` for this request, or None to leave it out.
+
+        Never sent to a model without the capability: Ollama refuses the whole
+        request with "does not support thinking", even for `false`.
+        """
+        level = self.wants_effort(max_tokens)
+        if not level or not self.thinks():
+            return None
+        return {"off": False, "on": True}.get(level, level)
+
     def encode_tools(self, schemas: list) -> list:
         # Ollama takes OpenAI's shape.
         return [{"type": "function",
@@ -858,6 +943,9 @@ class OllamaProvider(Provider):
         request = ollama_request(self.model, _ollama_messages(messages), max_tokens)
         if tools:
             request["tools"] = self.encode_tools(tools)
+        think = self.think_value(max_tokens)
+        if think is not None:
+            request["think"] = think
         response = await self._client().chat(**request)
         async for chunk in response:
             message = chunk.get("message") or {}
@@ -897,10 +985,19 @@ class AnthropicProvider(Provider):
                 "anthropic-version": self.api_version,
                 "content-type": "application/json"}
 
+    effort_levels = ("low", "medium", "high", "xhigh", "max")
+
     def list_models(self) -> list:
         data = self._get_json(f"{self.base_url}/v1/models?limit=100", self._headers())
+        for item in data.get("data", []):
+            self._note_window(item.get("id"), item.get("max_input_tokens"))
         return [{"name": item["id"], "detail": item.get("display_name", "")}
                 for item in data.get("data", []) if item.get("id")]
+
+    def _ask_window(self) -> int:
+        item = self._get_json(f"{self.base_url}/v1/models/{self.model}",
+                              self._headers(), timeout=WINDOW_TIMEOUT)
+        return item.get("max_input_tokens") or 0
 
     def stream(self, messages: list, max_tokens: int | None = None,
                tools: list | None = None):
@@ -920,6 +1017,9 @@ class AnthropicProvider(Provider):
             payload["system"] = _cached_system(system)
         if tools:
             payload["tools"] = self.encode_tools(tools)
+        effort = self.wants_effort(max_tokens)
+        if effort:
+            payload["output_config"] = {"effort": effort}
 
         def chunks():
             response = self._post_sse(f"{self.base_url}/v1/messages",
@@ -996,10 +1096,30 @@ class OpenAIProvider(Provider):
         return {"Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"}
 
+    effort_levels = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+    # OpenAI's own listing says nothing about the window. The servers that
+    # speak its protocol often do, each under its own name for it.
+    _WINDOW_KEYS = ("context_length", "context_window", "max_model_len",
+                    "max_context_length")
+
+    def _window_in(self, item: dict) -> int:
+        for key in self._WINDOW_KEYS:
+            if isinstance(item.get(key), int) and item[key] > 0:
+                return item[key]
+        return 0
+
     def list_models(self) -> list:
         data = self._get_json(f"{self.base_url}/models", self._headers())
+        for item in data.get("data", []):
+            if isinstance(item, dict):
+                self._note_window(item.get("id"), self._window_in(item))
         names = sorted(item["id"] for item in data.get("data", []) if item.get("id"))
         return [{"name": name, "detail": ""} for name in names]
+
+    def _ask_window(self) -> int:
+        return self._window_in(self._get_json(f"{self.base_url}/models/{self.model}",
+                                              self._headers(), timeout=WINDOW_TIMEOUT))
 
     def stream(self, messages: list, max_tokens: int | None = None,
                tools: list | None = None):
@@ -1012,6 +1132,9 @@ class OpenAIProvider(Provider):
         }
         if tools:
             payload["tools"] = self.encode_tools(tools)
+        effort = self.wants_effort(max_tokens)
+        if effort:
+            payload["reasoning_effort"] = effort
 
         def chunks():
             try:
@@ -1120,7 +1243,18 @@ class GeminiProvider(Provider):
             methods = item.get("supportedGenerationMethods") or []
             if name and (not methods or "generateContent" in methods):
                 models.append({"name": name, "detail": item.get("displayName", "")})
+                self._note_window(name, item.get("inputTokenLimit"))
         return models
+
+    # `thinkingLevel`, from Gemini 3 on. A 2.5 model takes only the older
+    # `thinkingBudget` and refuses this with a 400 - which says so, and
+    # `_failed_hint` adds how to stop sending it.
+    effort_levels = ("minimal", "low", "medium", "high")
+
+    def _ask_window(self) -> int:
+        item = self._get_json(f"{self.base_url}/v1beta/models/{self.model}",
+                              self._headers(), timeout=WINDOW_TIMEOUT)
+        return item.get("inputTokenLimit") or 0
 
     def stream(self, messages: list, max_tokens: int | None = None,
                tools: list | None = None):
@@ -1132,6 +1266,9 @@ class GeminiProvider(Provider):
             "contents": contents or [{"role": "user", "parts": [{"text": "."}]}],
             "generationConfig": {"maxOutputTokens": token_budget(max_tokens)},
         }
+        effort = self.wants_effort(max_tokens)
+        if effort:
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": effort.upper()}
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
         if tools:
@@ -1471,6 +1608,65 @@ def connect(name: str, model: str = "", api_key: str = "",
     _sync_config(provider)
     save_state()
     return provider, provider.ready()
+
+
+def chosen_window(name: str, model: str) -> int:
+    """The window set for this model with `/context`, or 0."""
+    chosen = settings_for(name).get("context")
+    try:
+        return int(chosen.get(model) or 0) if isinstance(chosen, dict) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def context_window(provider: Provider | None = None) -> tuple:
+    """The window the conversation is fitted into, and where it came from.
+
+    (tokens, "set") for one chosen with `/context`; (tokens, "model") for what
+    a hosted model reports; (NUM_CTX, "NUM_CTX") otherwise. Models differ by
+    an order of magnitude - one setting for all of them either wastes a
+    hosted model's million or overruns a local one's memory.
+
+    Ollama never takes the model's own figure: that is what the weights were
+    trained to, not what the GPU has room for, and NUM_CTX is the number that
+    was chosen for the GPU.
+    """
+    from aetheris import config
+    provider = provider or current()
+    chosen = chosen_window(provider.name, provider.model)
+    if chosen:
+        return chosen, "set"
+    if provider.name != "ollama" and not provider.drives_turns and provider.model:
+        reported = provider.window_limit()
+        if reported:
+            return reported, "model"
+    return int(config.NUM_CTX), "NUM_CTX"
+
+
+def set_window(tokens: int) -> str:
+    """Set the window for the model in use; 0 goes back to the default."""
+    provider = current()
+    settings = settings_for(provider.name)
+    chosen = settings.get("context") if isinstance(settings.get("context"), dict) else {}
+    if tokens:
+        chosen[provider.model] = int(tokens)
+    else:
+        chosen.pop(provider.model, None)
+    if chosen:
+        settings["context"] = chosen
+    else:
+        settings.pop("context", None)
+    return save_state()
+
+
+def set_effort(level: str) -> str:
+    """Set the effort for the provider in use; "" goes back to the default."""
+    settings = settings_for(current().name)
+    if level:
+        settings["effort"] = level
+    else:
+        settings.pop("effort", None)
+    return save_state()
 
 
 def _sync_config(provider: Provider) -> None:

@@ -12,6 +12,8 @@ The interactive terminal supports special slash commands to control options and 
 | `/usage` | Token cost per turn, as an ASCII chart, plus the cumulative total and what every request pays before the conversation starts. One bar is one thing you asked for, tool calls included |
 | `/model` | Show the connected provider and pick another of its models |
 | `/models` | List the models the connected provider offers |
+| `/context [tokens]` | The context window of the model in use, where the number comes from - set here, reported by the model, or `NUM_CTX` - and where compaction starts. `/context 200k` sets it for this model only; `/context default` takes it back. Kept per model, in `providers.json` |
+| `/effort [level]` | How hard the model in use reasons. Alone it offers the levels in its provider's own words - Anthropic `low` to `max`, OpenAI `none` to `max`, Gemini `minimal` to `high`, Ollama `off`/`on`/`low`/`medium`/`high` for a model that thinks. `default` leaves it to the model. Kept per provider; only a turn's requests carry it, not the short side calls |
 | `/clear` | Clear the terminal display and reset conversation history |
 | `/sessions [title]` | List saved sessions, newest first, numbered - and open one: answer with its number or a few letters of its title, or press Enter to stay. Letters that fit several narrow the list and ask again |
 | `/load <id or title>` | Open a saved session directly, found by id or title. On its own it is `/sessions` |

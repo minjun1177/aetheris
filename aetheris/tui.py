@@ -172,6 +172,12 @@ COMMANDS = (
     ("/connect forget <provider>", "Delete the API key saved for a provider"),
     ("/model", "Show the connected provider and pick another of its models"),
     ("/models", "List the models the connected provider offers"),
+    ("/context [tokens]", "How much of the conversation this model is sent, and "
+                          "where the number comes from. With a number, set it for "
+                          "this model only - e.g. /context 200k; default takes it back"),
+    ("/effort [level]", "How hard this model reasons - low, medium, high and the "
+                        "rest in its provider's own words. Alone it offers them; "
+                        "default leaves it to the model"),
 
     # -- conversations -----------------------------------------------------
     ("/sessions [title]", "Saved conversations, newest first - pick one to open it"),

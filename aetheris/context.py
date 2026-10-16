@@ -73,7 +73,8 @@ def observe_usage(messages: list[dict], prompt_tokens: int) -> None:
 
 
 def _get_ctx_budget() -> int:
-    return int(config.NUM_CTX * 0.85) - config.NUM_PREDICT
+    window, _source = providers.context_window()
+    return int(window * 0.85) - config.NUM_PREDICT
 
 
 def _get_summary_predict_tokens() -> int:

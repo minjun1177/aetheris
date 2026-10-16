@@ -36,7 +36,9 @@ markedly more reliable. `/connect status` shows which protocol is in use.
 
 **Context window.** `NUM_CTX` defaults to 65536. A model that cannot hold that
 will have its conversation compressed early and often; 32k is workable, below
-16k is not really.
+16k is not really. Models differ, so `/context <tokens>` gives the one in use a
+window of its own - e.g. `/context 16k` for a small model on a small GPU - and
+a hosted model that reports its window gets that one without being told.
 
 Measured on this project's own test tasks - creating a file, and fixing a
 function halfway down a 5,700-character file - on the machine it was written

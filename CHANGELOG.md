@@ -153,6 +153,18 @@ own, and out to a package of its own only when someone needs it there.
   top of the screen. `/copy` takes the latest answer - or one of its code
   blocks - as it was written, to the clipboard tool and the terminal both, or
   into a new file.
+- **A context window per model.** One `NUM_CTX` for every model compacted a
+  hosted model that takes a million at 49k, and asked a small local model for
+  more than its GPU had. A hosted model that reports its window - Anthropic,
+  Gemini, many OpenAI-compatible servers - now uses it, and `/context
+  <tokens>` sets any model's by hand, kept per model in `providers.json`.
+  Ollama still defaults to `NUM_CTX`: what a model was trained to hold is not
+  what the GPU has room for.
+- **`/effort [level]`.** A hosted model's reasoning effort could not be set at
+  all. `/effort` sends Anthropic's `output_config.effort`, OpenAI's
+  `reasoning_effort`, Gemini's `thinkingLevel` or Ollama's `think`, with the
+  levels each one takes, kept per provider. Only a turn's requests carry it:
+  a six-token yes or no told to think hard spends the six on thinking.
 
 ---
 

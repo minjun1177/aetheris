@@ -202,6 +202,116 @@ def _copy(messages: list, arg: str) -> None:
               f"to hand to the terminal. /copy {nth} <file> writes it out.{S.R}\n")
 
 
+_SOURCES = {"set": "set with /context for this model",
+            "model": "what the model reports",
+            "NUM_CTX": "NUM_CTX - the default"}
+
+
+def _tokens(text: str) -> int | None:
+    """`200000`, `200k`, `1m` or `1,000,000` as a number of tokens; None if not one."""
+    text = text.strip().lower().replace(",", "").replace("_", "")
+    scale = {"k": 1_000, "m": 1_000_000}.get(text[-1:], 1)
+    if scale > 1:
+        text = text[:-1]
+    try:
+        value = float(text) * scale
+    except ValueError:
+        return None
+    return int(value) if value >= 1 else None
+
+
+def _context(arg: str) -> None:
+    """`/context [tokens|default]`: the window for the model in use.
+
+    One `NUM_CTX` for every model was wrong both ways: a hosted model that
+    takes a million was compacted at a sixteenth of it, and a local model
+    small enough for a laptop was asked for more than the laptop had.
+    """
+    provider = providers.current()
+    arg = arg.strip()
+    if provider.drives_turns:
+        print(f"  {S.WARN}⚠ {provider.label} keeps its own context; there is "
+              f"nothing to size here.{S.R}\n")
+        return
+    if arg:
+        clear = arg.lower() in ("default", "reset", "auto")
+        tokens = 0 if clear else _tokens(arg)
+        if tokens is None or (tokens and tokens < 2 * config.NUM_PREDICT):
+            print(f"  {S.ERR}✗ Usage: /context <tokens> - e.g. /context 200k - or "
+                  f"/context default. At least {2 * config.NUM_PREDICT:,}, twice "
+                  f"what one reply may take.{S.R}\n")
+            return
+        try:
+            providers.set_window(tokens)
+        except OSError as error:
+            print(f"  {S.WARN}⚠ For this session only - it could not be saved: "
+                  f"{error}{S.R}")
+    window, source = providers.context_window()
+    budget = _get_ctx_budget()
+    print(f"  {S.GRAY}model{S.R}    {S.WHITE}{provider.model or '-'}{S.R} "
+          f"{S.MUTED}({provider.label}){S.R}")
+    print(f"  {S.GRAY}window{S.R}   {S.WHITE}{window:,}{S.R} tokens "
+          f"{S.MUTED}- {_SOURCES[source]}{S.R}")
+    print(f"  {S.GRAY}compacts{S.R} {S.WHITE}near {budget:,}{S.R} "
+          f"{S.MUTED}(85%, less room for one reply){S.R}")
+    if provider.name == "ollama" and source != "set":
+        print(f"  {S.MUTED}A local model gets NUM_CTX unless it is given its own "
+              f"here: the window is what the GPU has room for.{S.R}")
+    if not arg:
+        print(f"  {S.MUTED}/context <tokens> sets it for this model only - "
+              f"/context default takes it back.{S.R}")
+    elif source == "model" and provider.name != "ollama":
+        print(f"  {S.MUTED}Every request carries the conversation, so a larger "
+              f"window is also a larger bill.{S.R}")
+    print()
+
+
+def _effort(arg: str) -> None:
+    """`/effort [level|default]`: how hard the model in use reasons.
+
+    The hosted APIs each take a level, in words of their own; Ollama takes
+    `think` for a model that has it. Kept per provider: a level one API takes
+    is a 400 from the next.
+    """
+    provider = providers.current()
+    levels = provider.effort_levels
+    if not levels:
+        print(f"  {S.WARN}⚠ {provider.label} has no effort setting.{S.R}\n")
+        return
+    if provider.name == "ollama" and not provider.thinks():
+        print(f"  {S.WARN}⚠ {provider.model or 'This model'} does not think, so "
+              f"there is no effort to set. A model that reports the thinking "
+              f"capability does.{S.R}\n")
+        return
+    level = arg.strip().lower()
+    if not level:
+        current = provider.effort or "default"
+        rows = ["default"] + list(levels)
+        chosen = connect._choose(f"Effort for {provider.label} - now {current}", rows,
+                                 lambda row: row + (f" {S.MUTED}(the model decides)"
+                                                    f"{S.R}" if row == "default" else ""))
+        if chosen < 0:
+            print()
+            return
+        level = rows[chosen]
+    if level in ("default", "reset", "auto"):
+        level = ""
+    elif level not in levels:
+        print(f"  {S.ERR}✗ {provider.label} takes {', '.join(levels)} - or "
+              f"default.{S.R}\n")
+        return
+    try:
+        providers.set_effort(level)
+    except OSError as error:
+        print(f"  {S.WARN}⚠ For this session only - it could not be saved: "
+              f"{error}{S.R}")
+    if level:
+        print(f"  {S.OK}✓ Effort {level} for {provider.label}, from the next "
+              f"request.{S.R}\n")
+    else:
+        print(f"  {S.OK}✓ Effort back to the model's own default.{S.R}\n")
+
+
 def _adopt_session(loaded) -> list[dict]:
     """Make a loaded session file the live conversation. Returns its messages.
 
@@ -2264,6 +2374,12 @@ async def main(resume_id: str = "") -> None:
                 continue
             current_session_id = rename_session(current_session_id, new_title)
             print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
+            continue
+        if cmd == "/context" or cmd.startswith("/context "):
+            _context(user_input[len("/context"):])
+            continue
+        if cmd == "/effort" or cmd.startswith("/effort "):
+            _effort(user_input[len("/effort"):])
             continue
         if cmd == "/copy" or cmd.startswith("/copy "):
             _copy(messages, user_input[len("/copy"):].strip())

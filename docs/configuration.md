@@ -40,7 +40,7 @@ The settings worth knowing:
 | :--- | :--- | :--- |
 | `MODEL` | `gemma4:e4b` | The Ollama model used until `/connect` says otherwise |
 | `OLLAMA_HOST` | `http://localhost:11434` | Where the Ollama daemon is. `/set OLLAMA_HOST http://box:11434` points the harness at another machine - the chat, the model list, the tool-support probe and the summariser all follow it. While this is at its default a `$OLLAMA_HOST` in the environment is honoured instead; changing it here wins over both |
-| `NUM_CTX` | 65536 | Context window asked of Ollama |
+| `NUM_CTX` | 65536 | Context window asked of Ollama, and the one used for any model whose own is unknown. A hosted model that reports its window (Anthropic, Gemini, many OpenAI-compatible servers) uses that instead; `/context <tokens>` sets one model's by hand |
 | `NUM_PREDICT` | 6144 | Output cap. Must be an int - every hosted API rejects a float |
 | `TURN_BELL_SECONDS` | 30 | Ring the terminal bell when a turn that took at least this long ends - not after Ctrl+C, and never into a pipe. 0 turns it off |
 | `PROVIDER_RETRIES` | 3 | Times a request refused with 429 or a 5xx, or a dropped connection, is tried again - after 1, 2 and 4 seconds, or as long as `Retry-After` asks, up to a minute. Never once a reply has started arriving. 0 turns it off |
