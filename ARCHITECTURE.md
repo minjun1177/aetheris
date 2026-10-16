@@ -676,7 +676,8 @@ app.py            the loop, slash commands, session lifecycle
 | `skills.py` | Skill discovery and loading | |
 | `tui.py` / `renderer.py` | Terminal chrome and markdown | Decisions |
 | `screen.py` | The ledger of printed rows, selection by block, the clipboard (5.19) | Reading the terminal - it is told what was printed, never asks |
-| `promptkeys.py` | The prompt's paste placeholder and mouse reports | What a row *is* - `screen` knows that |
+| `promptkeys.py` | The prompt's paste placeholder, mouse reports, and Ctrl+O | What a row *is* - `screen` knows that |
+| `transcript.py` | The last turn recorded whole - thinking, arguments, results - and printing it for Ctrl+O | The conversation history - thinking never goes there |
 | `atomic.py`, `sse.py`, `paths.py` | One job each. Stdlib only, importing nothing local. `paths` also owns the two names derived from something that was not chosen to be a filename: `safe_name` and `workspace_slug` | |
 | `terms.py` | What the harness does to this machine, asked once before it does it | |
 

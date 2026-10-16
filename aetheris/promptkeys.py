@@ -31,6 +31,15 @@ NOTE_SECONDS = 2.5            # ... and its "copied" stays beside the prompt
 _pastes: dict = {}            # placeholder -> what was pasted, for this run
 
 
+class Expand(str):
+    """What the prompt returns for Ctrl+O: the line as it stood, to put back.
+
+    A `str`, so whatever reads the closed prompt's line - the record of what
+    is on screen - reads the half-typed text, and a type of its own, so the
+    main loop can tell it from a line that was sent.
+    """
+
+
 def paste_label(text: str) -> str:
     """The placeholder for `text`, remembered so it can be put back."""
     lines = text.count("\n") + 1
@@ -400,6 +409,12 @@ def bindings():
             # Nothing of the prompt's changed, except the note beside it.
             return None if point[0] in ("up", "wheel") else NotImplemented
         return handler
+
+    @keys.add("c-o")
+    def expand(event):
+        # The last turn in full (`transcript`). Printed by the main loop, not
+        # from here: drawn under an open prompt it would be drawn over.
+        event.app.exit(result=Expand(event.current_buffer.text))
 
     keys.add(Keys.Vt100MouseEvent)(mouse(_vt_point, Keys.Vt100MouseEvent))
     keys.add(Keys.WindowsMouseEvent)(mouse(_windows_point, Keys.WindowsMouseEvent))

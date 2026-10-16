@@ -177,6 +177,10 @@ own, and out to a package of its own only when someone needs it there.
   "plan" with no word of a build to come built in the same breath, through
   `run_python` when the editing tools were off. Stage 1 now says what the six
   are and that early work skips the stages that check it.
+- **Ctrl+O shows the last turn uncut.** Arguments are cut to 120 characters as
+  they scroll past, results to 600, and thinking is hidden unless
+  `SHOW_THINKING` is on. Ctrl+O at the prompt prints all of it, and puts back
+  what was half-typed.
 
 ---
 

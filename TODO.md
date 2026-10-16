@@ -66,6 +66,7 @@
 * [x] read_file start_line/end_line; a long file is cut between lines, not inside one
 * [x] Independent read-only calls may share a reply
 * [x] Deepthink stage 1 names all six stages
+* [x] Ctrl+O: the last turn uncut
 
 ## next
 

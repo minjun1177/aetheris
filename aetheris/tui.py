@@ -13,6 +13,7 @@ from aetheris.skills import list_skills, skill_dirs
 from aetheris import mcp_client
 from aetheris import providers
 from aetheris import toolspec
+from aetheris import transcript
 
 
 def _get_git_info() -> str:
@@ -261,6 +262,8 @@ KEYS = (
     ("Ctrl+C", "Stop what is running - a reply, a command, a tool. Pressed "
                "again within five seconds, leave"),
     ("Ctrl+D", "Leave at once"),
+    ("Ctrl+O", "The last turn again, uncut: the thinking, every call with all of "
+               "its arguments, every result in full"),
     ("Mouse drag", "Select and copy what is above the prompt - a thought without "
                    "its gutter, an answer without what is under it. Shift+drag is "
                    "the terminal's own selection; /set MOUSE_SELECT off leaves the "
@@ -629,16 +632,19 @@ def _show_mcp(detail: str = "", only: str = ""):
 
 
 def _fmt_tool_call(name: str, arguments: dict):
+    transcript.call(name, arguments)
     print()
     print(f"  {S.INFO}▸{S.R} {S.BOLD}{name}{S.R}")
     if arguments:
         items = list(arguments.items())
+        cut = False
         for i, (k, v) in enumerate(items):
             is_last = (i == len(items) - 1)
             connector = "╰" if is_last else "├"
             val = str(v)
             if len(val) > 120:
                 val = val[:117] + "..."
+                cut = True
             # One argument, one line - a newline inside it would start a row
             # outside the tree just as a wrapped one does.
             val = " ".join(val.split())
@@ -649,13 +655,16 @@ def _fmt_tool_call(name: str, arguments: dict):
             rail = " " if is_last else "│"
             for row in rows[1:]:
                 print(f"  {S.MUTED}{rail}{S.R}  {' ' * len(lead)}{row}")
+        if cut:
+            print(f"     {S.MUTED}cut to fit - Ctrl+O at the prompt shows it whole{S.R}")
 
 
 def _fmt_tool_result(name: str, result: str):
+    transcript.result(name, result)
     max_preview = 600
     if len(result) > max_preview:
         preview = result[:max_preview]
-        footer = f"{S.GRAY}… {len(result)} chars total{S.R}"
+        footer = f"{S.GRAY}… {len(result):,} chars total · Ctrl+O shows all of it{S.R}"
     else:
         preview = result
         footer = ""

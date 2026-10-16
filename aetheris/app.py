@@ -31,6 +31,7 @@ from aetheris import promptkeys
 from aetheris import qr
 from aetheris import mentions
 from aetheris import todos
+from aetheris import transcript
 from aetheris import tui
 from aetheris import tools
 from aetheris import vault
@@ -1004,6 +1005,10 @@ WEB_TURN = object()
 # the main loop draws the conversation again at the new size and opens the
 # prompt again, with whatever was half-typed put back.
 RESIZED = object()
+
+# What `_read_line` returns for Ctrl+O: the main loop prints the last turn in
+# full and opens the prompt again, with what was half-typed put back.
+EXPANDED = object()
 RESIZE_POLL = 0.15            # seconds between looks at the terminal's size
 _drawn_size = None            # (columns, rows) the screen was last laid out for
 
@@ -1380,6 +1385,9 @@ async def _typed_or_remote(session_pt, message) -> str:
         line = typed.result()
         if isinstance(line, KeyboardInterrupt):
             raise line
+        if isinstance(line, promptkeys.Expand):
+            _kept_typing = str(line)
+            return EXPANDED
         # What was pasted goes as it was; the box only showed its size.
         return promptkeys.expand_pastes(line).strip()
 
@@ -2145,7 +2153,8 @@ async def main(resume_id: str = "") -> None:
                 session_pt if config.PROMPT_TOOLKIT_AVAILABLE else None)
             # A console that hands back surrogate escapes would otherwise poison
             # the history: every later save and request would raise.
-            if not any(user_input is other for other in (IDLE_CALL, RESIZED, WEB_TURN)):
+            if not any(user_input is other
+                       for other in (IDLE_CALL, RESIZED, WEB_TURN, EXPANDED)):
                 user_input = config.safe_text(user_input)
         except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
             leaving = _interrupted(pressed)
@@ -2164,6 +2173,10 @@ async def main(resume_id: str = "") -> None:
             break
         finally:
             _stoppable = False
+
+        if user_input is EXPANDED:
+            transcript.show()
+            continue
 
         if user_input is IDLE_CALL:
             # Outside the `try` above on purpose: Ctrl+C at an approval prompt
@@ -2396,6 +2409,7 @@ async def main(resume_id: str = "") -> None:
             # Its own bar in /usage: it was paid for, and it is not the turn
             # before it.
             config.next_turn()
+            transcript.start()
             leaving = False
             _stoppable = True
             try:
@@ -2822,6 +2836,7 @@ async def main(resume_id: str = "") -> None:
         # so `/usage` reports what the question cost rather than what its last
         # request cost.
         config.next_turn()
+        transcript.start()
         # The remote's own badge: a phone that cannot tell "thinking" from
         # "finished and silent" is a phone you have to keep refreshing.
         remote.set_busy(True)
@@ -3047,6 +3062,7 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
         session_id = resume_id
 
     config.next_turn()
+    transcript.start()
     first_request = len(config.token_history)
     messages.append({"role": "user", "content": config.safe_text(prompt)})
     session_id = save_session(messages, session_id)

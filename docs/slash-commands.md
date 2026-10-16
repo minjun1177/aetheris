@@ -75,6 +75,7 @@ The nine commands those switches used to be - `/deepthink`, `/planmode`, `/autom
 | `/exit` or `/quit` | Exit the application |
 | `Ctrl+C` | Stop what is running: a reply being written, a tool, a `!command`. The conversation keeps what was said and done up to then, and the prompt comes back. Pressed again within five seconds it exits - once is never enough to close the program, wherever it is pressed |
 | `Ctrl+D` | Exit at once |
+| `Ctrl+O` | At the prompt: the last turn again, uncut. A tool call's arguments are cut to 120 characters as they scroll past and its result to 600, and thinking is not shown unless `SHOW_THINKING` is on; this shows all of it, and puts back whatever was half-typed |
 | Mouse drag | Select and copy what is above the prompt: a thought without its `│`, an answer without what is under it. The highlight flashes and `⧉ copied` appears beside the prompt |
 | Right click | Paste. The terminal's own right-click paste stops while the mouse is the program's, so the program does it |
 | Mouse wheel | Scroll back, as always - see below |

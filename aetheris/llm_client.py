@@ -25,6 +25,7 @@ from aetheris import mcp_client
 from aetheris import providers
 from aetheris import screen
 from aetheris import todos
+from aetheris import transcript
 from aetheris import toolspec
 from aetheris import verify
 
@@ -176,6 +177,7 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
     
     full_text = ""
     thinking_text = ""
+    said_text = ""          # the prose as shown, for Ctrl+O (`transcript`)
     stream = StreamFilter()
     printing = False        # prose has started, so the spinner is gone
     thought_open = False    # a reasoning block is being shown
@@ -335,6 +337,7 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                         spin_task.cancel()
                         sys.stdout.write('\r\033[K')
                         sys.stdout.flush()
+                said_text += text
                 in_code = emit(text, in_code)
 
             if stream.saw_tool_call and not line_buffer.strip():
@@ -355,6 +358,7 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                     emit_thought(text)
             else:
                 close_thought()
+                said_text += text
                 in_code = emit(text, in_code)
         close_thought()
 
@@ -370,7 +374,11 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
             spin_task.cancel()
             try: await spin_task
             except asyncio.CancelledError: pass
-            
+        # Whole, and even for a reply that was stopped: what it got as far as
+        # is what Ctrl+O is pressed to see.
+        transcript.thought(thinking_text)
+        transcript.said(said_text)
+
     # A reply whose provider counted nothing records and prints nothing: a line
     # of zeros is not a measurement. Attacca streams a turn in segments with no
     # counts of their own, and reports the session's once, at the end.
