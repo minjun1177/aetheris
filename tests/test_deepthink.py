@@ -128,6 +128,12 @@ check("each stage is labelled on screen",
       all(f"deepthink {i}/6" in printed for i in range(1, 7)))
 check("without git the review stage is told to re-read the files",
       "Reviewing from memory finds nothing" in prompts[3])
+check("stage 1 says what all six are before the first of them starts",
+      deepthink.OVERVIEW in prompts[0] and "3 implement" in deepthink.OVERVIEW)
+check("and only stage 1 - the rest are not told it again",
+      not any(deepthink.OVERVIEW in p for p in prompts[1:]))
+check("still headed by its stage, which is how a replay recognises it",
+      prompts[0].startswith("[Deepthink 1/6 - Plan]\n" + deepthink.OVERVIEW))
 
 print("\n--- a request that needs no work stops after the plan ---")
 answer, scripted, messages, printed = drive(
@@ -327,6 +333,7 @@ check("it went round twice", len(prompts) == 12, f"{len(prompts)} stages")
 check("and the second time started at the plan, not in the middle",
       prompts[6].startswith("[Deepthink 1/6"), prompts[6][:16])
 check("the later pass is marked as one on screen", "pass 2" in printed)
+check("a later pass is not told the stages again", deepthink.OVERVIEW not in prompts[6])
 check("the next pass is told what it is finishing",
       any("going round again" in m["content"] for m in messages))
 check("and how to end if nothing is left",

@@ -183,6 +183,20 @@ because what was asked is not done, never because something could be nicer.""",
           edits=True),
 )
 
+# Said once, at the top of stage 1. Each stage used to arrive knowing nothing
+# of the ones after it, and a capable model given "plan" with no word of a
+# stage 3 does the sensible thing: it plans, then builds in the same breath -
+# through `run_python` when the editing tools are off - and the stages that
+# were meant to check that work find it already done and never planned. A model
+# told the build is coming has no reason to get ahead of it.
+OVERVIEW = """\
+This request is worked through in six stages, and you will be given them one at
+a time: 1 plan, 2 check the plan, 3 implement, 4 review the diff, 5 fix what the
+review found, 6 run it and report. Do the stage you are given and stop there -
+the next one comes to you, with everything you wrote. Doing a later stage's work
+early saves nothing: it skips the stages that exist to catch what is wrong with
+it. Nothing may be changed before stage 3, by any tool."""
+
 STOP_MARKER = "NO_PLAN_NEEDED"
 MORE_MARKER = "MORE_WORK_NEEDED"
 
@@ -236,6 +250,8 @@ async def run(messages: list, pass_number: int = 1) -> str:
             build_from = git_ops.head() if git_ops.enabled() else ""
 
         _banner(number, stage, pass_number)
+        if number == 1 and pass_number == 1:
+            instruction = f"{OVERVIEW}\n\n{instruction}"
         messages.append({"role": "user",
                          "content": f"[Deepthink {number}/{len(STAGES)} - "
                                     f"{stage.title}]\n{instruction}"})

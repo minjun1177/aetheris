@@ -173,6 +173,10 @@ own, and out to a package of its own only when someone needs it there.
   wait, while the loop has always run every call in a reply in order. Reads,
   listings and searches that do not depend on each other may now go together;
   a call that needs another's result still waits for it.
+- **Deepthink names all six stages at the start.** A capable model given
+  "plan" with no word of a build to come built in the same breath, through
+  `run_python` when the editing tools were off. Stage 1 now says what the six
+  are and that early work skips the stages that check it.
 
 ---
 

@@ -18,6 +18,14 @@ Off by default. `/deepthink on` turns one request into six turns:
 All six are one conversation, so each stage sees everything the ones before it
 did. What changes is the instruction at the top of each turn.
 
+**Stage 1 names all six.** Each stage used to arrive knowing nothing of the ones
+after it. A small model does the stage it is given; a capable hosted one, told
+to plan with no word of a build stage to come, planned and then built in the
+same breath - through `run_python` once the editing tools were off - and the
+stages meant to check that work found it already done and never planned. Told
+up front that the build is stage 3 and that early work skips the checks, it
+has no reason to get ahead of it.
+
 Asked to implement something, a model goes straight at it. It writes code from
 what it remembers of a file rather than what the file says, and when it is done
 it reports success without running the thing. Both come from the same place -
