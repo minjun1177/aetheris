@@ -91,6 +91,8 @@ check("both optional, so a call with a path alone is still whole",
 prompt = systemprompt.systemprompt()
 check("the prompt says to use them for a very large file",
       "`start_line` and `end_line`" in prompt)
+check("and lets calls that do not depend on each other share a reply",
+      "can go together in one reply" in prompt and "one at a time and wait" not in prompt)
 
 
 print()

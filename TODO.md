@@ -64,6 +64,7 @@
 * [x] /context: a window per model - the model's own where it reports one, or set by hand
 * [x] /effort: reasoning effort per provider (Anthropic, OpenAI, Gemini, Ollama think)
 * [x] read_file start_line/end_line; a long file is cut between lines, not inside one
+* [x] Independent read-only calls may share a reply
 
 ## next
 

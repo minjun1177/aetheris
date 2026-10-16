@@ -169,6 +169,10 @@ own, and out to a package of its own only when someone needs it there.
   real line numbers and anchors. A file cut for length was cut mid-line, gave
   the half line an anchor, and had no way past the cut; it is now cut between
   lines and says where to read on.
+- **Independent calls in one reply.** The prompt said to make one call and
+  wait, while the loop has always run every call in a reply in order. Reads,
+  listings and searches that do not depend on each other may now go together;
+  a call that needs another's result still waits for it.
 
 ---
 
