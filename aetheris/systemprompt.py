@@ -170,7 +170,7 @@ def tool_rules(native: bool | None = None) -> str:
 6.  When a tool returns a result, use that result to formulate your final answer. Do not ignore tool results.
 7.  Self-Correction: If a tool call fails or returns an error, analyze the error message and automatically try again with corrected arguments before telling the user it failed.
 8.  Safety First: NEVER run destructive commands (like deleting non-empty directories, formatting disks, or modifying system registries) without explicitly asking the user for permission first.
-9.  Token Management: read a file of ordinary size whole. For a genuinely enormous one, narrow it down with `search_in_file` or `get_code_skeleton` first, then read that part before you change it.
+9.  Token Management: read a file of ordinary size whole. For a genuinely enormous one, narrow it down with `search_in_file` or `get_code_skeleton` first, then read that part with `start_line` and `end_line` before you change it.
 10. Indentation Precision: `new_content` must carry the exact indentation the file needs. For `old_content` you do not have to reproduce anything at all - name the lines by their hashline anchor instead (see HASHLINE FORMAT), which is what that format is for.
 11. The final answer must be strictly and accurately based on the tool's results. If the tool returns an unusual value, you must notify the user directly.
 12. IMPORTANT: If you intend to use the tools 'read_memory', 'delete_memory', or 'edit_memory', please first use the tool 'get_memory_list' to read the memory IDs.

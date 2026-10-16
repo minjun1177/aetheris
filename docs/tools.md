@@ -36,6 +36,16 @@ text is written exactly as it belongs on disk, with no escaping at all. `<conten
 feeds `write_file` and `run_python`; `<old_content>` and `<new_content>` feed
 `edit_file`; `<stdin>` feeds `run_cmd`, `send_input` and `run_python`.
 
+### Reading part of a file
+
+`read_file` takes `start_line` and `end_line` as well as the path. Left out,
+the whole file comes back as it always did; given, only those lines do, under
+their real numbers and anchors, with `[lines 120-180 of 900]` after them. A file
+too large to hand over whole was cut at a character count, part way through a
+line and with no way past the cut - the half line even carried the anchor of
+the half. With `RETURN_ALL_FILE_CONTENT` off it is now cut between lines, and
+the cut says which `start_line` reads on.
+
 ### Editing by hashline anchor
 
 `read_file` returns every line with a prefix:

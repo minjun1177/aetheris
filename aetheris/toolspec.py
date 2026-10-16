@@ -149,9 +149,11 @@ TOOLS = (
     ),
     Tool(
         name='read_file',
-        description="Read the contents of a file. Output uses hashline format: each line is prefixed with 'LINE_NUM:HASH|'. Example: '1:3d8|import random'. The 3-char hex hash uniquely identifies each line's content.",
+        description="Read the contents of a file. Output uses hashline format: each line is prefixed with 'LINE_NUM:HASH|'. Example: '1:3d8|import random'. The 3-char hex hash uniquely identifies each line's content. Leave start_line and end_line out to read the whole file; give them to read only that part of a very large one.",
         params=(
             Param(name='filepath', description='The absolute path to the file.'),
+            Param(name='start_line', description='(Optional) The first line to read, counting from 1.', default=0, optional=True, aliases=('offset',)),
+            Param(name='end_line', description='(Optional) The last line to read, included. Leave it out to read to the end.', default=0, optional=True),
         ),
     ),
     Tool(

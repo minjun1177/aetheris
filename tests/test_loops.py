@@ -109,9 +109,9 @@ ran = []
 real_read = tools.handle_read_file
 
 
-def counting_read(filepath):
+def counting_read(filepath, *where):
     ran.append(filepath)
-    return real_read(filepath)
+    return real_read(filepath, *where)
 
 
 class Repeats(providers.Provider):

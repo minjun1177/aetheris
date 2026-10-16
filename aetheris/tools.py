@@ -961,7 +961,7 @@ def _as_text(value) -> str:
     return str(value)
 
 
-def handle_read_file(filepath: str) -> str:
+def handle_read_file(filepath: str, start_line=0, end_line=0) -> str:
     filepath, complaint = _as_path(filepath)
     if complaint:
         return complaint
@@ -974,13 +974,46 @@ def handle_read_file(filepath: str) -> str:
                 f"image ({images.describe(filepath)}), not text. Call "
                 "`view_image` with this path to look at it.")
     try:
+        start, end = int(start_line or 0), int(end_line or 0)
+    except (TypeError, ValueError):
+        return (f"{config.TOOL_ERROR_PREFIX} start_line and end_line are line "
+                "numbers, counting from 1.")
+    try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
-        if not config.RETURN_ALL_FILE_CONTENT and len(content) > config.FILE_MAX_DISPLAY_LENGTH:
-            content = content[:config.FILE_MAX_DISPLAY_LENGTH] + "\n...[Too long]..."
-        return _encode_hashlines(content)
     except Exception as e:
         return f"[Error] Cannot read file: {e}"
+    lines = content.split("\n")
+    total = len(lines)
+    first = max(1, start)
+    last = min(total, end) if end > 0 else total
+    if first > total:
+        return (f"{config.TOOL_ERROR_PREFIX} {os.path.basename(filepath)} has "
+                f"{total} lines, so start_line {first} is past the end.")
+    if last < first:
+        return (f"{config.TOOL_ERROR_PREFIX} end_line {end} comes before "
+                f"start_line {first}.")
+    rows = [f"{n}:{_line_hash(line)}|{line}"
+            for n, line in enumerate(lines[first - 1:last], first)]
+    shown = len(rows)
+    if not config.RETURN_ALL_FILE_CONTENT:
+        # Cut between lines, never inside one: half a line carries the hash of
+        # the half, and an edit anchored to it is refused for a reason the
+        # model cannot see.
+        size = 0
+        for shown, row in enumerate(rows, 1):
+            size += len(row) + 1
+            if size > config.FILE_MAX_DISPLAY_LENGTH and shown > 1:
+                shown -= 1
+                break
+    body = "\n".join(rows[:shown])
+    reached = first + shown - 1
+    if reached < last:
+        return (body + f"\n...[Too long - stopped at line {reached} of {total}. "
+                f"read_file with start_line={reached + 1} reads on.]...")
+    if first > 1 or last < total:
+        return body + f"\n[lines {first}-{last} of {total}]"
+    return body
 
 def handle_view_image(filepath: str) -> str:
     """Put an image in front of the model on its next request.

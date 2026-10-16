@@ -165,6 +165,10 @@ own, and out to a package of its own only when someone needs it there.
   `reasoning_effort`, Gemini's `thinkingLevel` or Ollama's `think`, with the
   levels each one takes, kept per provider. Only a turn's requests carry it:
   a six-token yes or no told to think hard spends the six on thinking.
+- **`read_file` reads part of a file.** `start_line` and `end_line`, with the
+  real line numbers and anchors. A file cut for length was cut mid-line, gave
+  the half line an anchor, and had no way past the cut; it is now cut between
+  lines and says where to read on.
 
 ---
 
