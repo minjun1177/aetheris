@@ -239,12 +239,17 @@ from aetheris import tui               # noqa: E402
 
 config.AUTO_ALLOW = False
 problem = ""
+real_stdin = sys.stdin
 try:
+    # Answered here: the prompt reads `input()`, and run from a terminal rather
+    # than CI - whose stdin is closed - the suite stopped here for a keypress.
+    sys.stdin = io.StringIO("n\n")
     with contextlib.redirect_stdout(io.StringIO()):
         tui._approval_prompt("Test", [("a", 5), ("b", {"x": 1}), ("c", None)], rule="test")
 except Exception as error:
     problem = f"{type(error).__name__}: {error}"
 finally:
+    sys.stdin = real_stdin
     config.AUTO_ALLOW = True
 check("it renders a value of any type", not problem, problem)
 
