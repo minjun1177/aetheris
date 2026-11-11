@@ -1436,6 +1436,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |
 | `test_retry.py` | That a 429, a 5xx or a dropped connection is retried with backoff or `Retry-After`, a 4xx is not, and a reply that has started is never started over |
+| `test_sse.py` | That an event stream is read whether or not it came gzipped, still event by event, and that a gzipped Anthropic reply comes through as text |
 | `test_headless.py` | That `-p` writes only the answer or one JSON object to stdout, with every tool call and its outcome, and fails with an exit status |
 | `test_bench.py` | That the benchmark graders pass a right answer and fail the wrong ones small models give, and that the edit fixture still carries its bug |
 | `test_search.py` | That `search_in_file` honours `.gitignore`, skips binaries, narrows by glob, shows context, and says the same with or without ripgrep |

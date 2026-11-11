@@ -185,6 +185,11 @@ own, and out to a package of its own only when someone needs it there.
   between turns; `/update` installs it with pip or pipx, whichever installed
   this one, after showing the command and asking. A git checkout is told to
   `git pull`. `UPDATE_CHECK` turns the check off.
+- **A gzipped event stream is read.** Anthropic compresses its stream, and
+  the reader went to the body as it came off the wire: a reply that arrived
+  in full was parsed as bytes with no `data:` line in them, and the turn
+  ended in "the model reasoned but said nothing" with no error to say why.
+  The stream is decoded now, still one event at a time.
 
 ---
 

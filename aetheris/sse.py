@@ -13,8 +13,17 @@ def sse_chunks(response):
     happened to fill the block. `read1` (urllib3 2.x) returns whatever is
     already there; falling back to one byte at a time is slower but never waits
     for data that has not been sent.
+
+    `raw` is the body as it came off the wire, and requests leaves it that way:
+    Anthropic gzips its event stream, and read as it arrived that is bytes no
+    line of which starts with `data:` - so a reply that came back whole was
+    read as no reply at all, with no error anywhere to say so. `iter_content`
+    decodes; reading `raw` has to be told to.
     """
-    read1 = getattr(getattr(response, "raw", None), "read1", None)
+    raw = getattr(response, "raw", None)
+    if raw is not None and hasattr(raw, "decode_content"):
+        raw.decode_content = True
+    read1 = getattr(raw, "read1", None)
     if callable(read1):
         while True:
             chunk = read1(65536)
