@@ -389,6 +389,28 @@ def beneath(stream):
 # the clipboard
 # ---------------------------------------------------------------------------
 
+# Where WSL finds Windows' own programs when PATH does not say. A distro with
+# `appendWindowsPath = false`, or a shell started by a multiplexer without the
+# Windows half of PATH, has no `clip.exe` to find - and then nothing could
+# reach the clipboard at all, while the note beside the prompt said "copied".
+WINDOWS_SYSTEM32 = "/mnt/c/Windows/System32"
+
+
+def _on_wsl() -> bool:
+    return (sys.platform.startswith("linux")
+            and (os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop")
+                 or "microsoft" in os.uname().release.lower()))
+
+
+def _windows_program(name: str, *folders: str) -> str:
+    """A Windows program by name: from PATH, else where Windows keeps it. "" if neither."""
+    found = shutil.which(name)
+    if found or not _on_wsl():
+        return found or ""
+    path = os.path.join(WINDOWS_SYSTEM32, *folders, name)
+    return path if os.path.isfile(path) else ""
+
+
 def _tools() -> list:
     """The commands that take text for the clipboard here: (argv, encoding)."""
     if sys.platform == "win32":
@@ -396,10 +418,11 @@ def _tools() -> list:
     if sys.platform == "darwin":
         return [(["pbcopy"], "utf-8")]
     found = []
-    if shutil.which("clip.exe"):
+    clip = _windows_program("clip.exe")
+    if clip:
         # WSL: the Windows clipboard, asked directly rather than through an
         # X server that may or may not be passing its own along.
-        found.append((["clip.exe"], "utf-16le"))
+        found.append(([clip], "utf-16le"))
     if os.environ.get("WAYLAND_DISPLAY") and shutil.which("wl-copy"):
         found.append((["wl-copy"], "utf-8"))
     if os.environ.get("DISPLAY"):
@@ -416,7 +439,8 @@ _ASK_WINDOWS = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
 
 def _readers() -> list:
     """The commands that print what the clipboard holds, as UTF-8."""
-    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    powershell = (shutil.which("powershell.exe") or shutil.which("powershell")
+                  or _windows_program("powershell.exe", "WindowsPowerShell", "v1.0"))
     asked = [[powershell, "-NoProfile", "-NonInteractive", "-Command", _ASK_WINDOWS]]
     if sys.platform == "win32":
         return asked if powershell else []
@@ -450,12 +474,24 @@ def clipboard() -> str:
     return ""
 
 
+SCREEN_CHUNK = 76            # GNU screen's passthrough holds 768 bytes at a time
+
+
 def osc52(text: str) -> str:
-    """The escape that asks the terminal itself to take `text`. "" if too long."""
+    """The escape that asks the terminal itself to take `text`. "" if too long.
+
+    Inside GNU screen (`STY`) the escape stops at screen, which keeps it for
+    itself, so it is passed through to the terminal outside in DCS strings
+    short enough for screen to hold.
+    """
     data = text.encode("utf-8")
     if len(data) > OSC52_LIMIT:
         return ""
-    return f"\033]52;c;{base64.b64encode(data).decode('ascii')}\a"
+    encoded = base64.b64encode(data).decode("ascii")
+    if os.environ.get("STY") and not os.environ.get("TMUX"):
+        chunks = [encoded[i:i + SCREEN_CHUNK] for i in range(0, len(encoded), SCREEN_CHUNK)]
+        return "\033P\033]52;c;" + "\033\\\033P".join(chunks) + "\a\033\\"
+    return f"\033]52;c;{encoded}\a"
 
 
 def copy(text: str) -> bool:

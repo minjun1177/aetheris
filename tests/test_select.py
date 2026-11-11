@@ -23,6 +23,10 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("AETHERIS_HOME", tempfile.mkdtemp(prefix="select-home-"))
+# A terminal multiplexer changes the escape a copy is sent in; run from inside
+# one, the checks below would be about it. They set it themselves where it counts.
+for _multiplexer in ("STY", "TMUX"):
+    os.environ.pop(_multiplexer, None)
 
 from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
@@ -507,6 +511,62 @@ check("the terminal is asked in the escape it understands",
       screen.osc52("가") == "\033]52;c;" + base64.b64encode("가".encode()).decode() + "\a")
 check("and not asked for more than it would take",
       screen.osc52("x" * (screen.OSC52_LIMIT + 1)) == "")
+
+kept_env = {k: os.environ.get(k) for k in ("STY", "TMUX")}
+os.environ["STY"] = "1234.pts-0.host"
+os.environ.pop("TMUX", None)
+try:
+    long_text = "가나다라" * 40
+    wrapped = screen.osc52(long_text)
+    pieces = re.findall(r"\033P(.*?)\033\\", wrapped, re.S)
+    joined = "".join(pieces)
+    check("inside GNU screen it is passed through, not kept by screen",
+          wrapped.startswith("\033P\033]52;c;") and wrapped.endswith("\a\033\\"), repr(wrapped[:40]))
+    check("in pieces screen can hold", len(pieces) > 1
+          and all(len(p) <= screen.SCREEN_CHUNK + len("\033]52;c;") + 1 for p in pieces))
+    check("which put back together are the same escape",
+          joined == "\033]52;c;" + base64.b64encode(long_text.encode()).decode() + "\a")
+    os.environ["TMUX"] = "/tmp/tmux-1000/default,1,0"
+    check("tmux inside screen is the one that answers, and is sent the plain escape",
+          screen.osc52("가").startswith("\033]52;"))
+finally:
+    for key, value in kept_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+print("\n--- WSL without Windows on PATH ---")
+windows = tempfile.mkdtemp(prefix="system32-")
+os.makedirs(os.path.join(windows, "WindowsPowerShell", "v1.0"))
+for name in ("clip.exe", os.path.join("WindowsPowerShell", "v1.0", "powershell.exe")):
+    open(os.path.join(windows, name), "w").close()
+real = (screen.WINDOWS_SYSTEM32, screen._on_wsl, screen.shutil.which, sys.platform)
+screen.WINDOWS_SYSTEM32, screen._on_wsl = windows, lambda: True
+screen.shutil.which = lambda name: None
+sys.platform = "linux"
+try:
+    check("clip.exe is found where Windows keeps it",
+          (os.path.join(windows, "clip.exe"),) in {tuple(a) for a, _ in screen._tools()},
+          str(screen._tools()))
+    check("and so is the PowerShell a right click pastes with",
+          screen._readers() and screen._readers()[0][0].endswith("powershell.exe"),
+          str(screen._readers()))
+    screen._on_wsl = lambda: False
+    check("off WSL nothing is looked for there", screen._tools() == [], str(screen._tools()))
+finally:
+    screen.WINDOWS_SYSTEM32, screen._on_wsl, screen.shutil.which, sys.platform = real
+
+print("\n--- only the terminal was asked ---")
+screen.copy = lambda text: False
+promptkeys._note = ("", 0.0)
+app = App()
+promptkeys.handle(app, ("down", 0, 1, ABOVE))
+promptkeys.handle(app, ("move", 20, 6, ABOVE))
+promptkeys.handle(app, ("up", 20, 6, ABOVE))
+check("it does not say 'copied' for an escape the terminal may have refused",
+      "copied" not in promptkeys.note() and "sent to the terminal" in promptkeys.note(),
+      promptkeys.note())
 
 print()
 if failures:

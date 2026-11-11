@@ -200,6 +200,13 @@ own, and out to a package of its own only when someone needs it there.
   in full was parsed as bytes with no `data:` line in them, and the turn
   ended in "the model reasoned but said nothing" with no error to say why.
   The stream is decoded now, still one event at a time.
+- **A drag reaches the clipboard on WSL and inside GNU screen.** With
+  Windows left off WSL's PATH there was no `clip.exe` to find, so a drag
+  relied on OSC 52 alone - and GNU screen keeps that escape for itself. The
+  note said "copied" and the clipboard was empty; a right click pasted
+  nothing. `clip.exe` and PowerShell are now found where Windows keeps them,
+  OSC 52 is passed through screen to the terminal outside it, and when only
+  the terminal was asked the note says it was sent rather than copied.
 - **Ctrl+C says how to leave beside the prompt.** "Press Ctrl+C again to
   quit" is drawn on the right of the row being typed at, where a drag says
   what it copied, instead of on a line of its own - every press used to push

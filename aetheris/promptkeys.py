@@ -301,10 +301,15 @@ def release(app, copy: bool = True) -> str:
         if asked:
             app.output.write_raw(asked)
             app.output.flush()
-        if took or asked:
-            size = (f"{text.count(chr(10)) + 1} lines" if "\n" in text
-                    else f"{len(text)} characters")
+        size = (f"{text.count(chr(10)) + 1} lines" if "\n" in text
+                else f"{len(text)} characters")
+        if took:
             _note = (f"{S.MUTED}⧉ copied {size}{S.R}", time.monotonic() + NOTE_SECONDS)
+        elif asked:
+            # The terminal was asked and never says whether it did - many
+            # refuse OSC 52, or leave it switched off - so this is not "copied".
+            _note = (f"{S.MUTED}⧉ {size} sent to the terminal to copy{S.R}",
+                     time.monotonic() + NOTE_SECONDS)
         else:
             _note = (f"{S.WARN}⧉ nothing here can reach the clipboard{S.R}",
                      time.monotonic() + NOTE_SECONDS)
