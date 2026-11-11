@@ -188,6 +188,13 @@ own, and out to a package of its own only when someone needs it there.
   installed this one, after showing the command and asking. A git checkout is
   told to `git pull`. `UPDATE_CHECK` turns the check off. Versions compare as
   releases: `1.1` is `1.1.0`, and 2.0.0 is newer than 2.0.0rc1.
+- **A CP949 file can be read and edited.** Korean saved by older Windows
+  editors is CP949, and read as UTF-8 it was "Cannot read file" and nothing
+  else. `read_file` now falls back to CP949 - strictly, so a file that is
+  neither is still refused - and says so. `edit_file` and `write_file` write
+  such a file back in CP949, as they already kept its line endings: saved as
+  UTF-8, a one-line edit would have changed every Korean line in it. A
+  character CP949 cannot hold is refused with nothing written.
 - **A gzipped event stream is read.** Anthropic compresses its stream, and
   the reader went to the body as it came off the wire: a reply that arrived
   in full was parsed as bytes with no `data:` line in them, and the turn

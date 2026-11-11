@@ -215,6 +215,47 @@ def _existing_newline(filepath: str) -> str:
     return "\r\n" if b"\r\n" in head else "\n"
 
 
+# What a file that is not UTF-8 is tried as, in order. CP949 because this is
+# where Korean source and notes saved by older Windows editors end up - read as
+# UTF-8 they were "Cannot read file" and nothing else. Decoded strictly, so a
+# file that is neither is still refused rather than read as noise.
+FALLBACK_ENCODINGS = ("cp949",)
+
+
+def _read_text(filepath: str) -> tuple:
+    """(text, encoding) for a text file, with newlines made `\\n` as `open` does.
+
+    Raises `UnicodeDecodeError` - the UTF-8 one - when no encoding fits.
+    """
+    with open(filepath, "rb") as f:
+        raw = f.read()
+    try:
+        text, encoding = raw.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError as not_utf8:
+        for encoding in FALLBACK_ENCODINGS:
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise not_utf8
+    return text.replace("\r\n", "\n").replace("\r", "\n"), encoding
+
+
+def _existing_encoding(filepath: str) -> str:
+    """The encoding a file already has, so writing it back keeps it.
+
+    The same reason as `_existing_newline`: a one-line edit to a CP949 file
+    that saved it as UTF-8 changed every Korean line in it, and the editor that
+    made it showed the user mojibake.
+    """
+    try:
+        return _read_text(filepath)[1]
+    except (OSError, UnicodeDecodeError):
+        return "utf-8"
+
+
 def _would_erase_a_secret(filepath: str, text: str) -> list:
     """Secrets the file holds now that this write would replace with a name.
 
@@ -234,7 +275,8 @@ def _would_erase_a_secret(filepath: str, text: str) -> list:
             if secrets.get(name) and secrets[name] in existing]
 
 
-def _write_file(filepath: str, text: str, newline: str = "\n") -> str:
+def _write_file(filepath: str, text: str, newline: str = "\n",
+                encoding: str = "utf-8") -> str:
     """Replace a file with `text`, all at once or not at all. "" or the problem.
 
     Through `atomic`, for the reason that module exists: `open(path, "w")`
@@ -267,10 +309,21 @@ def _write_file(filepath: str, text: str, newline: str = "\n") -> str:
                 f"{'it' if len(overwritten) == 1 else 'them'}. A secret is not "
                 f"yours to rewrite: leave the line alone, or tell the user what "
                 f"you would change and let them edit it.")
+    if encoding != "utf-8":
+        try:
+            text.encode(encoding)
+        except UnicodeEncodeError as e:
+            # Saved as UTF-8 instead, every other line of the file would change
+            # under the user; saved with `replace`, this line would.
+            bad = text[e.start:e.end]
+            return (f"[Error] Nothing was written. {os.path.basename(filepath)} is "
+                    f"saved as {encoding}, which cannot hold {bad!r}. Write it "
+                    f"without that character, or ask the user to convert the "
+                    f"file to UTF-8 first.")
     if newline != "\n":
         text = text.replace("\n", newline)
     try:
-        atomic.write_text(filepath, text)
+        atomic.write_text(filepath, text, encoding=encoding)
     except Exception as e:
         return f"[Error] Cannot write file: {e}"
     return ""
@@ -829,7 +882,8 @@ def _edit_by_patch(filepath: str, file_content: str, patch: list,
 
     for number, _, text in patch:
         lines[number - 1] = text
-    problem = _write_file(filepath, "\n".join(lines), _existing_newline(filepath))
+    problem = _write_file(filepath, "\n".join(lines), _existing_newline(filepath),
+                          _existing_encoding(filepath))
     if problem:
         return problem
 
@@ -912,7 +966,8 @@ def _edit_by_anchor(filepath: str, file_content: str, start: int, end: int,
         return "[System] User denied file edit."
 
     lines[start - 1:end] = replacement
-    problem = _write_file(filepath, "\n".join(lines), _existing_newline(filepath))
+    problem = _write_file(filepath, "\n".join(lines), _existing_newline(filepath),
+                          _existing_encoding(filepath))
     if problem:
         return problem
 
@@ -983,8 +1038,7 @@ def handle_read_file(filepath: str, start_line=0, end_line=0, limit=0) -> str:
         # end of a file that was asked for in part because it is too big.
         end = max(1, start) + count - 1
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            content = f.read()
+        content, encoding = _read_text(filepath)
     except Exception as e:
         return f"[Error] Cannot read file: {e}"
     lines = content.split("\n")
@@ -1011,13 +1065,17 @@ def handle_read_file(filepath: str, start_line=0, end_line=0, limit=0) -> str:
                 shown -= 1
                 break
     body = "\n".join(rows[:shown])
+    # Said, because an edit that brings in a character the file's encoding
+    # cannot hold is refused, and the model should know that beforehand.
+    said = ("" if encoding == "utf-8" else
+            f"\n[This file is {encoding}, not UTF-8. Edits keep it {encoding}.]")
     reached = first + shown - 1
     if reached < last:
         return (body + f"\n...[Too long - stopped at line {reached} of {total}. "
-                f"read_file with start_line={reached + 1} reads on.]...")
+                f"read_file with start_line={reached + 1} reads on.]..." + said)
     if first > 1 or last < total:
-        return body + f"\n[lines {first}-{last} of {total}]"
-    return body
+        return body + f"\n[lines {first}-{last} of {total}]" + said
+    return body + said
 
 def handle_view_image(filepath: str) -> str:
     """Put an image in front of the model on its next request.
@@ -1074,7 +1132,8 @@ def handle_write_file(filepath: str, content: str) -> str:
     approved = _approval_prompt("Write File", [("path", filepath), ("preview", preview)],
                                 rule=f"write_file({filepath})")
     if not approved: return "[System] User denied file write."
-    problem = _write_file(filepath, content, _existing_newline(filepath))
+    problem = _write_file(filepath, content, _existing_newline(filepath),
+                          _existing_encoding(filepath))
     if problem:
         return problem
     return f"[Success] File written: {filepath}"
@@ -1098,8 +1157,7 @@ def handle_edit_file(filepath: str, old_content: str, new_content: str) -> str:
     old_content, new_content = _as_text(old_content), _as_text(new_content)
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            file_content = f.read()
+        file_content = _read_text(filepath)[0]
     except Exception as e:
         return f"[Error] Cannot read file: {e}"
 
@@ -1139,7 +1197,8 @@ def handle_edit_file(filepath: str, old_content: str, new_content: str) -> str:
     if not approved: return "[System] User denied file edit."
 
     new_file_content = file_content.replace(old_content, new_content, 1)
-    problem = _write_file(filepath, new_file_content, _existing_newline(filepath))
+    problem = _write_file(filepath, new_file_content, _existing_newline(filepath),
+                          _existing_encoding(filepath))
     if problem:
         return problem
 

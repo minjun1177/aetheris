@@ -22,11 +22,13 @@ import os
 import tempfile
 
 
-def write_text(path: str, data: str, private: bool = False) -> None:
+def write_text(path: str, data: str, private: bool = False,
+               encoding: str = "utf-8") -> None:
     """Replace `path` with `data`, all at once or not at all.
 
     With `private=True` the file ends up readable only by its owner, and was
-    never readable by anyone else at any point in between.
+    never readable by anyone else at any point in between. `encoding` is for a
+    file somebody else owns that is not UTF-8; this program's own are.
     """
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
@@ -36,7 +38,7 @@ def write_text(path: str, data: str, private: bool = False) -> None:
     handle, temporary = tempfile.mkstemp(dir=directory, prefix=".tmp-",
                                          suffix=os.path.basename(path))
     try:
-        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
+        with os.fdopen(handle, "w", encoding=encoding, newline="\n") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())    # the bytes, not just the rename, must survive

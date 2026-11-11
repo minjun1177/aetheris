@@ -1463,6 +1463,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_remote.py` | That no token, a nearly-right token and a foreign `Host` each get nothing, that a `.env` value does not go out over the wire, that a stale question cannot be answered, and that closing the door frees the port (§8c) |
 | `test_channel.py` | That another harness's file cannot be written from here, that a claim dies with its terminal, that a message sent mid-turn is read inside that turn rather than after it, and that concurrent writes to the board lose nothing (5.11, §8) |
 | `test_hashline_edit.py` | That an anchor reaches the line it names, and that a stale one is refused rather than applied a few lines off (5.12) |
+| `test_encoding.py` | That a CP949 file is read under its real anchors, edited and replaced in CP949, and that a character it cannot hold is refused with nothing written |
 | `test_vm.py` | That `run_python` takes its code as a raw block, remembers between calls, and says the namespace is gone every way it can die (§8a) |
 | `test_usage.py` | That a turn's requests are counted as one turn, that a resumed session carries on past its own, and that a session recorded before turns existed still renders |
 | `test_settings.py` | That `/set` records only what changed, that a broken settings file still starts, that a saved API key can be deleted, and that the banner fits the terminal |
