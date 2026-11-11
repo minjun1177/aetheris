@@ -14,7 +14,7 @@ harness's implementation and changes when the harness needs it to.
 
 from typing import TYPE_CHECKING
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = ["MCPError", "MCPServer", "ShellSession", "start_shell"]
 

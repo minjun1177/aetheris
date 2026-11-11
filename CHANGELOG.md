@@ -32,7 +32,18 @@ own, and out to a package of its own only when someone needs it there.
 
 ---
 
-## Unreleased
+## 1.2.0 - 2026-11-11
+
+Aetheris without a person at the keyboard, and a small model that loses its
+way less often. `aetheris -p` answers one prompt into a pipe, and
+`bench/run.py` measures models on that; a refused request is retried, the
+same call made over and over is stopped, and `move_file`, `find_files` and
+`update_todos` replace what a small model used to get wrong in several steps.
+The terminal gained `/rewind`, `/btw`, `/copy`, `/context`, `/effort` and
+`/update`, and nine switches folded into `/set` - the old names still answer.
+A CP949 file can be read and edited, a gzipped Anthropic stream is no longer
+read as an empty reply, and a drag reaches the clipboard on WSL and inside GNU
+screen. Everything is additive: nothing in the Compatibility table moved.
 
 - **The local model stays loaded.** Requests to Ollama carry
   `OLLAMA_KEEP_ALIVE` (`30m` by default). Ollama's own five minutes ran out
