@@ -190,6 +190,14 @@ own, and out to a package of its own only when someone needs it there.
   in full was parsed as bytes with no `data:` line in them, and the turn
   ended in "the model reasoned but said nothing" with no error to say why.
   The stream is decoded now, still one event at a time.
+- **Ctrl+C says how to leave beside the prompt.** "Press Ctrl+C again to
+  quit" is drawn on the right of the row being typed at, where a drag says
+  what it copied, instead of on a line of its own - every press used to push
+  the conversation up a line. At an open prompt the first press clears the
+  line (Up brings it back) and keeps the prompt open. The window for the
+  second press is a second, not five. A `!command` or an Attacca call that
+  caught its own Ctrl+C no longer leaves the cancellation owed, which closed
+  the next prompt the moment it opened.
 
 ---
 

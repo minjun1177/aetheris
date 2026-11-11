@@ -1,4 +1,4 @@
-"""Ctrl+C stops what is running; leaving takes a second one within five seconds.
+"""Ctrl+C stops what is running; leaving takes a second press within a second.
 
 One press used to end the program from anywhere - a turn half answered, a
 command half run - because `asyncio.run` turns the first Ctrl+C into a
@@ -19,6 +19,8 @@ happens to be. So the harness takes the signal itself:
   and closes the request under it, when its reader goes away.
 """
 import asyncio
+import contextlib
+import io
 import os
 import signal
 import sys
@@ -33,7 +35,7 @@ from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 
-from aetheris import app, providers, tui   # noqa: E402
+from aetheris import app, promptkeys, providers, tui   # noqa: E402
 
 failures = []
 
@@ -68,6 +70,94 @@ app._last_interrupt -= app.EXIT_WINDOW + 1
 check("a second one after the window is a first one again",
       not app._interrupted(KeyboardInterrupt()))
 check("and the one after that leaves", app._interrupted(KeyboardInterrupt()))
+fresh()
+app._interrupted(KeyboardInterrupt())
+app._last_interrupt -= 1.05
+check("a second one more than a second later is a first one again",
+      not app._interrupted(KeyboardInterrupt()))
+
+print("\n--- how to leave is said beside the prompt, not printed ---")
+fresh()
+printed = io.StringIO()
+with contextlib.redirect_stdout(printed):
+    app._say_how_to_leave()
+if config.PROMPT_TOOLKIT_AVAILABLE:
+    check("nothing is printed above the prompt", printed.getvalue() == "",
+          printed.getvalue().strip())
+    check("it is said beside the prompt while the window is open",
+          "Press Ctrl+C again to quit" in promptkeys.note(), promptkeys.note())
+    time.sleep(app.EXIT_WINDOW + 0.1)
+    check("and gone once a press would no longer quit", promptkeys.note() == "",
+          promptkeys.note())
+
+    # The redraw that takes the note away runs after a draw and asks for one,
+    # so it is counted past the note's end: the state it leaves looks the same
+    # whether it stopped once or kept going.
+    class Redrawn:
+        def __init__(self, loop):
+            self.loop, self.draws = loop, 0
+
+        def invalidate(self):       # a draw, then prompt_toolkit's after_render
+            self.draws += 1
+            self.loop.call_soon(promptkeys._expire_note, self)
+
+    async def redraws():
+        drawn = Redrawn(asyncio.get_running_loop())
+        promptkeys.say("Press Ctrl+C again to quit", 0.2)
+        promptkeys._expire_note(drawn)          # the draw that showed it
+        await asyncio.sleep(1.0)
+        return drawn.draws
+
+    draws = asyncio.run(redraws())
+    check("an expired note is taken away by one redraw, not one every 50 ms",
+          draws == 1, f"{draws} redraws in 1s after a 0.2s note")
+else:
+    check("a terminal with no prompt_toolkit is still told",
+          "Press Ctrl+C again to quit" in printed.getvalue(), printed.getvalue().strip())
+
+print("\n--- at an open prompt the first press does not close it ---")
+
+
+class Buffer:
+    def __init__(self, text):
+        self.text, self.kept = text, None
+
+    def reset(self, append_to_history=False):
+        self.kept = self.text if append_to_history else None
+        self.text = ""
+
+
+class Prompt:
+    def __init__(self):
+        self.closed_with = None
+
+    def exit(self, result=None, exception=None, style=""):
+        self.closed_with = exception
+
+
+class Event:
+    def __init__(self, text=""):
+        self.current_buffer, self.app = Buffer(text), Prompt()
+
+
+fresh()
+first = Event("half a ques")
+app._ctrl_c_at_prompt(first)
+check("the first press leaves the prompt open", first.app.closed_with is None)
+check("and clears the line into the history",
+      first.current_buffer.text == "" and first.current_buffer.kept == "half a ques")
+if config.PROMPT_TOOLKIT_AVAILABLE:
+    check("and says how to leave beside it",
+          "Press Ctrl+C again to quit" in promptkeys.note(), promptkeys.note())
+second = Event()
+app._ctrl_c_at_prompt(second)
+check("the second inside the window closes it, already counted",
+      isinstance(second.app.closed_with, app._Signalled))
+check("and the main loop reads that as leaving", app._interrupted(second.app.closed_with))
+if config.PROMPT_TOOLKIT_AVAILABLE:
+    bound = {b.keys[0] for b in promptkeys.bindings(interrupt=app._ctrl_c_at_prompt).bindings}
+    from prompt_toolkit.keys import Keys
+    check("the prompt is given it as its Ctrl+C", Keys.ControlC in bound, str(bound))
 
 print("\n--- a press is counted once, however it is caught ---")
 fresh()
@@ -124,6 +214,24 @@ async def scenarios():
     except asyncio.CancelledError:
         seen["no second arrival"] = False
 
+    # A `!command` catches its own Ctrl+C; the cancellation left owed must not
+    # close the next prompt as a second press.
+    fresh()
+    pressed_at = app._last_interrupt
+    app._stoppable = True
+    try:
+        press()
+    except KeyboardInterrupt:
+        pass                       # what `safe_run_cmd` does with it
+    app._stoppable = False
+    seen["caught leaves"] = await app._settle_caught(pressed_at)
+    try:
+        await asyncio.sleep(0.01)
+        seen["caught clean after"] = True
+    except asyncio.CancelledError:
+        seen["caught clean after"] = False
+    seen["nothing pressed"] = await app._settle_caught(app._last_interrupt)
+
     # Half-way through a slash command: nothing is listening.
     fresh()
     try:
@@ -172,6 +280,10 @@ check("code holding the thread has it raised into it",
       seen.get("holding") == "_Signalled", str(seen.get("holding")))
 check("with the cancellation it left absorbed, not delivered as a second press",
       seen.get("no second arrival") is True)
+check("a Ctrl+C a command caught is not leaving", seen.get("caught leaves") is False)
+check("and its owed cancellation does not reach the next prompt",
+      seen.get("caught clean after") is True)
+check("with no press, settling does nothing", seen.get("nothing pressed") is False)
 check("half-way through a command it is put off, not raised",
       seen.get("deferred") is True, str(seen.get("deferred")))
 check("and cancels nothing", seen.get("deferred cancels") is False)

@@ -75,6 +75,7 @@ _SGR_MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 
 _drag = None                  # the selection being dragged out, if one is
 _note = ("", 0.0)             # what to say beside the prompt, and until when
+_note_timer = None            # the redraw that will take an expired note away
 
 
 class Drag:
@@ -109,6 +110,7 @@ def watch(app) -> None:
     state = _prompts.setdefault(app, {"peak": 0, "above": None, "last": None})
 
     def rendered(sender):
+        _expire_note(sender)
         try:
             renderer = sender.renderer
             room = renderer._min_available_height
@@ -168,6 +170,54 @@ def note() -> str:
     except Exception:
         pass
     return text if time.monotonic() < until else ""
+
+
+def say(text: str, seconds: float) -> None:
+    """Say something beside the prompt, for `seconds`, on the prompt's own row.
+
+    Set while the prompt is open it shows on the next draw; set while it is
+    closed, it is there on the row being typed at when the prompt opens again -
+    the same place a drag says what it copied.
+    That is where a notice about the key that was just pressed belongs: printed
+    above, it pushes the conversation up a line every time it is said, for
+    something that is over in a second.
+    """
+    global _note
+    _note = (f"{S.MUTED}{text}{S.R}", time.monotonic() + seconds)
+
+
+def _expire_note(app) -> None:
+    """Draw the prompt again once a note beside it has had its moment.
+
+    prompt_toolkit redraws only when something happens, so without this a note
+    that has expired would sit there looking true until the next keystroke.
+
+    Called after every draw, the redraw this asks for included - so a note that
+    has already had its moment asks for nothing. Expiry does not clear the
+    text, and without that check every draw scheduled the next one: the prompt
+    redrawn twenty times a second for as long as it stayed open.
+    """
+    global _note_timer
+    text, until = _note
+    if not text or _note_timer is not None or time.monotonic() >= until:
+        return
+
+    def settle():
+        global _note_timer
+        _note_timer = None
+        if time.monotonic() < _note[1]:
+            _expire_note(app)      # a newer note took this one's place
+            return
+        try:
+            app.invalidate()
+        except Exception:
+            pass
+
+    try:
+        _note_timer = app.loop.call_later(
+            max(until - time.monotonic(), 0) + 0.05, settle)
+    except Exception:
+        _note_timer = None         # nothing to schedule on: it goes on the next draw
 
 
 # A terminal reports all of the mouse or none of it, so taking the drag takes
@@ -377,8 +427,11 @@ def handle(app, point) -> None:
         rows_moved()
 
 
-def bindings():
-    """The key bindings a `PromptSession` is given. Needs prompt_toolkit."""
+def bindings(interrupt=None):
+    """The key bindings a `PromptSession` is given. Needs prompt_toolkit.
+
+    `interrupt`, if given, is what Ctrl+C does instead of closing the prompt.
+    """
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.key_binding.bindings.mouse import load_mouse_bindings
     from prompt_toolkit.keys import Keys
@@ -416,6 +469,8 @@ def bindings():
         # from here: drawn under an open prompt it would be drawn over.
         event.app.exit(result=Expand(event.current_buffer.text))
 
+    if interrupt is not None:
+        keys.add("c-c")(interrupt)
     keys.add(Keys.Vt100MouseEvent)(mouse(_vt_point, Keys.Vt100MouseEvent))
     keys.add(Keys.WindowsMouseEvent)(mouse(_windows_point, Keys.WindowsMouseEvent))
     return keys

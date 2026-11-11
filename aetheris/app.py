@@ -1088,7 +1088,7 @@ async def _set_aside(session_pt, typed) -> None:
 # seconds - one press used to end the program from anywhere, a turn half
 # answered included, and the key that means "not that" is pressed too often
 # for it to also mean "and close everything".
-EXIT_WINDOW = 5.0
+EXIT_WINDOW = 1.0
 _last_interrupt = 0.0         # when Ctrl+C was last pressed, by `time.monotonic`
 _leaving = False              # that press was the second inside the window
 _stoppable = False            # something is listening for a Ctrl+C right now
@@ -1111,8 +1111,10 @@ def _interrupted(caught=None) -> bool:
 
     One press is counted once. A signal is counted by the handler that
     received it, and reaches here as `_Signalled` or as the cancellation the
-    handler asked for; a plain `KeyboardInterrupt` is the key itself, read by
-    an open prompt, and nobody has counted that yet.
+    handler asked for; the key read by an open prompt is counted by
+    `_ctrl_c_at_prompt` and arrives as `_Signalled` too. A plain
+    `KeyboardInterrupt` - `input()` with no prompt_toolkit - nobody has
+    counted yet.
     """
     global _leaving
     if not isinstance(caught, (_Signalled, asyncio.CancelledError)):
@@ -1121,10 +1123,38 @@ def _interrupted(caught=None) -> bool:
     return leaving
 
 
-def _say_how_to_leave(stopped: bool = False) -> None:
-    what = f"{S.WARN}⏹ Stopped.{S.R} " if stopped else ""
-    print(f"\n  {what}{S.GRAY}Press Ctrl+C again within "
-          f"{EXIT_WINDOW:g} seconds to exit.{S.R}\n")
+def _say_how_to_leave() -> None:
+    """Say how to leave beside the prompt, not on a line of the conversation.
+
+    The prompt's own right-hand side is where a drag already says what it
+    copied, and this belongs in the same place: printed, the notice pushed the
+    conversation up a line every time the key was pressed, for something that
+    is over in a second. A terminal without prompt_toolkit has no such row, so
+    there it is still a line of its own.
+    """
+    said = "Press Ctrl+C again to quit"
+    if config.PROMPT_TOOLKIT_AVAILABLE:
+        promptkeys.say(said, EXIT_WINDOW)
+        return
+    print(f"  {S.GRAY}{said}{S.R}\n")
+
+
+def _ctrl_c_at_prompt(event) -> None:
+    """Ctrl+C at the open prompt, answered without closing it.
+
+    Closed, the prompt left its row behind and opened again under it: every
+    press pushed the conversation up a line, for a notice that is gone in a
+    second. Here the first press clears what was typed - kept in the history,
+    so Up brings it back - and says how to leave beside the same row; only the
+    second, inside `EXIT_WINDOW`, closes the prompt. Raised as `_Signalled`
+    because it has been counted already.
+    """
+    _count_interrupt()
+    if _leaving:
+        event.app.exit(exception=_Signalled(), style="class:aborting")
+        return
+    event.current_buffer.reset(append_to_history=True)
+    _say_how_to_leave()
 
 
 async def _absorb_cancel() -> None:
@@ -1145,6 +1175,24 @@ async def _absorb_cancel() -> None:
         uncancel()
 
 
+async def _settle_caught(pressed_at: float) -> bool:
+    """After code that catches its own Ctrl+C. Returns whether to leave.
+
+    A `!command` or a call from Attacca stops on Ctrl+C and returns as if
+    nothing happened - but the handler asked for the main task's cancellation
+    too, and left owed, it closed the next prompt the moment it opened: a
+    second press nobody made, and a dead prompt row left on screen. `pressed_at`
+    is `_last_interrupt` from before the code ran.
+    """
+    if _last_interrupt == pressed_at:
+        return False
+    await _absorb_cancel()
+    if _interrupted(_Signalled()):          # counted by the handler already
+        return True
+    _say_how_to_leave()
+    return False
+
+
 def _own_ctrl_c():
     """Take SIGINT for the life of the loop. Returns what puts it back.
 
@@ -1156,7 +1204,7 @@ def _own_ctrl_c():
     program only for a second press inside `EXIT_WINDOW`.
 
     While a prompt is open the terminal is raw and Ctrl+C is a key, not a
-    signal, so none of this runs: the prompt raises `KeyboardInterrupt` itself.
+    signal, so none of this runs: `_ctrl_c_at_prompt` answers the key itself.
     """
     try:
         loop, task = asyncio.get_running_loop(), asyncio.current_task()
@@ -2114,7 +2162,7 @@ async def main(resume_id: str = "") -> None:
             output=config.create_output(
                 stdout=screen.beneath(remote.unmirrored_stdout())),
             # A paste shown as its size, and a drag that selects by block.
-            key_bindings=promptkeys.bindings(),
+            key_bindings=promptkeys.bindings(interrupt=_ctrl_c_at_prompt),
             mouse_support=config.Condition(lambda: config.MOUSE_SELECT),
             rprompt=lambda: config.ANSI(promptkeys.note()),
             # What colours the line itself once it starts with `!`. The banner
@@ -2184,11 +2232,15 @@ async def main(resume_id: str = "") -> None:
         if user_input is IDLE_CALL:
             # Outside the `try` above on purpose: Ctrl+C at an approval prompt
             # for a call nobody here made means "not that", not "quit".
-            _stoppable = True
+            pressed_at, _stoppable = _last_interrupt, True
             try:
                 _serve_idle_calls()
             finally:
                 _stoppable = False
+            if await _settle_caught(pressed_at):
+                _shut_down()
+                print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+                break
             continue
 
         if user_input is WEB_TURN:
@@ -2203,9 +2255,9 @@ async def main(resume_id: str = "") -> None:
                 config.repair_messages(messages)
                 current_session_id = save_session(messages, current_session_id)
                 if not leaving:
-                    print(f"\n  {S.WARN}⏹ Stopped following{S.GRAY} - the turn goes on "
-                          f"in Attacca. Press Ctrl+C again within {EXIT_WINDOW:g} "
-                          f"seconds to exit.{S.R}\n")
+                    print(f"\n  {S.WARN}⏹ Stopped following{S.GRAY} - the turn goes "
+                          f"on in Attacca.{S.R}")
+                    _say_how_to_leave()
             finally:
                 _stoppable = False
             if leaving:
@@ -2232,13 +2284,17 @@ async def main(resume_id: str = "") -> None:
             print(f"\n  {S.MUTED}${S.R} {S.WHITE}{command}{S.R}")
             # Ctrl+C here stops the command - `safe_run_cmd` catches it - and
             # the prompt that follows says how to leave.
-            _stoppable = True
+            pressed_at, _stoppable = _last_interrupt, True
             try:
                 output = _run_user_command(command)
             finally:
                 _stoppable = False
             _fmt_tool_result(command, output)
             print()
+            if await _settle_caught(pressed_at):
+                _shut_down()
+                print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+                break
             if not config.RETURN_SHELL_OUTPUT:
                 # Theirs alone: run, shown, and in no copy a model reads.
                 continue
@@ -2425,7 +2481,7 @@ async def main(resume_id: str = "") -> None:
                 leaving = _interrupted(pressed)
                 await _absorb_cancel()
                 if not leaving:
-                    _say_how_to_leave(stopped=True)
+                    _say_how_to_leave()
             except Exception as e:
                 print()
                 connect._print_problem("Error", e)
@@ -2912,7 +2968,7 @@ async def main(resume_id: str = "") -> None:
             await _absorb_cancel()
             current_session_id = save_session(messages, current_session_id)
             if not leaving:
-                _say_how_to_leave(stopped=True)
+                _say_how_to_leave()
         except Exception as e:
             # Wrapped rather than run off the edge: this catches a provider
             # refusing the request, and that message names the key, the quota

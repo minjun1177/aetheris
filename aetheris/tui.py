@@ -261,7 +261,7 @@ PREFIXES = (
 # the remote offers a phone, and a phone has no Ctrl key to press.
 KEYS = (
     ("Ctrl+C", "Stop what is running - a reply, a command, a tool. Pressed "
-               "again within five seconds, leave"),
+               "again within a second, leave"),
     ("Ctrl+D", "Leave at once"),
     ("Ctrl+O", "The last turn again, uncut: the thinking, every call with all of "
                "its arguments, every result in full"),

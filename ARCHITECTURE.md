@@ -588,6 +588,14 @@ under it is not read to its end by a thread nobody is listening to.
 To make new code stoppable, run it between `_stoppable = True` and a `finally`
 that clears it, and catch `(KeyboardInterrupt, asyncio.CancelledError)` there.
 
+The window is `EXIT_WINDOW` - a second - and how to leave is said *beside* the
+prompt rather than on a line of its own: `_say_how_to_leave` sets
+`promptkeys.say`, which draws the notice on the right-hand side of the row
+being typed at, the same place a drag says what it copied. Printed above, the
+notice cost the conversation a line for every press, and the press it described
+was over in a second. A terminal without prompt_toolkit has no such row, so
+there it is still printed.
+
 ### 5.19 The screen is selected from the program's account of it
 
 A terminal selects cells and cannot be told that the `│` down a thought is not
