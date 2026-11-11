@@ -42,8 +42,8 @@ same call made over and over is stopped, and `move_file`, `find_files` and
 The terminal gained `/rewind`, `/btw`, `/copy`, `/context`, `/effort` and
 `/update`, and nine switches folded into `/set` - the old names still answer.
 A CP949 file can be read and edited, a gzipped Anthropic stream is no longer
-read as an empty reply, and a drag reaches the clipboard on WSL and inside GNU
-screen. Everything is additive: nothing in the Compatibility table moved.
+read as an empty reply, and a drag can be carried past the top of the screen
+and reaches the clipboard on WSL and inside GNU screen. Everything is additive: nothing in the Compatibility table moved.
 
 - **The local model stays loaded.** Requests to Ollama carry
   `OLLAMA_KEEP_ALIVE` (`30m` by default). Ollama's own five minutes ran out
@@ -211,6 +211,13 @@ screen. Everything is additive: nothing in the Compatibility table moved.
   in full was parsed as bytes with no `data:` line in them, and the turn
   ended in "the model reasoned but said nothing" with no error to say why.
   The stream is decoded now, still one event at a time.
+- **A drag goes on past the top of the screen.** Turning the wheel with the
+  button held handed the mouse back to the terminal, and the drag was dropped:
+  nothing longer than the window could be selected. Now the wheel scrolls the
+  drag - the rows above the prompt are drawn back from what was printed, the
+  last 5,000 rows - and holding the button at the top edge scrolls it a row at
+  a time. Letting go copies all of it and puts the screen back. A button let
+  go over the prompt's own rows ends the drag too, rather than leaving it held.
 - **A drag reaches the clipboard on WSL and inside GNU screen.** With
   Windows left off WSL's PATH there was no `clip.exe` to find, so a drag
   relied on OSC 52 alone - and GNU screen keeps that escape for itself. The

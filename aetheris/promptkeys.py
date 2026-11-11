@@ -78,6 +78,10 @@ _note = ("", 0.0)             # what to say beside the prompt, and until when
 _note_timer = None            # the redraw that will take an expired note away
 
 
+WHEEL_ROWS = 3                # rows a drag scrolls by for one notch of the wheel
+EDGE_SECONDS = 0.05           # how often a drag held at the edge scrolls a row
+
+
 class Drag:
     def __init__(self, app, anchor: tuple, rows_above: int):
         self.app = app
@@ -85,6 +89,9 @@ class Drag:
         self.rows_above = rows_above
         self.seen = _last_known(app)  # where the prompt was, when that was true
         self.chosen: dict = {}
+        self.scroll = 0               # rows the view is drawn back from the last one
+        self.pointer = None           # (x, y) on screen, where the button is now
+        self.edging = False           # a timer is scrolling it from the edge
 
     def settle(self) -> None:
         """Move with the prompt, if the prompt has moved since this was last right."""
@@ -250,16 +257,30 @@ def take_back(app) -> None:
         app.output.flush()
 
 
-def _row_of(y: int, rows_above: int) -> int:
-    """The ledger row drawn on screen row `y`, the last being just above the prompt."""
-    return len(screen.ledger.rows) - rows_above + y
+def _row_of(y: int, rows_above: int, scroll: int = 0) -> int:
+    """The ledger row drawn on screen row `y`, the last being just above the prompt
+    - or `scroll` rows before it, once a drag has scrolled the view back."""
+    return len(screen.ledger.rows) - rows_above + y - scroll
 
 
 def _draw(drag) -> None:
     drag.settle()
     out = drag.app.output
-    out.write_raw(screen.frame(drag.rows_above, drag.chosen))
+    out.write_raw(screen.frame(drag.rows_above, drag.chosen, drag.scroll))
     out.flush()
+
+
+def _choose(drag) -> bool:
+    """Select from the anchor to where the button is now. Whether that changed."""
+    if drag.pointer is None:
+        return False
+    x, y = drag.pointer
+    head = (_row_of(y, drag.rows_above, drag.scroll), x)
+    chosen = screen.ledger.select(drag.anchor, head)
+    if chosen == drag.chosen:
+        return False
+    drag.chosen = chosen
+    return True
 
 
 def press(app, x: int, y: int, rows_above: int) -> None:
@@ -270,6 +291,7 @@ def press(app, x: int, y: int, rows_above: int) -> None:
     if not 0 <= index < len(screen.ledger.rows):
         return
     _drag = Drag(app, (index, x), rows_above)
+    _drag.pointer = (x, y)
     # Drawn with nothing chosen yet: from here the rows on screen are the rows
     # in the ledger, whatever they were a moment ago.
     _draw(_drag)
@@ -281,11 +303,84 @@ def move(app, x: int, y: int, rows_above: int) -> None:
     if drag is None:
         return
     drag.rows_above, drag.seen = rows_above, _last_known(app)
-    head = (_row_of(y, drag.rows_above), x)
-    chosen = screen.ledger.select(drag.anchor, head)
-    if chosen != drag.chosen:
-        drag.chosen = chosen
+    drag.pointer = (x, y)
+    if _choose(drag):
         _draw(drag)
+    _keep_edging(drag)
+
+
+def scroll(app, rows: int) -> None:
+    """Carry the drag `rows` back through what was printed (forward when negative).
+
+    A terminal scrolls its own scrollback, which a drag cannot reach: what it
+    holds is cells, and the drag selects from the ledger. So the wheel turned
+    with the button held scrolls the rows above the prompt here instead,
+    redrawn from the ledger, and the selection runs on into them. The screen
+    is put back as it was when the button comes up.
+    """
+    drag = _drag
+    if drag is None or not rows:
+        return
+    drag.settle()
+    deepest = max(len(screen.ledger.rows) - drag.rows_above, 0)
+    wanted = min(max(drag.scroll + rows, 0), deepest)
+    if wanted == drag.scroll:
+        return
+    drag.scroll = wanted
+    _choose(drag)
+    _draw(drag)
+    _say_scrolled(drag)
+
+
+def _say_scrolled(drag) -> None:
+    global _note
+    if drag.scroll:
+        _note = (f"{S.MUTED}⇡ {drag.scroll} rows up - let go to copy{S.R}",
+                 time.monotonic() + NOTE_SECONDS)
+    else:
+        _note = ("", 0.0)
+    try:
+        drag.app.invalidate()
+    except Exception:
+        pass
+
+
+def _edge_step(drag) -> int:
+    """Which way a drag held at the edge scrolls: back from the top row, on
+    from the bottom one once it has scrolled back, else not at all."""
+    if drag.pointer is None:
+        return 0
+    y = drag.pointer[1]
+    if y <= 0:
+        return 1
+    if y >= drag.rows_above - 1 and drag.scroll > 0:
+        return -1
+    return 0
+
+
+def _keep_edging(drag) -> None:
+    """Scroll while the button is held at the edge. A terminal reports the
+    mouse only when it moves, so a pointer kept still there needs a timer."""
+    if drag.edging or not _edge_step(drag):
+        return
+    drag.edging = True
+
+    def step():
+        drag.edging = False
+        if drag is not _drag:
+            return                      # let go, or another drag began
+        going = _edge_step(drag)
+        if not going:
+            return
+        before = drag.scroll
+        scroll(drag.app, going)
+        if drag.scroll != before:
+            _keep_edging(drag)          # the end of the ledger stops it
+
+    try:
+        drag.app.loop.call_later(EDGE_SECONDS, step)
+    except Exception:
+        drag.edging = False
 
 
 def release(app, copy: bool = True) -> str:
@@ -313,7 +408,17 @@ def release(app, copy: bool = True) -> str:
         else:
             _note = (f"{S.WARN}⧉ nothing here can reach the clipboard{S.R}",
                      time.monotonic() + NOTE_SECONDS)
+    elif drag.scroll:
+        _note = ("", 0.0)             # "rows up" is over, and nothing was copied
     if not drag.chosen:
+        if drag.scroll:
+            # Scrolled back with nothing chosen: the screen goes back to what
+            # it was, now, since there is no highlight to leave lit a moment.
+            drag.scroll = 0
+            try:
+                _draw(drag)
+            except Exception:
+                pass
         return text
 
     _lit.append(drag)
@@ -335,10 +440,11 @@ def _unlight(drag) -> None:
         return
     if drag in _lit:
         _lit.remove(drag)
-    if drag.chosen and _drag in (None, drag):
+    if (drag.chosen or drag.scroll) and _drag in (None, drag):
         # Not under a newer drag: every drawing is of all the rows, and that
-        # one has drawn these as they are already.
-        drag.chosen = {}
+        # one has drawn these as they are already. Drawn at the bottom again:
+        # the rows a drag scrolled back to were only ever drawn over the screen.
+        drag.chosen, drag.scroll = {}, 0
         try:
             _draw(drag)
         except Exception:
@@ -378,12 +484,19 @@ def _vt_point(event):
     if code & 0b1100011 == 2 and report[4] == "M":
         return "paste", x, y, 0   # the right button, wherever it went down
     if code & 64:
-        return "wheel", x, y, 0   # and the wheel, wherever it turned
+        # And the wheel, wherever it turned - with how far it would carry a
+        # drag in place of rows above: 64 is up, 65 down, 66 and 67 sideways.
+        step = {0: WHEEL_ROWS, 1: -WHEEL_ROWS}.get(code & 3, 0)
+        return "wheel", x, y, step
     above = rows_known(event.app)
     if above is None:
         return None               # the prompt does not know where it is yet
     if y >= above:
-        return None
+        if _drag is None or above < 1:
+            return None
+        # A drag carried down onto the prompt is still the drag - the edge it
+        # scrolls on, and where the button may come up - not a click there.
+        y = above - 1
     if code & 3:
         return "other", x, y, above           # not the left button, or none held
     what = "up" if report[4] == "m" else ("move" if code & 32 else "down")
@@ -397,7 +510,8 @@ def _windows_point(event):
         if button == "RIGHT" and what == "MOUSE_DOWN":
             return "paste", int(x), int(y), 0
         if what.startswith("SCROLL"):
-            return "wheel", int(x), int(y), 0
+            step = {"SCROLL_UP": WHEEL_ROWS, "SCROLL_DOWN": -WHEEL_ROWS}.get(what, 0)
+            return "wheel", int(x), int(y), step
         info = event.app.renderer.output.get_win32_screen_buffer_info()
         top = info.dwCursorPosition.Y - event.app.renderer._cursor_pos.y
         window = info.srWindow.Top
@@ -405,7 +519,9 @@ def _windows_point(event):
     except Exception:
         return None
     if y >= top:
-        return None
+        if _drag is None or top - window < 1:
+            return None
+        y = top - 1                           # held on the prompt: still the drag
     above, y = top - window, y - window       # rows of the buffer -> rows on screen
     if what == "MOUSE_UP":                    # reported with no button: it is up
         return "up", x, y, above
@@ -417,7 +533,9 @@ def _windows_point(event):
 def handle(app, point) -> None:
     what, x, y, above = point
     try:
-        if what == "wheel":
+        if what == "wheel" and _drag is not None:
+            scroll(app, above)          # held: the drag scrolls, it is not let go
+        elif what == "wheel":
             hand_back(app)
         elif what == "down":
             press(app, x, y, above)

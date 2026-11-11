@@ -38,9 +38,10 @@ import threading
 
 from aetheris import config
 
-# More than any terminal is tall. Only the rows on screen can be dragged over,
-# so nothing older than this is ever asked for.
-ROWS_KEPT = 600
+# How far back a drag can scroll. A drag starts on a row on screen, but the
+# wheel - or holding it at the top edge - carries it up through what was
+# printed before, which is drawn from here; a long answer is a few hundred rows.
+ROWS_KEPT = 5000
 
 # What the program writes that is not text: colour (`m`), erasing the line
 # (`K`) or the screen (`J`), and - with the screen - going home (`H`).
@@ -308,17 +309,21 @@ def typed(prompt: str, answer: str = "") -> None:
     ledger.feed(f"{prompt}{answer}\033[0m\n")
 
 
-def frame(rows_above: int, chosen: dict | None = None) -> str:
+def frame(rows_above: int, chosen: dict | None = None, scroll: int = 0) -> str:
     """Draw the rows above the prompt from the ledger, `chosen` highlighted.
 
     The whole stretch, not just the rows that changed: it is what makes the
     screen agree with the ledger before a selection is drawn over it. The
     cursor and its colour are saved around it, so the prompt underneath never
     learns that anything was written.
+
+    `scroll` rows back, the stretch ends that far before the last row: what a
+    drag sees once the wheel has carried it up. 0 is the screen as it is.
     """
     with ledger.lock:
-        count = min(rows_above, len(ledger.rows))
-        start = len(ledger.rows) - count
+        end = max(len(ledger.rows) - max(scroll, 0), 0)
+        count = min(rows_above, end)
+        start = end - count
         out = ["\0337"]
         for offset in range(count):
             index = start + offset

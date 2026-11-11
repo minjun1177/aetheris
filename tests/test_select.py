@@ -506,6 +506,85 @@ if config.PROMPT_TOOLKIT_AVAILABLE:
     check("a right click pastes what the clipboard holds, the same way",
           event.current_buffer.text == "[Copied text Line:3 Chars:18]", event.current_buffer.text)
 
+print("\n--- a drag carried past the top of the screen ---")
+# What a terminal's own selection does: hold the button, turn the wheel - or
+# hold it at the top edge - and the selection runs on into what has scrolled
+# away. The wheel used to hand the mouse back to the terminal, and the drag
+# was dropped half-way.
+ledger = fresh()
+with screen.block("answer"):
+    for n in range(40):
+        ledger.feed(f"  line {n:02}\n")
+copied = []
+screen.copy = lambda text: copied.append(text) or True
+app = App()
+SHOWN = 10                                   # rows above the prompt: lines 30-39
+promptkeys.handle(app, ("down", 20, 5, SHOWN))
+check("a press lands on the row it is drawn on", promptkeys._drag.anchor[0] == 35)
+app.output.written = ""
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+check("the wheel turned with the button held scrolls the drag back",
+      promptkeys._drag is not None and promptkeys._drag.scroll == 3
+      and "line 27" in app.output.written and "line 37" not in app.output.written,
+      repr(app.output.written[-120:]))
+check("and is said beside the prompt", "3 rows up" in promptkeys.note(), promptkeys.note())
+promptkeys.handle(app, ("move", 2, 0, SHOWN))
+check("a move then selects into the rows it brought back",
+      min(promptkeys._drag.chosen) == 27, str(sorted(promptkeys._drag.chosen)))
+check("held at the top edge, it is scrolled on by a timer",
+      app.loop.later and app.loop.later[-1][0] == promptkeys.EDGE_SECONDS)
+delay, function, args = app.loop.later.pop()
+function(*args)
+check("one row at a time, the selection going with it",
+      promptkeys._drag.scroll == 4 and min(promptkeys._drag.chosen) == 26,
+      f"{promptkeys._drag.scroll} {sorted(promptkeys._drag.chosen)[:2]}")
+promptkeys.handle(app, ("wheel", 2, 0, -promptkeys.WHEEL_ROWS))
+check("turned the other way it comes back down", promptkeys._drag.scroll == 1)
+for _ in range(40):
+    promptkeys.handle(app, ("wheel", 2, 0, promptkeys.WHEEL_ROWS))
+check("and no further back than what was printed",
+      promptkeys._drag.scroll == 30 and min(promptkeys._drag.chosen) == 0)
+for _ in range(9):
+    promptkeys.handle(app, ("wheel", 2, 0, -promptkeys.WHEEL_ROWS))
+app.loop.later.clear()
+promptkeys.handle(app, ("up", 2, 0, SHOWN))
+check("letting go copies all of it, the rows that had scrolled away included",
+      copied and copied[-1].startswith("line 27") and copied[-1].endswith("line 35")
+      and copied[-1].count("\n") == 8, repr(copied[-1] if copied else copied))
+app.output.written = ""
+for delay, function, args in list(app.loop.later):
+    if delay == promptkeys.FLASH:
+        function(*args)
+check("and the screen is drawn as it is again, the last line at the bottom",
+      "line 39" in app.output.written and "line 03" not in app.output.written,
+      repr(app.output.written[-80:]))
+
+promptkeys.handle(app, ("down", 20, 5, SHOWN))
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+app.output.written = ""
+real_select, screen.ledger.select = screen.ledger.select, lambda anchor, head: {}
+try:
+    promptkeys.handle(app, ("up", 20, 5, SHOWN))
+finally:
+    screen.ledger.select = real_select
+check("scrolled back and let go with nothing chosen: put back at once",
+      "line 39" in app.output.written and promptkeys._drag is None
+      and "rows up" not in promptkeys.note(), repr(app.output.written[-60:]))
+
+check("the wheel says which way it turned",
+      promptkeys._vt_point(Event("\x1b[<64;9;4M"))[3] == promptkeys.WHEEL_ROWS
+      and promptkeys._vt_point(Event("\x1b[<65;9;4M"))[3] == -promptkeys.WHEEL_ROWS
+      and promptkeys._vt_point(Event("\x1b[<66;9;4M"))[3] == 0)
+check("a Windows console's too",
+      promptkeys._windows_point(WindowsEvent("NONE;SCROLL_DOWN;9;103"))[3]
+      == -promptkeys.WHEEL_ROWS)
+promptkeys._drag = promptkeys.Drag(App(), (0, 0), 12)
+check("a drag carried down onto the prompt is still the drag, on the row above it",
+      promptkeys._vt_point(Event("\x1b[<0;5;13m")) == ("up", 4, 11, 12))
+promptkeys._drag = None
+check("without one, the prompt's rows are still its own",
+      promptkeys._vt_point(Event("\x1b[<0;5;13m")) is None)
+
 print("\n--- the clipboard ---")
 check("the terminal is asked in the escape it understands",
       screen.osc52("가") == "\033]52;c;" + base64.b64encode("가".encode()).decode() + "\a")
