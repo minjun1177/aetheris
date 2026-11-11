@@ -15,6 +15,7 @@ package.json
 .mcp.json
 .permissions.json
 mcp.log
+z/
 
 # packaging artefacts
 build/
