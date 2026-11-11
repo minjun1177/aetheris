@@ -53,6 +53,16 @@ check("the whole file is exactly what it was", "[lines" not in whole
       and whole.split("\n")[0].startswith("1:"))
 check("numbers that came as strings are read as numbers",
       tools.handle_read_file(path, "40", "40").split("\n")[0].startswith("40:"))
+spec = toolspec.get("read_file")
+counted = tools.handle_read_file(*spec.bind({"filepath": path, "offset": 40, "limit": 3}))
+check("offset and limit - a count of lines - read that many from there",
+      counted.split("\n")[-1] == "[lines 40-42 of 101]", counted.split("\n")[-1])
+check("limit alone counts from the top",
+      tools.handle_read_file(path, 0, 0, 2).split("\n")[-1] == "[lines 1-2 of 101]")
+check("an end_line given beats a limit",
+      tools.handle_read_file(path, 40, 41, 50).split("\n")[-1] == "[lines 40-41 of 101]")
+check("limit stays out of what the model is told",
+      "limit" not in spec.schema()["parameters"])
 check("an end past the last line stops at the last line",
       tools.handle_read_file(path, 100, 500).split("\n")[-1] == "[lines 100-101 of 101]")
 
@@ -85,7 +95,9 @@ check("and says where to read on",
 print("\n--- what the model is told ---")
 spec = toolspec.get("read_file")
 check("the tool takes the range", [p.name for p in spec.params]
-      == ["filepath", "start_line", "end_line"])
+      == ["filepath", "start_line", "end_line", "limit"])
+check("and tells of start_line and end_line only",
+      list(spec.schema()["parameters"]) == ["filepath", "start_line", "end_line"])
 check("both optional, so a call with a path alone is still whole",
       not any(p.required for p in spec.params[1:]))
 prompt = systemprompt.systemprompt()

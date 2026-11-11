@@ -154,6 +154,9 @@ TOOLS = (
             Param(name='filepath', description='The absolute path to the file.'),
             Param(name='start_line', description='(Optional) The first line to read, counting from 1.', default=0, optional=True, aliases=('offset',)),
             Param(name='end_line', description='(Optional) The last line to read, included. Leave it out to read to the end.', default=0, optional=True),
+            # `offset` comes with `limit` - a count of lines, not a last line -
+            # from models used to another harness's read tool. Not advertised.
+            Param(name='limit', default=0, hidden=True),
         ),
     ),
     Tool(

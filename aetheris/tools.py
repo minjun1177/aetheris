@@ -961,7 +961,7 @@ def _as_text(value) -> str:
     return str(value)
 
 
-def handle_read_file(filepath: str, start_line=0, end_line=0) -> str:
+def handle_read_file(filepath: str, start_line=0, end_line=0, limit=0) -> str:
     filepath, complaint = _as_path(filepath)
     if complaint:
         return complaint
@@ -974,10 +974,14 @@ def handle_read_file(filepath: str, start_line=0, end_line=0) -> str:
                 f"image ({images.describe(filepath)}), not text. Call "
                 "`view_image` with this path to look at it.")
     try:
-        start, end = int(start_line or 0), int(end_line or 0)
+        start, end, count = int(start_line or 0), int(end_line or 0), int(limit or 0)
     except (TypeError, ValueError):
         return (f"{config.TOOL_ERROR_PREFIX} start_line and end_line are line "
                 "numbers, counting from 1.")
+    if count > 0 and end <= 0:
+        # `offset` + `limit`: so many lines from there. Ignored, it read to the
+        # end of a file that was asked for in part because it is too big.
+        end = max(1, start) + count - 1
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()

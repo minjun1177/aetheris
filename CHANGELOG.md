@@ -168,7 +168,9 @@ own, and out to a package of its own only when someone needs it there.
 - **`read_file` reads part of a file.** `start_line` and `end_line`, with the
   real line numbers and anchors. A file cut for length was cut mid-line, gave
   the half line an anchor, and had no way past the cut; it is now cut between
-  lines and says where to read on.
+  lines and says where to read on. `offset` and `limit` - a count of lines,
+  as another harness's read tool takes them - are understood too; `limit`
+  used to be dropped, and the call read to the end.
 - **Independent calls in one reply.** The prompt said to make one call and
   wait, while the loop has always run every call in a reply in order. Reads,
   listings and searches that do not depend on each other may now go together;
