@@ -41,8 +41,8 @@ window of its own - e.g. `/context 16k` for a small model on a small GPU - and
 a hosted model that reports its window gets that one without being told.
 
 **Updating.** `/update` asks PyPI for the newest version and, if you say yes,
-runs `pip install --upgrade aetheris` - or `pipx upgrade aetheris` when that is
-how it was installed. From a git checkout it names `git pull` instead of
+runs `pip install --upgrade aetheris` - or `pipx upgrade aetheris` or
+`uv tool upgrade aetheris` when that is how it was installed. From a git checkout it names `git pull` instead of
 running anything. Once a day the program also checks on its own and says so
 once; `/set UPDATE_CHECK off` stops that.
 

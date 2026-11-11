@@ -182,9 +182,10 @@ own, and out to a package of its own only when someone needs it there.
   `SHOW_THINKING` is on. Ctrl+O at the prompt prints all of it, and puts back
   what was half-typed.
 - **`/update`, and a daily check.** A newer version on PyPI is mentioned once,
-  between turns; `/update` installs it with pip or pipx, whichever installed
-  this one, after showing the command and asking. A git checkout is told to
-  `git pull`. `UPDATE_CHECK` turns the check off.
+  between turns; `/update` installs it with pip, pipx or `uv tool`, whichever
+  installed this one, after showing the command and asking. A git checkout is
+  told to `git pull`. `UPDATE_CHECK` turns the check off. Versions compare as
+  releases: `1.1` is `1.1.0`, and 2.0.0 is newer than 2.0.0rc1.
 - **A gzipped event stream is read.** Anthropic compresses its stream, and
   the reader went to the body as it came off the wire: a reply that arrived
   in full was parsed as bytes with no `data:` line in them, and the turn

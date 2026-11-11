@@ -33,17 +33,28 @@ _announced = False
 
 
 def _version(text: str) -> tuple:
-    """`1.10.0` as (1, 10, 0) - compared as numbers, not as text. A suffix
-    (`2.0.0rc1`) keeps its number and drops the rest."""
-    parts = []
-    for piece in str(text).split("."):
+    """`1.10.0` as ((1, 10, 0), 1) - compared as numbers, not as text.
+
+    Trailing zeros are dropped, so `1.1` and `1.1.0` are the same release. A
+    suffix (`2.0.0rc1`) keeps its number and marks a pre-release, which comes
+    before the release itself: whoever runs 2.0.0rc1 is told about 2.0.0. A
+    `.post1` comes after it.
+    """
+    parts, stage = [], 1        # 0 before the release, 1 the release, 2 after
+    for piece in str(text).strip().split("."):
         digits = ""
         for char in piece:
             if not char.isdigit():
                 break
             digits += char
-        parts.append(int(digits or 0))
-    return tuple(parts)
+        if digits:
+            parts.append(int(digits))
+        if digits != piece:     # a suffix: what follows it is its own number
+            stage = 2 if piece[len(digits):].lower().startswith("post") else 0
+            break
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts), stage
 
 
 def newer(candidate: str, than: str = __version__) -> bool:
@@ -58,18 +69,26 @@ def latest(timeout: float = CHECK_TIMEOUT) -> str:
     return str(response.json()["info"]["version"])
 
 
-def how_installed() -> tuple:
+def how_installed(package_dir: str = "", prefix: str = "") -> tuple:
     """(kind, command): how this copy is upgraded.
 
     "git" for a checkout - the command is a suggestion, never run: pulling is a
-    decision about a working tree. "pipx" and "pip" are run by `/update`.
+    decision about a working tree. "uv", "pipx" and "pip" are run by `/update`.
+    `package_dir` and `prefix` default to this copy's own.
+
+    A `uv tool install` environment has no pip in it, so `python -m pip` there
+    fails; uv leaves `uv-receipt.toml` at the root of every tool environment,
+    wherever `UV_TOOL_DIR` put it, and that is what is looked for.
     """
-    package_dir = os.path.dirname(os.path.abspath(__file__))
+    package_dir = package_dir or os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(package_dir)
     if os.path.exists(os.path.join(root, ".git")):
         return "git", ["git", "-C", root, "pull"]
-    prefix = os.path.normcase(sys.prefix)
-    if "pipx" in prefix and "venvs" in prefix:
+    prefix = prefix or sys.prefix
+    if os.path.exists(os.path.join(prefix, "uv-receipt.toml")):
+        return "uv", ["uv", "tool", "upgrade", PACKAGE]
+    folded = os.path.normcase(prefix)
+    if "pipx" in folded and "venvs" in folded:
         return "pipx", ["pipx", "upgrade", PACKAGE]
     return "pip", [sys.executable, "-m", "pip", "install", "--upgrade", PACKAGE]
 
@@ -87,11 +106,21 @@ def _read_state() -> dict:
         return {}
 
 
+def _checked(state: dict) -> float:
+    """When the last check ran. Anything that is not a time is "never": the
+    file is ours, but a hand or an older version may have written it, and a
+    value that will not read must not stop every later check."""
+    try:
+        return float(state.get("checked") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _check() -> None:
     global _found
     state = _read_state()
     seen = str(state.get("latest") or "")
-    if time.time() - float(state.get("checked") or 0) >= CHECK_EVERY:
+    if time.time() - _checked(state) >= CHECK_EVERY:
         try:
             seen = latest()
         except Exception:

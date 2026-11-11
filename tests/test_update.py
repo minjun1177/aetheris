@@ -45,6 +45,12 @@ check("the same is not newer", not update.newer("1.1.0", "1.1.0"))
 check("older is not newer", not update.newer("1.0.9", "1.1.0"))
 check("a pre-release suffix keeps its number", update.newer("2.0.0rc1", "1.9.9"))
 check("nothing found is not newer", not update.newer(""))
+check("the release is newer than its pre-release", update.newer("2.0.0", "2.0.0rc1"))
+check("and the pre-release is not newer than the release",
+      not update.newer("2.0.0rc1", "2.0.0"))
+check("1.1 and 1.1.0 are the same release",
+      not update.newer("1.1.0", "1.1") and not update.newer("1.1", "1.1.0"))
+check("a post-release comes after the release", update.newer("1.1.0.post1", "1.1.0"))
 
 print("\n--- the daily check ---")
 asked = []
@@ -73,6 +79,22 @@ try:
     update._found = ""
     update._check()
     check("offline is silent", update._found == "")
+    update.latest = lambda timeout=0: asked.append(1) or "99.0.0"
+    with open(update.STATE_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"checked": "yesterday", "latest": "0.1"}, handle)
+    update._found = ""
+    asked.clear()
+    try:
+        update._check()
+        raised = ""
+    except Exception as error:   # in the thread, a traceback on every start-up
+        raised = repr(error)
+    check("a time that will not read is 'never', not a crash",
+          not raised and asked == [1] and update._found == "99.0.0", raised)
+    with open(update.STATE_FILE, encoding="utf-8") as handle:
+        check("and the file is written over with one that does",
+              isinstance(json.load(handle)["checked"], float))
+    update.latest = lambda timeout=0: (_ for _ in ()).throw(OSError("offline"))
     config.UPDATE_CHECK = False
     started = []
     real_thread = update.threading.Thread
@@ -92,7 +114,23 @@ if os.path.exists(os.path.join(here, ".git")):
           kind == "git" and command[:2] == ["git", "-C"] and command[-1] == "pull")
 else:
     check("an installed copy is upgraded by the interpreter running it",
-          kind in ("pip", "pipx"), kind)
+          kind in ("pip", "pipx", "uv"), kind)
+
+installed = tempfile.mkdtemp(prefix="update-site-")
+package = os.path.join(installed, "lib", "site-packages", "aetheris")
+os.makedirs(package)
+uv_env = tempfile.mkdtemp(prefix="update-uv-")
+with open(os.path.join(uv_env, "uv-receipt.toml"), "w", encoding="utf-8") as handle:
+    handle.write('[tool]\nrequirements = [{ name = "aetheris" }]\n')
+check("a uv tool environment is upgraded with uv - it has no pip in it",
+      update.how_installed(package, uv_env) == ("uv", ["uv", "tool", "upgrade", "aetheris"]),
+      str(update.how_installed(package, uv_env)))
+pipx_env = os.path.join(installed, "pipx", "venvs", "aetheris")
+os.makedirs(pipx_env)
+check("a pipx environment with pipx",
+      update.how_installed(package, pipx_env)[0] == "pipx")
+check("anything else with the pip of the interpreter running it",
+      update.how_installed(package, installed)[1][:3] == [sys.executable, "-m", "pip"])
 
 print("\n--- /update ---")
 ran = []
