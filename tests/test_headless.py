@@ -20,6 +20,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 HOME = tempfile.mkdtemp(prefix="headless-home-")
 os.environ["AETHERIS_HOME"] = HOME
+# `-p` reads a piped stdin to its end, as it should - so the in-process runs
+# below would read whatever this script was started with. CI closes it; a
+# runner that leaves a pipe open made the suite wait for ever. Nothing is piped
+# here unless a check says so.
+sys.stdin = io.StringIO("")
 
 from aetheris import config          # noqa: E402
 config.MCP_ENABLED = False
