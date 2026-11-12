@@ -356,6 +356,40 @@ term = Terminal()
 check("TURN_BELL_SECONDS 0 turns it off", not app._ring_if_long(300, term) and not term.written)
 config.TURN_BELL_SECONDS = 30
 
+print("\n--- Ctrl+C at a settings question says it was cancelled ---")
+from aetheris import connect      # noqa: E402
+
+
+def pressed(*_args, **_kwargs):
+    raise KeyboardInterrupt
+
+
+real_ask = tui.ask_the_driver
+tui.ask_the_driver = pressed
+said = io.StringIO()
+try:
+    with contextlib.redirect_stdout(said):
+        answer = connect._ask("  Model id › ", title="Which model?")
+        picked = connect._choose("Connect to", ["a", "b"], str)
+finally:
+    tui.ask_the_driver = real_ask
+check("the answer is empty, as giving up always was", answer == "" and picked == -1)
+check("and it is marked, so a caller does not say it twice",
+      isinstance(answer, connect.Cancelled))
+check("'Cancelled.' is said each time", said.getvalue().count("Cancelled.") == 2,
+      repr(said.getvalue()[-120:]))
+
+tui.ask_the_driver = pressed
+said = io.StringIO()
+try:
+    with contextlib.redirect_stdout(said):
+        connect._ensure_key("anthropic") if not os.environ.get("ANTHROPIC_API_KEY") else None
+finally:
+    tui.ask_the_driver = real_ask
+check("the API key question says it once, not twice",
+      os.environ.get("ANTHROPIC_API_KEY") or said.getvalue().count("Cancelled.") == 1,
+      repr(said.getvalue()[-160:]))
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} check(s)")

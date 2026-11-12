@@ -485,7 +485,8 @@ def _pick_session(current: str, query: str = "") -> str:
             title="Saved sessions",
             options=[(str(n), title or sid) for n, (sid, title, _) in enumerate(shown, 1)])
         if not answer:
-            print()
+            if not isinstance(answer, connect.Cancelled):
+                print()
             return ""
         if answer.isdigit() and 1 <= int(answer) <= len(shown):
             return shown[int(answer) - 1][0]

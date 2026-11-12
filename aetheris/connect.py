@@ -34,6 +34,11 @@ def _print_problem(what: str, error) -> None:
     print()
 
 
+class Cancelled(str):
+    """What `_ask` returns for Ctrl+C: empty like a blank answer, and already
+    said - so a caller that says "Cancelled." for a blank one can tell."""
+
+
 def _ask(prompt: str, title: str = "", options=(), keyboard_only: bool = False) -> str:
     """One answer, from whoever is driving - unless it is a secret.
 
@@ -60,8 +65,10 @@ def _ask(prompt: str, title: str = "", options=(), keyboard_only: bool = False) 
         answer = ask_the_driver(title or "Aetheris", (), options, prompt,
                                 free_text=True)
     except KeyboardInterrupt:
-        print()
-        return ""
+        # Said, not just a blank line: every caller reads "" as giving up, and
+        # without this the menu simply vanished as if the key had not worked.
+        print(f"\n  {S.GRAY}Cancelled.{S.R}\n")
+        return Cancelled("")
     return config.safe_text((answer or "").strip())
 
 
@@ -196,7 +203,8 @@ def _ensure_key(name: str) -> bool:
     key = _ask(f"  {S.INFO}API key{S.R} {S.MUTED}(blank to cancel){S.R} {S.INFO}›{S.R} ",
                title=f"{provider.label} API key", keyboard_only=True)
     if not key:
-        print(f"  {S.GRAY}Cancelled.{S.R}\n")
+        if not isinstance(key, Cancelled):
+            print(f"  {S.GRAY}Cancelled.{S.R}\n")
         return False
     providers.settings_for(name)["api_key"] = key
     return True
