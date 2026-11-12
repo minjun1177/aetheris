@@ -18,7 +18,8 @@ Three things keep it from being worse than the problem:
 
 * **It only runs what the project already declares.** No check is invented: a
   marker file has to be there (`pyproject.toml`, `package.json`, `Cargo.toml`,
-  `go.mod`), the runner has to be installed, and for npm the `test` script has
+  `go.mod`) - or, for Python, a `test_*.py` file - the runner has to be
+  installed, and for npm the `test` script has
   to be a real one rather than the placeholder `npm init` writes.
 * **It is bounded.** `VERIFY_TIMEOUT` seconds, no stdin, output trimmed to the
   tail where the failure actually is. A suite that runs over the timeout turns
@@ -56,7 +57,14 @@ from aetheris.config import S
 # were collected", which is the normal state of a project that has a
 # `pyproject.toml` and no tests yet - reporting that as a failure would put a
 # model into a loop trying to fix a suite that does not exist.
-Check = namedtuple("Check", "name markers suffixes command ok_codes")
+#
+# `tests` is a second way to find the root, for a project that has tests and no
+# config file: `test_calc.py` next to `calc.py` is a pytest suite whether or not
+# anybody wrote a `pyproject.toml`. Glob patterns, matched against the files in
+# each directory on the way up. Looser than a marker, so `_marker_root` only
+# climbs past the file's own directory for it inside a git working tree.
+Check = namedtuple("Check", "name markers suffixes command ok_codes tests",
+                   defaults=((),))
 
 CHECKS = (
     Check("pytest",
@@ -74,7 +82,8 @@ CHECKS = (
           # a long repr down itself - a 500-key dict of 200-character strings
           # came to 500 more characters, not 100,000 - so it fits the budget.
           command=(sys.executable, "-m", "pytest", "-x", "-q", "-l"),
-          ok_codes=(0, 5)),
+          ok_codes=(0, 5),
+          tests=("test_*.py", "*_test.py", "tests/test_*.py", "tests/*_test.py")),
     Check("npm test",
           markers=("package.json",),
           suffixes=(".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"),
@@ -162,8 +171,20 @@ def pending() -> bool:
 # working out what to run
 # ---------------------------------------------------------------------------
 
-def _marker_root(path: str, markers: tuple) -> str:
+def _has_tests(directory: str, patterns: tuple) -> bool:
+    """Whether `directory` holds a file matching one of `patterns`."""
+    import glob
+    return any(glob.glob(os.path.join(glob.escape(directory), pattern))
+               for pattern in patterns)
+
+
+def _marker_root(path: str, markers: tuple, tests: tuple = ()) -> str:
     """The directory above `path` holding one of `markers`, or "".
+
+    Failing that, the nearest directory holding a test file matching `tests`.
+    Outside a git working tree that search looks at the file's own directory
+    only: with no project boundary to stop at, climbing would reach whatever
+    stray `test_x.py` sits in a home directory.
 
     Walks up from the file. The search stops at the git working tree if there
     is one, because a marker outside the project is somebody else's project -
@@ -178,6 +199,7 @@ def _marker_root(path: str, markers: tuple) -> str:
         directory = os.path.dirname(os.path.realpath(path))
     except (OSError, ValueError):
         return ""
+    start = directory
     ceiling = git_ops.repo_root(directory)
     for _ in range(_MAX_LEVELS):
         for marker in markers:
@@ -185,6 +207,25 @@ def _marker_root(path: str, markers: tuple) -> str:
                 return directory
         if ceiling and os.path.normcase(directory) == os.path.normcase(
                 os.path.realpath(ceiling)):
+            break
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            break
+        directory = parent
+    return _tests_root(start, ceiling, tests)
+
+
+def _tests_root(directory: str, ceiling: str, tests: tuple) -> str:
+    """The nearest directory from `directory` up to `ceiling` with tests in it."""
+    if not tests:
+        return ""
+    if not ceiling:
+        return directory if _has_tests(directory, tests) else ""
+    ceiling = os.path.normcase(os.path.realpath(ceiling))
+    for _ in range(_MAX_LEVELS):
+        if _has_tests(directory, tests):
+            return directory
+        if os.path.normcase(directory) == ceiling:
             return ""
         parent = os.path.dirname(directory)
         if parent == directory:
@@ -250,7 +291,7 @@ def _jobs(paths) -> list:
         for check in CHECKS:
             if suffix not in check.suffixes:
                 continue
-            root = _marker_root(path, check.markers)
+            root = _marker_root(path, check.markers, check.tests)
             if not root:
                 continue
             key = (check.name, os.path.normcase(root))

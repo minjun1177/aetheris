@@ -216,6 +216,35 @@ else:
     check("git is available to test the working-tree ceiling", False, "git not found")
 
 # ---------------------------------------------------------------------------
+print("\n--- a test file with no config file is still a pytest suite ---")
+loose = os.path.join(HOME, "loose-tests")
+write(os.path.join(loose, "calc.py"), "def add(a, b): return a + b\n")
+write(os.path.join(loose, "test_calc.py"), "from calc import add\n")
+jobs = verify._jobs([os.path.join(loose, "calc.py")])
+check("calc.py next to test_calc.py picks pytest",
+      [j[0].name for j in jobs] == ["pytest"]
+      and os.path.realpath(jobs[0][1]) == os.path.realpath(loose),
+      str([(j[0].name, j[1]) for j in jobs]))
+check("and so does writing the test file itself",
+      [j[0].name for j in verify._jobs([os.path.join(loose, "test_calc.py")])] == ["pytest"])
+underneath = os.path.join(HOME, "loose-parent", "sub")
+write(os.path.join(HOME, "loose-parent", "test_far.py"), "")
+write(os.path.join(underneath, "x.py"), "")
+check("outside a repository it does not climb to a parent's stray test file",
+      verify._jobs([os.path.join(underneath, "x.py")]) == [])
+if shutil.which("git"):
+    repo = os.path.join(HOME, "tests-in-repo")
+    write(os.path.join(repo, "tests", "test_app.py"), "")
+    write(os.path.join(repo, "src", "app.py"), "")
+    subprocess.run(["git", "init", "-q"], cwd=repo, capture_output=True)
+    verify.git_ops._repo_root_cache.clear()
+    jobs = verify._jobs([os.path.join(repo, "src", "app.py")])
+    check("inside a repository it climbs to the tests/ next to the source",
+          len(jobs) == 1 and os.path.realpath(jobs[0][1]) == os.path.realpath(repo),
+          str([j[1] for j in jobs]))
+    verify.git_ops._repo_root_cache.clear()
+
+# ---------------------------------------------------------------------------
 print("\n--- the switch really switches it off ---")
 with using(PROBE):
     saved = config.AUTO_VERIFY

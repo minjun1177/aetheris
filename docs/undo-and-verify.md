@@ -87,6 +87,7 @@ when it is wrong".
 | The project has | It runs | Not a failure |
 | :--- | :--- | :--- |
 | `pyproject.toml`, `pytest.ini`, `tox.ini` or `setup.cfg` | `python -m pytest -x -q -l` | exit 5 - a project with no tests yet |
+| no config file, but a `test_*.py` / `*_test.py` (or `tests/test_*.py`) beside the changed file - or above it, inside a git repository | `python -m pytest -x -q -l` | exit 5 |
 | `package.json` with a real `test` script | `npm test --silent` | |
 | `Cargo.toml` | `cargo test --quiet` | |
 | `go.mod` | `go test ./...` | |
