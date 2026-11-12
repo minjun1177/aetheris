@@ -199,6 +199,50 @@ check("the ceilings go loosest first",
       list(context._TRIM_STEPS) == sorted(context._TRIM_STEPS, reverse=True),
       str(context._TRIM_STEPS))
 
+# ---------------------------------------------------------------------------
+print("\n--- a window smaller than the system prompt is said, not compressed ---")
+import contextlib, io                                              # noqa: E401,E402
+
+kept_ctx = cfg.NUM_CTX
+try:
+    cfg.NUM_CTX = 12288
+    check("one reply's room is capped at a quarter of a small window",
+          context._get_ctx_budget() == int(12288 * 0.85) - 12288 // 4,
+          str(context._get_ctx_budget()))
+    cfg.NUM_CTX = 65536
+    check("and is the whole NUM_PREDICT in a big one",
+          context._get_ctx_budget() == int(65536 * 0.85) - cfg.NUM_PREDICT)
+
+    cfg.NUM_CTX = 12288
+    prompt = "tool description " * 3000            # far past the 12k budget
+    messages = [{"role": "system", "content": prompt},
+                {"role": "user", "content": "hi"}]
+    summarised = []
+    real_compress = context._compress_context
+
+    async def spy(msgs):
+        summarised.append(len(msgs))
+        return False
+
+    context._compress_context = spy
+    context._too_small_warned = False
+    drawn = io.StringIO()
+    with contextlib.redirect_stdout(drawn):
+        asyncio.run(context.manage_context(messages))
+        asyncio.run(context.manage_context(messages))
+finally:
+    cfg.NUM_CTX = kept_ctx
+    context._compress_context = real_compress
+said = drawn.getvalue()
+check("nothing is summarised: it could not make room", summarised == [], str(summarised))
+check("the conversation is left as it was", messages[1]["content"] == "hi")
+check("it says the window is too small, and what to raise it to",
+      "too small" in said and "/context" in said and "limit approaching" not in said, said[:300])
+check("once a session, not every turn", said.count("too small") == 1)
+check("the size it suggests leaves real room",
+      context.window_needed(7800) >= 16384 and context.window_needed(7800) & (context.window_needed(7800) - 1) == 0,
+      str(context.window_needed(7800)))
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

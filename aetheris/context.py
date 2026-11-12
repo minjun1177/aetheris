@@ -73,8 +73,45 @@ def observe_usage(messages: list[dict], prompt_tokens: int) -> None:
 
 
 def _get_ctx_budget() -> int:
+    """Tokens the conversation may grow to before it is compacted.
+
+    85% of the window, less room for one reply. That room is capped at a
+    quarter of the window: a whole `NUM_PREDICT` (6,144) out of a 12k window
+    left about 4k for everything else - less than the system prompt alone -
+    so the very first message was "compressed".
+    """
     window, _source = providers.context_window()
-    return int(window * 0.85) - config.NUM_PREDICT
+    reserve = min(int(config.NUM_PREDICT), window // 4)
+    return int(window * 0.85) - reserve
+
+
+def window_needed(fixed: int) -> int:
+    """The smallest power-of-two window that leaves real room after `fixed`."""
+    want = (fixed * 2 + int(config.NUM_PREDICT)) / 0.85
+    size = 8192
+    while size < want:
+        size *= 2
+    return size
+
+
+# Said once per session: the advice does not change between turns.
+_too_small_warned = False
+
+
+def _warn_window_too_small(fixed: int, budget: int) -> None:
+    global _too_small_warned
+    if _too_small_warned:
+        return
+    _too_small_warned = True
+    window, _source = providers.context_window()
+    print(f"\n  {S.WARN}⚠ The context window is too small for this harness:{S.R} "
+          f"{S.MUTED}the system prompt and tools alone come to ~{fixed:,} tokens, "
+          f"and a {window:,}-token window leaves {budget:,} before compacting. "
+          f"Compressing the conversation cannot make room for that.{S.R}")
+    print(f"  {S.MUTED}Raise it to {window_needed(fixed):,} or more: "
+          f"{S.GRAY}/context {window_needed(fixed)}{S.MUTED} for this model, "
+          f"or {S.GRAY}/set NUM_CTX {window_needed(fixed)}{S.MUTED} for every "
+          f"local one.{S.R}\n")
 
 
 def _get_summary_predict_tokens() -> int:
@@ -316,6 +353,15 @@ async def _manage_context(messages: list[dict]) -> None:
     # of this function goes on to compress. Named rather than left as the loop
     # variable: an empty `_TRIM_STEPS` would otherwise be a NameError here.
     messages[:] = tightest
+
+    # When the part that is never compressed - the system prompt, which carries
+    # the tools over the text protocol - already fills the budget, summarising
+    # the conversation buys nothing and costs a request every turn. Say what
+    # would help instead.
+    fixed = _estimate_tokens(messages[:1])
+    if fixed >= budget:
+        _warn_window_too_small(fixed, budget)
+        return
 
     pairs = _get_conv_pairs(messages)
     n_pairs = len(pairs)
