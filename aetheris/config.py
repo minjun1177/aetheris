@@ -645,7 +645,9 @@ class S:
     CYAN      = "\033[38;2;131;165;152m"
 
 
-_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+# CSI and OSC sequences, for `HeadlessOutput` writing to a file. Its own name:
+# `_ESCAPE` below is the one `wrap_cells` splits on, and is defined later.
+_TERMINAL_CODES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _is_terminal(stream) -> bool:
@@ -681,7 +683,7 @@ class HeadlessOutput:
             return len(text)
         out = text
         if self.plain:
-            out = _ESCAPE.sub("", out)
+            out = _TERMINAL_CODES.sub("", out)
             if "\r" in out:
                 # A spinner frame or a TPS counter: rewritten with `\r` and
                 # never finished with a newline. In a file it is just litter.
