@@ -108,36 +108,37 @@ That ordering is where most of the differences below come from.
 
 | Feature | Aetheris | Claude Code | Cursor | Aider |
 | :--- | :--- | :--- | :--- | :--- |
-| Text-protocol fallback for models with no native tool-calling | ✅ per-model, automatic | ❌ | ❌ | ❌ (assumes JSON tool-calls) |
-| Raw content blocks instead of JSON-escaped file bodies | ✅ | ❌ | ❌ | ❌ |
-| Anchor-based edits (line + fingerprint) instead of exact-text matching | ✅ hashline | ❌ (old/new text block) | ❌ (old/new text block) | ❌ (unified diff / search-replace) |
-| Multiple instances in one project aware of each other | ✅ shared board, file claims | ❌ | ❌ | ❌ |
-| Cross-instance messaging between running sessions | ✅ | ❌ | ❌ | ❌ |
-| Planning stage with tools *disabled*, not just discouraged | ✅ dispatcher-level | ❌ (plan mode still has tools) | ❌ | ❌ |
-| Review stage fed the real `git diff` rather than the model's memory | ✅ | ❌ | ❌ | ❌ |
-| Undo scoped to one AI edit, refuses if the file changed since | ✅ per-commit | ❌ (no built-in undo) | ⚠️ full checkpoint/reset only | ❌ (relies on your own git discipline) |
-| The project's own tests run after an edit, with no setup and no flag | ✅ detected from the project | ❌ (only if you write a hook) | ❌ | ⚠️ `--auto-test` + you supply the command |
-| A failing check fed back as the next thing the model reads, capped | ✅ 3 tries, then it must explain | ❌ | ❌ | ⚠️ retries, no cap of its own |
-| Crash-safe atomic writes for *all* state (sessions, memory, permissions, keys) | ✅ | ⚠️ unclear/partial | ⚠️ unclear/partial | ❌ |
-| Single source of truth tying prompt, schema and dispatcher together (tested) | ✅ `toolspec.py` + CI test | ⚠️ unclear (closed source) | ⚠️ unclear (closed source) | ⚠️ unclear |
-| Designed and benchmarked around small (4B-12B) local models | ✅ primary use case | ❌ hosted models only | ❌ hosted models only | ⚠️ connects, not tuned for it |
+| Works with a model that has no native tool calling | ✅ text protocol, chosen per model | ❌ native tools only | ❌ | ✅ text edit formats, no tool calls at all |
+| File bodies sent as raw text, never JSON-escaped | ✅ `<content>` blocks | ❌ JSON tool arguments | ❌ | ✅ fenced edit blocks |
+| Edits addressed by line + fingerprint instead of reproduced old text | ✅ hashline | ❌ old/new string | ❌ | ❌ search/replace or diff |
+| Several instances in one project see each other | ✅ shared board, automatic file claims | ⚠️ agent teams (experimental), no file claims | ❌ | ❌ |
+| Messaging between running sessions | ✅ | ✅ cross-session messaging | ❌ | ❌ |
+| Planning with editing tools disabled by the harness | ✅ deepthink plan/check/review stages | ✅ plan mode is read-only | ⚠️ ask mode | ✅ `/ask`; `/architect` splits plan from edit |
+| Review stage fed the real `git diff` | ✅ | ❌ | ❌ | ❌ |
+| Undo one AI change | ✅ a commit per tool call, `/undo` refuses if the file changed since | ✅ `/rewind` to a checkpoint per prompt (shell-made changes not tracked) | ⚠️ checkpoint restore | ✅ a commit per change, `/undo` |
+| Project tests run after an edit with no setup or flag | ✅ detected from the project | ❌ a hook you write | ❌ | ⚠️ lint on by default; tests need `--test-cmd` + `--auto-test` |
+| A failing check fed back to the model, capped | ✅ 3 tries, then it must explain | ❌ unless a hook does it | ❌ | ✅ fixes in a loop, capped at 3 reflections |
+| Atomic writes for all saved state (sessions, memory, permissions, keys) | ✅ | ⚠️ not documented | ⚠️ not documented | ⚠️ not documented |
+| One table generates the prompt, schemas and dispatch (tested) | ✅ `toolspec.py` + CI test | ⚠️ closed source | ⚠️ closed source | ⚠️ not documented |
+| Tuned and benchmarked for small (4B-12B) local models | ✅ primary use case | ❌ Claude models | ❌ hosted models | ⚠️ connects to Ollama with per-model settings, benchmarks larger models |
 
-*"❌" means the feature was not found in that harness's documented behavior as
-of this writing, not that it is provably absent - Claude Code and Cursor are
-closed source, so this is based on published docs and observed behavior, and
-either could add any of these later.*
+*Checked against each project's published documentation as of November 2026.
+"❌" means not found there, not proven absent - Claude Code and Cursor are
+closed source and all three ship often, so any row can go out of date. Please
+open an issue if one has.*
 
-**It is the only one of these that makes a 4B local model genuinely usable,
-not just connectable.** Aider and Continue can point at an Ollama endpoint,
-but they hand it the same prompt and the same JSON tool-call contract a hosted
-model gets, and a 4B model fails that contract constantly - a bare quote inside
-`print("hi")`, an uncounted brace, and the whole generation is thrown away.
-Aetheris detects per-model whether Ollama actually reports a native
-`tools` interface and, when it does not, switches to a text protocol where a
-file body is a raw block (`<content>...</content>`) instead of a JSON string -
-the one thing small models get wrong most often stops being asked of them at
-all. No other harness in this space carries a second tool-call protocol just
-to keep weak models working; most only have the one.
+**A 4B local model is the case it is built for, not one it tolerates.** Claude
+Code and Cursor hand every model a JSON tool-call contract, and a 4B model
+fails that contract constantly - a bare quote inside `print("hi")`, an
+uncounted brace, and the whole generation is thrown away. Aider avoids JSON
+entirely with text edit formats, which is the right instinct; Aetheris takes
+the same view for models that need it and keeps native calls for those that
+do better with them. It asks Ollama per model whether a native `tools`
+interface exists and, when it does not, switches to a text protocol where a
+file body is a raw block (`<content>...</content>`) rather than a JSON
+string - the one thing small models get wrong most often stops being asked of
+them at all. Everything else on top (anchor repair, three-character hashes,
+auto-verify) was tuned against 4B models rather than tested on them afterwards.
 
 **Hashline editing removes the failure mode every other diff/patch format
 has.** Claude Code, Aider and Cursor all ask the model to reproduce the exact
@@ -152,10 +153,12 @@ it. This is a correctness property, not a convenience one - it is what makes
 hashline edits reliable coming from a model too small to retype a line
 perfectly.
 
-**Multiple instances in one project actually know about each other.** Run
-Claude Code, Cursor, and Aider in three terminals against the same working
-tree and none of them knows the others exist - two agents editing the same
-file is a silent last-write-wins. Aetheris keeps a shared board per
+**Multiple instances in one project know about each other without being set
+up as a team.** Run Cursor and Aider in two terminals against the same working
+tree and neither knows the other exists - two agents editing the same file is
+a silent last-write-wins. Claude Code can message other sessions and run an
+experimental agent team, but a file one session is editing is not held
+against the others. Aetheris keeps a shared board per
 workspace (`channel.py`): every instance sees who else is running and what
 they are doing, can message them, and a file one instance is mid-edit on is
 refused to the others *by name*, with the holder named back. The claim is
@@ -163,36 +166,38 @@ taken automatically on write, so protection does not depend on any model
 having thought to ask for one - and it expires with the process that took it,
 so a crashed terminal cannot lock a file for the afternoon.
 
-**Deepthink enforces the separation other "plan mode" features only ask for.**
-Several harnesses offer a plan-then-execute mode, but the planning stage is
-still handed the tools and simply told not to use them - which a small model
-does not reliably respect (a local 4B model tried to edit fifteen times in
-planning before this was enforced here). Aetheris's six-stage chain
-switches the editing tools off at the dispatcher level during plan, check and
-review stages, so "cannot" rather than "was asked not to." It also gives the
+**Deepthink runs plan, check, build and review as one enforced chain.**
+Claude Code's plan mode and Aider's `/ask` already keep a planning model from
+editing, and that is the right design - an instruction alone is not enough, a
+local 4B model tried to edit fifteen times in planning before it was enforced
+here. What deepthink adds is the chain around it, driven by the harness rather
+than by the person switching modes: the editing tools are off at the
+dispatcher during the plan, check and review stages and on for build. It also
+gives the
 review stage the real `git diff` of what changed rather than asking the model
 to recall its own edit, and finding problems (review) is a separate,
 read-only stage from fixing them (revise) - so review's list is not cut short
 by the model stopping to patch the first thing it finds.
 
-**Undo is per-tool-call and safe to use blindly, not a repo-wide reset.**
-Cursor and Copilot's rollback (and a bare `git reset`) take back everything in
-the working tree since some point, which also erases whatever you changed by
-hand in between. Every AI edit here lands in its own commit named for the tool
-that made it, so `/undo` reverts exactly the last one - and it refuses outright
-if a file in that commit has since been touched by anything else, rather than
-taking that other change down with it.
+**Undo is per tool call and refuses to take your own edits with it.** Aider
+got this right first - every change is a commit and `/undo` reverts the last
+one - and Aetheris does the same, one commit per tool call, named for the tool
+that made it. Claude Code's `/rewind` and Cursor's checkpoints restore a point
+in the conversation instead, which is coarser: everything since that prompt.
+`/undo` here also refuses outright if a file in that commit has since been
+touched by anything else, rather than taking that other change down with it.
 
 **The project's own tests run themselves, with nothing to configure.** Aider
-has `--auto-test`, but you supply the command and turn the flag on; everywhere
-else, checking the work is a hook you write or a thing you remember to do.
-Here the check is *detected* - a `pyproject.toml` means pytest, a `Cargo.toml`
+lints after every edit by default and has `--auto-test`, but you supply the
+test command and turn the flag on; in Claude Code and Cursor, checking the
+work is a hook you write or a thing you remember to do. Here the check is
+*detected* - a `pyproject.toml` or a `test_*.py` means pytest, a `Cargo.toml`
 means cargo, a `package.json` means npm if its `test` script is a real one -
 and it runs on its own after any turn that changed a file, once for the whole
 turn rather than once per edit. A failure becomes the next thing the model
 reads, which is the form small models handle best: fixing a traceback is
 pattern-matching, while noticing unprompted that something might be wrong is
-not. And it is capped where nothing else caps it - three failures in a row and
+not. And it is capped - three failures in a row (Aider stops at three too) and
 the harness stops feeding them back and tells the model to explain what is
 broken instead, because a fourth guess is worth less to you than an honest
 description. It is safe to leave on precisely because `/undo` is per-edit:
