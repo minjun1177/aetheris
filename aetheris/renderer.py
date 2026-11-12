@@ -198,6 +198,37 @@ def _render_line(line: str, in_code: bool, in_latex_block: bool = False) -> tupl
     return f"  {line}", in_code, in_latex_block
 
 
+_HANG = re.compile(r"^(\s*(?:•\s|\d+\.\s)?)")
+
+
+def fit_rows(line: str, width: int | None = None) -> list[tuple[str, str | None]]:
+    """A rendered answer line as rows that fit the terminal, with their glue.
+
+    Left to the terminal, a long line wraps at the last column whatever is
+    there - halfway through a Hangul word - and the rows after it start at
+    column 0, outside the answer's indent. Cut here instead, at a space, and
+    each row after the first is indented to where the text began (past a
+    bullet or a number). The glue is what the cut took, for `screen.block`,
+    so copying the rows gives back the line.
+    """
+    from aetheris.config import _ESCAPE, cell_width
+
+    def cells(text: str) -> int:
+        return sum(cell_width(c) for c in text)
+
+    width = tw() if width is None else width
+    plain = _ESCAPE.sub("", line)
+    if cells(plain) <= width:
+        return [(line, None)]
+    hang = min(cells(_HANG.match(plain).group(1)), width // 2)
+    took: list = []
+    rows = wrap_cells(line, max(10, width - hang), by_word=True, joins=took)
+    fitted = [(rows[0], None)]
+    for index, row in enumerate(rows[1:]):
+        fitted.append((" " * hang + row, took[index]))
+    return fitted
+
+
 def _clean_md(text: str) -> str:
     t = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     t = re.sub(r'(?<![^\W_])__(.+?)__(?![^\W_])', r'\1', t)

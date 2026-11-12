@@ -141,6 +141,40 @@ check("every row of the quotation is marked", len(rows) > 1
       and all(row.startswith("  ┃ ") for row in rows), str(rows))
 check("none is wider than the window", all(cells(row) <= WIDTH for row in rows))
 
+# ---------------------------------------------------------------------------
+print("\n--- and the answer itself, in Korean ---")
+ANSWER = "이 함수는 입력 목록을 정렬한 다음 중복을 제거하고 결과를 새 목록으로 돌려줍니다."
+BULLET = "- 첫 번째 항목은 터미널 폭보다 훨씬 길어서 여러 줄로 나뉘어야 합니다"
+
+
+class Answerer(Thinker):
+    def stream(self, messages, tools=None):
+        async def chunks():
+            yield {"text": ANSWER + "\n" + BULLET + "\n"}
+            yield {"done": True}
+        return chunks()
+
+
+providers.current = lambda: Answerer()
+lines = [row for row in drawn(lambda: asyncio.run(
+    llm_client.stream_reply([{"role": "user", "content": "q"}]))) if row.strip()]
+prose = [row for row in lines if "TPS" not in row and "tokens" not in row]
+check("no row of the answer is wider than the window",
+      all(cells(row) <= WIDTH for row in prose), str([cells(row) for row in prose]))
+check("every row keeps the answer's indent", all(row.startswith("  ") for row in prose),
+      str(prose))
+check("Korean words are not split mid-word: the rows join back with spaces",
+      " ".join(row.strip() for row in prose[:len(prose) - 2]).startswith(ANSWER[:20]),
+      str(prose))
+bullet_rows = prose[next(i for i, r in enumerate(prose) if "•" in r):]
+check("a bullet's later rows hang under its text, not under the bullet",
+      len(bullet_rows) > 1 and all(r.startswith("    ") for r in bullet_rows[1:]),
+      str(bullet_rows))
+rows = renderer.fit_rows("  " + ANSWER, 30)
+check("fit_rows gives back the line when its rows are glued",
+      rows[0][0] + "".join((glue or "") + row[2:] for row, glue in rows[1:]) == "  " + ANSWER,
+      str(rows))
+
 print()
 if failures:
     print(f"FAILED: {len(failures)} check(s)")

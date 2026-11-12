@@ -15,7 +15,7 @@ from aetheris import config
 from aetheris.config import S
 from aetheris.tui import (_fmt_tool_call, _fmt_tool_result, _fmt_tokens,
                           ask_the_driver)
-from aetheris.renderer import _render_line, _format_table, _render_full
+from aetheris.renderer import _render_line, _format_table, _render_full, fit_rows
 from aetheris.tools import dispatch_tool
 from aetheris import tools as _tools
 from aetheris import channel
@@ -206,9 +206,13 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
             rendered, out_c, in_latex_block = _render_line(line, in_c, in_latex_block)
             # Said to be the answer, so a drag over it selects the answer and
             # stops where it stops (`screen`).
-            with screen.block("answer"):
-                for r_line in rendered.split('\n'):
-                    print(r_line)
+            for r_line in rendered.split('\n'):
+                # Cut to the window here (`fit_rows`), so a long Korean line
+                # breaks at a space and keeps its indent.
+                rows = [(r_line, None)] if in_c or out_c else fit_rows(r_line)
+                for row, glue in rows:
+                    with screen.block("answer", glue):
+                        print(row)
             return out_c
 
     def emit(text: str, in_c: bool) -> bool:
