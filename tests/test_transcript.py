@@ -1,10 +1,12 @@
-"""Ctrl+O: the last turn again, uncut.
+"""Ctrl+O: the conversation expanded, and collapsed again - a toggle.
 
 As a turn scrolls past, an argument is cut to 120 characters, a result to 600,
 and thinking is hidden unless `SHOW_THINKING` is on - and none of the thinking
 is kept in the conversation. What is checked: a turn is recorded whole as it
-happens and in order, the record is printed in full, a new turn replaces it,
-and Ctrl+O at the prompt reaches the main loop with the half-typed line kept.
+happens and in order, every turn of the conversation is kept, the record is
+drawn in full or as it scrolled past, answers as markdown, a redraw records
+nothing, `/clear` and a loaded session start it again, and Ctrl+O at the
+prompt reaches the main loop with the half-typed line kept.
 """
 import asyncio
 import inspect
@@ -97,17 +99,72 @@ check("the result is all of it", entries[3][2] == RESULT)
 check("what scrolled past was cut, and says Ctrl+O has the rest",
       "THE END" not in scrolled and "Ctrl+O" in scrolled, scrolled[-400:])
 
-print("\n--- Ctrl+O prints it ---")
-_, shown = printed(transcript.show)
+print("\n--- expanded, it is all there ---")
+_, shown = printed(transcript.show, True)
 check("the whole result", "THE END" in shown)
 check("every row of the long argument", "row 60 of a file" in shown)
 check("and the thinking", "written whole" in shown)
+check("headed as expanded, with the key that collapses it",
+      "expanded" in shown and "Ctrl+O collapses" in shown, shown[:200])
 
-transcript.start()
+print("\n--- collapsed, it is as it scrolled past ---")
+_, shown = printed(transcript.show, False)
+check("the result cut again", "THE END" not in shown and "chars total" in shown)
+check("the thinking a line that says it is there",
+      "written whole" not in shown and "thought" in shown, shown[:300])
+check("and how to expand it", "Ctrl+O expands" in shown)
+check("drawing it recorded nothing", len(transcript.turns()) == 1,
+      str(len(transcript.turns())))
+
+print("\n--- every turn, not only the last ---")
+transcript.start("and the next thing")
+transcript.said("A **bold** answer with `code`.")
+check("a new turn is added, not swapped in", len(transcript.turns()) == 2
+      and transcript.turns()[0]["entries"], str(len(transcript.turns())))
+check("entries() is what the turn that just ran did",
+      transcript.entries() == [("answer", "", "A **bold** answer with `code`.")])
+_, shown = printed(transcript.show, True)
+check("both turns are drawn, each under the line that asked it",
+      "THE END" in shown and "❯ and the next thing" in shown, shown[-300:])
+check("and an answer is drawn as markdown, not as its asterisks",
+      "bold" in shown and "**bold**" not in shown and "`code`" not in shown)
+
+print("\n--- the toggle ---")
+transcript.expanded = False
+check("pressed once it expands", transcript.toggle() is True)
+check("pressed again it collapses", transcript.toggle() is False)
+transcript.toggle()
+transcript.start("a new message")
+check("a new turn is drawn the usual way, so the next press expands",
+      transcript.expanded is False)
+
+print("\n--- a redraw records nothing; /clear and a loaded session start again ---")
+before = len(transcript.turns())
+with transcript.paused():
+    printed(tui._fmt_tool_result, "run_cmd", "drawn again")
+    printed(tui._fmt_tool_call, "run_cmd", {"command": "ls"})
+check("formatters inside paused() add nothing",
+      len(transcript.turns()) == before and not transcript.entries())
+history = [{"role": "system", "content": "s"},
+           {"role": "user", "content": "first question"},
+           {"role": "assistant", "content": "first answer"},
+           {"role": "user", "content": "second question"},
+           {"role": "assistant", "content": "second answer"}]
+printed(app._replay_session, history)
+check("a resize redraw of the history adds nothing", len(transcript.turns()) == before)
+transcript.reset()
+check("reset() empties it", transcript.turns() == [] and transcript.expanded is False)
+printed(app._replay_session, history, True)
+check("a loaded session becomes the record, a turn per question",
+      [t["prompt"] for t in transcript.turns()] == ["first question", "second question"]
+      and transcript.turns()[1]["entries"] == [("answer", "", "second answer")],
+      str(transcript.turns()))
+transcript.reset()
 _, shown = printed(transcript.show)
-check("a new turn starts a new record", "nothing to show yet" in shown, shown)
+check("with nothing recorded it says so", "nothing to show yet" in shown, shown)
 _, shown = printed(tui._fmt_tool_call, "read_file", {"filepath": "a" * 300})
 check("an argument cut to fit says so", "Ctrl+O" in shown, shown)
+transcript.reset()
 
 print("\n--- from the key to the main loop ---")
 if config.PROMPT_TOOLKIT_AVAILABLE:
@@ -146,10 +203,13 @@ check("with the half-typed line kept for the prompt that opens next",
       app._kept_typing == "half a ques")
 app._kept_typing = ""
 source = inspect.getsource(app.main)
-check("the main loop prints the record and opens the prompt again",
-      "if user_input is EXPANDED:\n            transcript.show()\n            continue" in source)
-check("and every turn starts a fresh record",
-      source.count("config.next_turn()") == source.count("transcript.start()"))
+check("the main loop toggles the view and opens the prompt again",
+      "if user_input is EXPANDED:\n            _toggle_transcript()\n            continue" in source)
+check("every turn starts a turn of the record",
+      source.count("config.next_turn()") == source.count("transcript.start("),
+      f"{source.count('config.next_turn()')} vs {source.count('transcript.start(')}")
+check("/clear empties it", "transcript.reset()" in source[source.index('if cmd == "/clear":'):][:2000])
+check("loading a session seeds it", source.count("_replay_session(messages, record=True)") == 2)
 check("Ctrl+O is in /help all", any(key == "Ctrl+O" for key, _ in tui.KEYS))
 
 

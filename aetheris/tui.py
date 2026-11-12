@@ -278,8 +278,8 @@ KEYS = (
     ("Ctrl+C", "Stop what is running - a reply, a command, a tool. Pressed "
                "again within a second, leave"),
     ("Ctrl+D", "Leave at once"),
-    ("Ctrl+O", "The last turn again, uncut: the thinking, every call with all of "
-               "its arguments, every result in full"),
+    ("Ctrl+O", "Expand the whole conversation - every thought, every call's "
+               "arguments and result in full - and press again to collapse it"),
     ("Mouse drag", "Select and copy what is above the prompt - a thought without "
                    "its gutter, an answer without what is under it. Shift+drag is "
                    "the terminal's own selection; /set MOUSE_SELECT off leaves the "

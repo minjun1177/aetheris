@@ -384,8 +384,12 @@ def _as_typed(content: str) -> str:
     return content[:cut]
 
 
-def _replay_session(messages: list[dict]) -> None:
+def _replay_session(messages: list[dict], record: bool = False) -> None:
     """Print a resumed conversation the way it looked while it was happening.
+
+    `record` is for a conversation just loaded: what is drawn becomes Ctrl+O's
+    record of it, as if it had been typed here. Otherwise - a redraw - nothing
+    is recorded, or every redraw would add the conversation to it again.
 
     Each turn is drawn by what drew it live: a typed line as the prompt showed
     it, `!command` as the shell block it printed, an answer before the tools
@@ -397,6 +401,11 @@ def _replay_session(messages: list[dict]) -> None:
     be missing a `content` that was never optional here. Failing to *replay* a
     conversation must not be what stops it being resumed.
     """
+    with contextlib.nullcontext() if record else transcript.paused():
+        _replay_messages(messages, record)
+
+
+def _replay_messages(messages: list[dict], record: bool) -> None:
     for msg in messages:
         if not isinstance(msg, dict):
             continue
@@ -417,17 +426,24 @@ def _replay_session(messages: list[dict]) -> None:
                 command, output = shell.groups()
                 print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} !{command}")
                 print(f"\n  {S.MUTED}${S.R} {S.WHITE}{command}{S.R}")
-                _fmt_tool_result(command, output)
+                if record:
+                    transcript.shell(command, output)
+                with transcript.paused():
+                    _fmt_tool_result(command, output)
                 print()
                 continue
             if content.startswith(_NOT_TYPED):
                 continue
+            if record:
+                transcript.start(_as_typed(content))
             print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} {_as_typed(content)}")
         elif role == "assistant":
             c = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL)
             c = strip_thinking(c).strip()
             calls = parse_tool_calls(content, quiet=True)
             if c:
+                if record:
+                    transcript.said(c)
                 with screen.block("answer"):
                     print(_render_full(c))
                 if not calls:
@@ -1069,6 +1085,26 @@ def _redraw(messages: list[dict]) -> None:
         _clear_screen()
         _welcome()
         _replay_session(messages)
+        sys.stdout.flush()
+    finally:
+        sys.stdout = mirrored
+
+
+def _toggle_transcript() -> None:
+    """Ctrl+O: the whole conversation again, expanded or collapsed in turn.
+
+    Drawn from the top, as a resize redraw is, so what is on screen is one
+    view of it rather than the expanded copy printed under the collapsed one.
+    """
+    if not transcript.turns():
+        transcript.show()
+        return
+    transcript.toggle()
+    mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
+    try:
+        _clear_screen()
+        _welcome()
+        transcript.show()
         sys.stdout.flush()
     finally:
         sys.stdout = mirrored
@@ -2134,7 +2170,8 @@ async def main(resume_id: str = "") -> None:
         if resumed:
             print(f"  {S.OK}✓ Resumed session: {config.SESSION_TITLE or resume_id} "
                   f"(Model: {config.MODEL}){S.R}\n")
-            _replay_session(messages)
+            transcript.reset()
+            _replay_session(messages, record=True)
         else:
             print(f"  {S.ERR}✗ Session not found: {resume_id}{S.R}")
             print(f"  {S.GRAY}Starting a new one instead.{S.R}\n")
@@ -2227,7 +2264,7 @@ async def main(resume_id: str = "") -> None:
             _stoppable = False
 
         if user_input is EXPANDED:
-            transcript.show()
+            _toggle_transcript()
             continue
 
         if user_input is IDLE_CALL:
@@ -2290,7 +2327,9 @@ async def main(resume_id: str = "") -> None:
                 output = _run_user_command(command)
             finally:
                 _stoppable = False
-            _fmt_tool_result(command, output)
+            transcript.shell(command, output)
+            with transcript.paused():
+                _fmt_tool_result(command, output)
             print()
             if await _settle_caught(pressed_at):
                 _shut_down()
@@ -2363,6 +2402,7 @@ async def main(resume_id: str = "") -> None:
             config.LOADED_SKILLS.clear()
             config.TODOS.clear()
             rewind.forget()
+            transcript.reset()
             # The prompt was just rebuilt for an empty set of loaded servers,
             # so what it was built for has to move with it - otherwise the next
             # message sees a difference that is not there and rebuilds again.
@@ -2429,7 +2469,8 @@ async def main(resume_id: str = "") -> None:
                 _clear_screen()
                 _welcome()
                 print(f"  {S.OK}✓ Loaded session: {label} (Model: {config.MODEL}){S.R}\n")
-                _replay_session(messages)
+                transcript.reset()
+                _replay_session(messages, record=True)
             else:
                 print(f"  {S.ERR}✗ Session not found: {sid}{S.R}\n")
             continue
@@ -2472,7 +2513,7 @@ async def main(resume_id: str = "") -> None:
             # Its own bar in /usage: it was paid for, and it is not the turn
             # before it.
             config.next_turn()
-            transcript.start()
+            transcript.start(user_input)
             leaving = False
             _stoppable = True
             try:
@@ -2899,7 +2940,7 @@ async def main(resume_id: str = "") -> None:
         # so `/usage` reports what the question cost rather than what its last
         # request cost.
         config.next_turn()
-        transcript.start()
+        transcript.start(_as_typed(user_input))
         # The remote's own badge: a phone that cannot tell "thinking" from
         # "finished and silent" is a phone you have to keep refreshing.
         remote.set_busy(True)
@@ -3130,7 +3171,7 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
         session_id = resume_id
 
     config.next_turn()
-    transcript.start()
+    transcript.start(prompt)
     first_request = len(config.token_history)
     messages.append({"role": "user", "content": config.safe_text(prompt)})
     session_id = save_session(messages, session_id)
