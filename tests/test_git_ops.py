@@ -243,6 +243,16 @@ finally:
 check("a file another agent holds is not moved out from under it",
       result.startswith(config.TOOL_REFUSAL_PREFIX) and os.path.exists(held), result[:120])
 
+print("\n--- the startup panel counts a new file as untracked, not modified ---")
+from aetheris import tui      # noqa: E402
+check("nothing listed is clean", tui._describe_status("") == "clean")
+check("an untracked file alone is not 'modified'",
+      tui._describe_status("?? test_calc.py\n") == "1 untracked",
+      tui._describe_status("?? test_calc.py\n"))
+check("both kinds are counted apart",
+      tui._describe_status(" M a.py\nA  b.py\n?? c.py\n") == "2 modified, 1 untracked",
+      tui._describe_status(" M a.py\nA  b.py\n?? c.py\n"))
+
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print()
 if failures:

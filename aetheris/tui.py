@@ -21,10 +21,25 @@ def _get_git_info() -> str:
         branch = subprocess.check_output(["git", "branch", "--show-current"], stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", shell=False).strip()
         if not branch: return "none"
         status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", shell=False)
-        modified = len([line for line in status.splitlines() if line.strip()])
-        return f"{branch} (clean)" if modified == 0 else f"{branch} ({modified} modified)"
+        return f"{branch} ({_describe_status(status)})"
     except Exception:
         return "none"
+
+
+def _describe_status(porcelain: str) -> str:
+    """`clean`, or what `git status --porcelain` lists, counted by kind.
+
+    `??` is a file git has never seen. Counting it as "modified" told someone
+    with one new file and no edits that they had changed something."""
+    lines = [line for line in porcelain.splitlines() if line.strip()]
+    untracked = sum(1 for line in lines if line.startswith("??"))
+    modified = len(lines) - untracked
+    parts = []
+    if modified:
+        parts.append(f"{modified} modified")
+    if untracked:
+        parts.append(f"{untracked} untracked")
+    return ", ".join(parts) or "clean"
 
 def _get_rules_info() -> str:
     for filename in ["CONVENTIONS.md", ".clauderc"]:
