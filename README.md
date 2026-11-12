@@ -94,7 +94,7 @@ It is also a typed library: `aetheris.MCPServer` (MCP without an SDK) and `aethe
 
 | Topic | |
 | :--- | :--- |
-| [Features](docs/features.md) | Everything it does, in one list |
+| [A real turn](docs/demo.md) · [Features](docs/features.md) | `gemma4:e4b` fixing a failing test, unedited; everything it does, in one list |
 | [Setup and models](docs/setup.md) | Which models work, tests, the benchmark |
 | [Tools](docs/tools.md) | The model's tools, the call format, hashline editing |
 | [Providers](docs/providers.md) | Ollama, Anthropic, OpenAI, Gemini, Attacca, keys, reasoning models |
