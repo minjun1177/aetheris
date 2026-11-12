@@ -749,6 +749,52 @@ def _refused_connection(error: BaseException) -> bool:
         isinstance(error, ConnectionError) and "Failed to connect to Ollama" in str(error))
 
 
+# host -> (when, installed names or None when the daemon did not answer).
+# `ready()` is asked while a person types `/connect ` and the menu redraws, so
+# the answer is reused for a few seconds rather than fetched per keystroke.
+_ollama_installed: dict = {}
+_INSTALLED_TTL = 5.0
+
+
+def _installed_ollama_models(host: str):
+    """Names Ollama has pulled, None if it is not answering, "" if unknown."""
+    import time as _time
+    cached = _ollama_installed.get(host)
+    if cached and _time.monotonic() - cached[0] < _INSTALLED_TTL:
+        return cached[1]
+    try:
+        listing = ollama_client(host, timeout=1.5).list()
+        entries = listing.get("models", []) if isinstance(listing, dict) \
+            else getattr(listing, "models", [])
+        names = set()
+        for entry in entries:
+            name = entry.get("model", entry.get("name")) if isinstance(entry, dict) \
+                else getattr(entry, "model", None)
+            if name:
+                names.add(str(name))
+        found = names
+    except Exception as error:
+        # Only "nothing is listening" is worth saying. Anything else - an old
+        # daemon, a proxy that answers oddly - is not proof the model is gone,
+        # and calling it unready would block a model that works.
+        found = None if _refused_connection(error) else ""
+    _ollama_installed[host] = (_time.monotonic(), found)
+    return found
+
+
+def ollama_model_problem(model: str, host: str = "") -> str:
+    """"" when `model` is pulled and the daemon answers, otherwise what is wrong."""
+    installed = _installed_ollama_models(host)
+    if installed is None:
+        return f"Ollama is not running at {host or 'http://localhost:11434'}"
+    if installed == "" or not model:
+        return ""
+    wanted = model if ":" in model else f"{model}:latest"
+    if model in installed or wanted in installed:
+        return ""
+    return f"{model} is not pulled - run: ollama pull {model}"
+
+
 def ollama_not_running(host: str = "") -> str:
     """What to do when nothing answers at the Ollama address."""
     where = host or "http://localhost:11434"
@@ -901,6 +947,15 @@ class OllamaProvider(Provider):
         if chosen and chosen != default:
             return chosen.rstrip("/")
         return (os.environ.get("OLLAMA_HOST") or chosen or default).strip().rstrip("/")
+
+    def ready(self) -> str:
+        """Also asks the daemon: a model name is not a model until it is pulled.
+
+        Without this, `/connect` and the startup panel said a model was
+        connected that had never been downloaded, or had been removed since,
+        and the first sign of it was a failed reply.
+        """
+        return super().ready() or ollama_model_problem(self.model, self.host)
 
     @property
     def supports_native_tools(self) -> bool:

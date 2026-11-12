@@ -86,14 +86,21 @@ def _choose(title: str, rows: list, formatter) -> int:
     return index if 0 <= index < len(rows) else -1
 
 
+def _active_marker(problem: str) -> str:
+    """The active provider's mark: connected only if it could answer now."""
+    if problem:
+        return f" {S.WARN}◀ selected, not usable{S.R}"
+    return f" {S.OK}◀ connected{S.R}"
+
+
 def show_status() -> None:
     print(f"\n  {S.BOLD}{S.ACCENT}Providers{S.R}")
     print(f"  {_hr(width=60)}")
     active = providers.current().name
     for name, factory in providers.PROVIDERS.items():
         provider = providers.build(name)
-        marker = f" {S.OK}◀ connected{S.R}" if name == active else ""
         problem = provider.ready()
+        marker = _active_marker(problem) if name == active else ""
         state = f"{S.ERR}{problem}{S.R}" if problem else f"{S.OK}ready{S.R}"
         print(f"  {S.ACCENT}{provider.label}{S.R} {S.MUTED}({name}){S.R}  {state}{marker}")
         if provider.model:
@@ -154,8 +161,8 @@ def _pick_provider() -> str:
     active = providers.current().name
 
     def render(provider):
-        mark = f" {S.OK}◀ connected{S.R}" if provider.name == active else ""
         problem = provider.ready()
+        mark = _active_marker(problem) if provider.name == active else ""
         note = f"{S.MUTED}{problem}{S.R}" if problem else f"{S.GRAY}{provider.model}{S.R}"
         return f"{S.WHITE}{provider.label}{S.R}  {note}{mark}"
 

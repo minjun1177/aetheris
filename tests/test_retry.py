@@ -273,6 +273,19 @@ check("and says Ollama is not running, and how to start it",
       str(error)[:160])
 check("not httpx's own words", "All connection attempts failed" not in str(error))
 
+print("\n--- a model that is not pulled is not called connected ---")
+providers._ollama_installed.clear()
+check("ready() says the daemon is off", "not running" in local.ready(), local.ready())
+providers._ollama_installed[dead] = (float("inf"), {"qwen3:4b", "llama3:latest"})
+check("a pulled model is ready", providers.ollama_model_problem("qwen3:4b", dead) == "")
+check("a bare name matches its :latest", providers.ollama_model_problem("llama3", dead) == "")
+check("a model that was never pulled is not",
+      "ollama pull gemma4:e4b" in local.ready(), local.ready())
+providers._ollama_installed[dead] = (float("inf"), "")
+check("a daemon that would not list is not taken as proof the model is gone",
+      local.ready() == "")
+providers._ollama_installed.clear()
+
 
 print()
 if failures:
