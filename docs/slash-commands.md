@@ -79,16 +79,15 @@ The nine commands those switches used to be - `/deepthink`, `/planmode`, `/autom
 | `Ctrl+O` | At the prompt: the last turn again, uncut. A tool call's arguments are cut to 120 characters as they scroll past and its result to 600, and thinking is not shown unless `SHOW_THINKING` is on; this shows all of it, and puts back whatever was half-typed |
 | Mouse drag | Select and copy what is above the prompt: a thought without its `│`, an answer without what is under it. The highlight flashes and `⧉ copied` appears beside the prompt |
 | Right click | Paste. The terminal's own right-click paste stops while the mouse is the program's, so the program does it |
-| Mouse wheel | Scroll back, as always - see below. With the button held, it scrolls the drag instead: the selection runs on into what had scrolled off the top |
+| Mouse wheel | Scroll back through what is above the prompt, drawn from the program's own record - a drag still works on what it brings back. With the button held, it scrolls the drag: the selection runs on into what had scrolled off the top. Any key goes back to the bottom |
 | Drag held at the top edge | Scrolls back a row at a time, selecting as it goes; at the bottom edge, once scrolled back, it comes down again. Letting go copies and puts the screen back |
 | `Shift` + drag | The terminal's own selection, as it was |
 
 **Important:** a terminal reports all of the mouse or none of it, so while
-`MOUSE_SELECT` is on and the prompt is open the wheel is reported too. The
-first turn of it therefore hands the mouse back to the terminal: that one
-notch does nothing, every one after it scrolls as usual, and the prompt says
-`scrolling - any key takes the mouse back`. Until a key is pressed a drag is
-the terminal's own selection again. `/set MOUSE_SELECT off` gives the mouse
-back for good. None of this applies while a drag is held: then the wheel is
-the drag's, and scrolls what is drawn above the prompt from the program's own
-record of it - the last 5,000 rows.
+`MOUSE_SELECT` is on and the prompt is open the wheel is the program's too.
+It scrolls the rows above the prompt from the program's own record of them -
+the last 5,000 rows, not the terminal's scrollback from before it started -
+and the prompt says `⇡ N rows up`. A key, new output or a finished copy puts
+the screen back as it is. Only while the prompt does not yet know where it
+is on the screen does the wheel hand the mouse back to the terminal instead.
+`/set MOUSE_SELECT off` gives the mouse back for good.
