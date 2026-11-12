@@ -2190,6 +2190,9 @@ async def _cmd_clear(chat, user_input: str, cmd: str):
     config.TODOS.clear()
     rewind.forget()
     transcript.reset()
+    # The new conversation knows nothing of what the old one computed, so
+    # what the Python VM held and wrote goes with it.
+    vm.remove_scratch()
     # The prompt was just rebuilt for an empty set of loaded servers,
     # so what it was built for has to move with it - otherwise the next
     # message sees a difference that is not there and rebuilds again.

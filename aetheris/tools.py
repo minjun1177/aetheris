@@ -415,6 +415,36 @@ def _vm_footer(reply: dict) -> str:
     return f"\n\n(kept for your next run_python call: {shown})"
 
 
+_VM_FILES_SHOWN = 8
+
+
+def _vm_files_note(reply: dict) -> str:
+    """Where the files a call wrote are: not in the project.
+
+    The code runs in the VM's scratch directory, and nothing in the call says
+    so. A model that ran `open("report.csv", "w")` then told the person the
+    report was in their project, or went looking for it there with read_file.
+    """
+    files = [name for name in (reply.get("files") or []) if name]
+    if not files:
+        return ""
+    shown = ", ".join(files[:_VM_FILES_SHOWN])
+    if len(files) > _VM_FILES_SHOWN:
+        shown += f", and {len(files) - _VM_FILES_SHOWN} more"
+    return (f"\n\n(written in the VM's scratch directory {vm.scratch_dir()}, NOT in the "
+            f"project at {os.getcwd()}: {shown}. They are deleted when this session "
+            f"ends. To put a file in the project, use write_file.)")
+
+
+def _vm_missing_file_hint(error: str) -> str:
+    """A relative path the code could not open was looked for in the scratch directory."""
+    if "FileNotFoundError" not in error:
+        return ""
+    return (f"\nThe VM runs in its own scratch directory ({vm.scratch_dir()}), not in "
+            f"the project. A project file needs its full path: the project is "
+            f"{os.getcwd()}.")
+
+
 def handle_run_python(content: str, stdin: str = "", reset: bool = False) -> str:
     """Run a snippet in the scratch VM and say what came back."""
     code = _strip_hashlines(content if isinstance(content, str) else "")
@@ -453,17 +483,18 @@ def handle_run_python(content: str, stdin: str = "", reset: bool = False) -> str
 
     if reply.get("error"):
         head = f"It printed this before it failed:\n{printed}\n\n" if printed.strip() else ""
-        return f"[Error] {head}{reply['error']}"
+        return (f"[Error] {head}{reply['error']}{_vm_missing_file_hint(reply['error'])}"
+                + _vm_files_note(reply))
 
     parts = [f"[Success] ran in {reply.get('seconds', 0.0):.2f}s."]
     if printed.strip():
         parts.append(printed.rstrip())
     if reply.get("value") is not None:
         parts.append(f"=> {reply['value']}")
-    if len(parts) == 1 and not reply.get("new"):
+    if len(parts) == 1 and not reply.get("new") and not reply.get("files"):
         parts.append("The code ran and produced nothing. To see a value, print() it "
                      "or end the snippet with the expression on its own line.")
-    return "\n\n".join(parts) + _vm_footer(reply)
+    return "\n\n".join(parts) + _vm_footer(reply) + _vm_files_note(reply)
 
 
 

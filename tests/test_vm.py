@@ -167,6 +167,40 @@ run("open('scribble.txt', 'w').write('x')")
 check("so a file it writes lands there",
       os.path.isfile(os.path.join(vm.scratch_dir(), "scribble.txt")))
 check("and not in the project", not os.path.isfile(os.path.join(here, "scribble.txt")))
+told = run("open('report.csv', 'w').write('a,b')")
+check("the result says which file it wrote, and that it is not in the project",
+      "report.csv" in told and "NOT in the project" in told and "write_file" in told,
+      told[-300:])
+check("and that it goes when the session does", "deleted when this session ends" in told)
+check("a call that writes nothing says nothing about files",
+      "scratch directory" not in run("1 + 1"))
+missing = run("open('only_in_the_project.txt').read()")
+check("a relative path it cannot find is explained: it looked in the scratch directory",
+      "FileNotFoundError" in missing and "not in the project" in missing
+      and os.getcwd() in missing, missing[-300:])
+check("the directory is this session's own",
+      os.path.basename(vm.scratch_dir()) == f"session-{os.getpid()}")
+
+abandoned = os.path.join(vm._vm_root(), "session-999999999")
+os.makedirs(abandoned, exist_ok=True)
+saved_running = vm._running
+vm._running = lambda pid: pid == os.getpid()
+try:
+    vm.shutdown()
+    run("1")
+finally:
+    vm._running = saved_running
+check("a session that died without cleaning up is swept when the next VM starts",
+      not os.path.isdir(abandoned))
+check("but this session's files are not", os.path.isfile(
+    os.path.join(vm.scratch_dir(), "report.csv")))
+vm.shutdown()
+check("stopping the VM keeps the files for the rest of the session",
+      os.path.isfile(os.path.join(vm.scratch_dir(), "report.csv")))
+vm.remove_scratch()
+check("and when the session ends they are gone", not os.path.isdir(vm.scratch_dir()))
+check("the next call starts a new, empty one", "=> 2" in run("2")
+      and not os.path.isfile(os.path.join(vm.scratch_dir(), "report.csv")))
 check("the project is still importable, so a real function can be tried",
       "'.aetheris'" in run("import aetheris.paths as p\np.DIR_NAME"))
 # ...and importing it leaves nothing behind. A __pycache__ the model never

@@ -119,8 +119,15 @@ Four things it does that `run_cmd python3 -c "..."` does not:
   under `python -c`; here it comes back as `=> 1024`. A model reaches for a
   calculator far more readily when the calculator answers.
 - **It is a scratchpad, not the project.** The process runs in
-  `~/.aetheris/vm`, so a stray `open(..., "w")` lands there rather than in the
-  repository - and never in an auto-commit. The project is still on its
+  `~/.aetheris/vm/session-<pid>`, a directory of its own for this run of the
+  harness, so a stray `open(..., "w")` lands there rather than in the
+  repository - and never in an auto-commit. The files stay for the rest of the
+  session (`/vm stop` and `/vm reset` keep them) and are deleted when it ends:
+  on exit, or on `/clear`. A directory left by a harness that crashed is swept
+  the next time a VM starts. Every result names the files that call wrote and
+  says they are not in the project, and a `FileNotFoundError` says where the
+  code looked - a model that cannot see the directory otherwise assumes it is
+  the project's. The project is still on its
   `PYTHONPATH`, so a function that has just been written can be imported and
   tried; nothing is written back to it, not even a `__pycache__`.
 

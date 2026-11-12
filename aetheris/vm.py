@@ -10,9 +10,12 @@
 * **It remembers.** One process stays alive across calls and keeps its globals,
   so a model that cannot hold much in its head can work in small steps:
   compute, look, compute again. `run_cmd` starts from nothing every time.
-* **It is a scratchpad, not the project.** The process runs in its own
-  directory, so a stray `open(..., "w")` lands there instead of in the
-  repository - and never in a git commit.
+* **It is a scratchpad, not the project.** The process runs in a directory
+  of its own for this run of the harness, so a stray `open(..., "w")` lands
+  there instead of in the repository - and never in a git commit. What it
+  writes is kept while the session lasts and removed when it ends, and every
+  result names the files a call wrote and where, because a model that cannot
+  see the directory assumes the file is in the project.
 * **The last expression's value comes back.** `2 ** 10` on its own prints
   nothing under `python -c`; here it answers `1024`. A small model reaches for
   a calculator far more readily when the calculator answers.
@@ -47,6 +50,7 @@ import atexit
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -65,9 +69,92 @@ def _cfg(name, default):
     return getattr(config, name, default)
 
 
-def scratch_dir() -> str:
-    """Where the code runs. Its own directory, never the project's."""
+SESSION_PREFIX = "session-"     # one directory per running harness, by its pid
+FILES_LISTED = 2000             # entries compared before and after a call, at most
+
+
+def _vm_root() -> str:
     return paths.state("vm")
+
+
+def scratch_dir() -> str:
+    """Where the code runs. Its own directory, never the project's.
+
+    One per running harness, so two sessions open side by side do not read
+    each other's files, and so the files can go when the session does
+    (`remove_scratch`). Once they were all in one directory that was never
+    emptied, and a file from last week's session was still there to be
+    mistaken for this one's.
+    """
+    return os.path.join(_vm_root(), f"{SESSION_PREFIX}{os.getpid()}")
+
+
+def _running(pid: int) -> bool:
+    """Whether `pid` is a live process. True when it cannot be told.
+
+    `os.kill(pid, 0)` only on POSIX: on Windows `os.kill` terminates the
+    process instead of asking about it (see `channel._alive`).
+    """
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        try:
+            import psutil
+            return psutil.pid_exists(pid)
+        except Exception:
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True               # someone else's: alive, not ours to judge
+    return True
+
+
+def _sweep_abandoned() -> None:
+    """Remove the scratch directories of harnesses that died without cleaning up."""
+    try:
+        names = os.listdir(_vm_root())
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith(SESSION_PREFIX):
+            continue
+        try:
+            pid = int(name[len(SESSION_PREFIX):])
+        except ValueError:
+            continue
+        if not _running(pid):
+            shutil.rmtree(os.path.join(_vm_root(), name), ignore_errors=True)
+
+
+def remove_scratch() -> None:
+    """End the session's VM and delete everything it wrote."""
+    _kernel.close()
+    shutil.rmtree(scratch_dir(), ignore_errors=True)
+
+
+def _listing(directory: str) -> dict:
+    """{relative path: (size, mtime)} under `directory`, the kernel's own files left out."""
+    found = {}
+    for top, folders, files in os.walk(directory):
+        folders[:] = [f for f in folders if f != RUNTIME_DIR]
+        for name in files:
+            path = os.path.join(top, name)
+            try:
+                info = os.stat(path)
+            except OSError:
+                continue
+            found[os.path.relpath(path, directory)] = (info.st_size, info.st_mtime_ns)
+            if len(found) >= FILES_LISTED:
+                return found
+    return found
+
+
+def written(before: dict, after: dict) -> list:
+    """The files that are new, or changed, between two listings."""
+    return sorted(path for path, stamp in after.items() if before.get(path) != stamp)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +395,7 @@ class Kernel:
         try:
             workspace = os.getcwd()
             scratch = scratch_dir()
+            _sweep_abandoned()
             os.makedirs(scratch, exist_ok=True)
             runtime = self._runtime()
             kernel = self._kernel_source(runtime)
@@ -416,6 +504,7 @@ class Kernel:
             reset = False               # a fresh kernel is already empty
 
         request = json.dumps({"code": code, "stdin": stdin_text, "reset": bool(reset)})
+        before = _listing(scratch_dir())
         began = time.time()
         try:
             self.process.stdin.write((request + "\n").encode("utf-8"))
@@ -453,6 +542,7 @@ class Kernel:
         self.calls += 1
         reply["output"] = printed
         reply["seconds"] = time.time() - began
+        reply["files"] = written(before, _listing(scratch_dir()))
         return reply
 
 
@@ -471,10 +561,11 @@ def state() -> dict:
 
 
 def shutdown() -> None:
+    """Stop the process. Its files stay until the session ends."""
     _kernel.close()
 
 
-atexit.register(shutdown)
+atexit.register(remove_scratch)
 
 
 if __name__ == "__main__":

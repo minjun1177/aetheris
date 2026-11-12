@@ -119,7 +119,7 @@ skills, and they win.
 | `~/.aetheris/memory.json` | The long-term key-value memory |
 | `~/.aetheris/history` | Input history for the prompt |
 | `~/.aetheris/channel/*.json` | One board per project: which harnesses are running in it, what they have said to each other, and which files each is holding |
-| `~/.aetheris/vm/` | The `run_python` scratch directory - where the VM runs, and where anything it writes ends up |
+| `~/.aetheris/vm/session-<pid>/` | The `run_python` scratch directory - where the VM runs and anything it writes ends up; deleted when the session ends |
 | `~/.aetheris/settings.json` | The settings `/set` changed - only those, never the whole table |
 | `./.permissions.json`, then `~/.aetheris/permissions.json` | Allow and deny rules |
 | `./.mcp.json`, then `~/.aetheris/mcp.json` | MCP server declarations |
