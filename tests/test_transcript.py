@@ -138,6 +138,65 @@ transcript.start("a new message")
 check("a new turn is drawn the usual way, so the next press expands",
       transcript.expanded is False)
 
+print("\n--- collapsing puts the screen back as it was ---")
+from aetheris import screen     # noqa: E402
+transcript.reset()
+transcript.start("what does it print")
+transcript.thought("a thought that live never showed")
+transcript.said("hi bob")
+screen.ledger.rows.clear()
+live = ("  \033[1m❯\033[0m what does it print\n\n  ─ tokens: 10 in · 2 out\n\n"
+        "  hi bob\n\n  ✎ session titled: Greeting\n")
+screen.ledger.feed(live)
+on_screen = [row.raw for row in screen.ledger.rows]
+
+
+def press():
+    out, real = io.StringIO(), sys.stdout
+    sys.stdout = screen.Recorder(out)
+    real_unmirrored = app.remote.unmirrored_stdout
+    app.remote.unmirrored_stdout = lambda: sys.stdout
+    try:
+        app._toggle_transcript()
+    finally:
+        app.remote.unmirrored_stdout = real_unmirrored
+        sys.stdout = real
+    return out.getvalue()
+
+
+expanded_view = press()
+check("the first press draws it expanded",
+      transcript.expanded and "a thought that live never showed" in expanded_view)
+collapsed_view = press()
+check("the second puts back the rows that were there, and only those",
+      [row.raw for row in screen.ledger.rows] == on_screen
+      and "a thought that live never showed" not in collapsed_view, collapsed_view)
+check("token lines and the title line come back with them",
+      "─ tokens: 10 in" in collapsed_view and "session titled" in collapsed_view)
+check("no line that was not there: no 'thought' note, no footer",
+      "✻ thought" not in collapsed_view and "Ctrl+O expands" not in collapsed_view)
+press()
+screen.ledger.feed("  ❯ the next question\n")
+out, real = io.StringIO(), sys.stdout
+sys.stdout = out
+try:
+    app._leave_expanded("the next question")
+finally:
+    sys.stdout = real
+check("a message sent while expanded goes back to the screen as it was, "
+      "with the line just typed under it",
+      not transcript.expanded and [row.raw for row in screen.ledger.rows][:-1] == on_screen
+      and "the next question" in screen.ledger.rows[-1].raw)
+press()
+app._leave_expanded(app.RESIZED)
+check("a resize while expanded leaves the drawing to the resize redraw",
+      not transcript.expanded and app._before_expanding is None)
+check("and Ctrl+O's own prompt row is not recorded as a typed line",
+      "promptkeys.Expand" in inspect.getsource(app._account_for_prompt))
+screen.ledger.rows.clear()
+transcript.reset()
+transcript.start("a new message")
+
 print("\n--- a redraw records nothing; /clear and a loaded session start again ---")
 before = len(transcript.turns())
 with transcript.paused():

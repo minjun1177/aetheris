@@ -9,8 +9,10 @@ either: thinking is never kept there, and compression rewrites the rest.
 
 So each turn is recorded here as it happens, whole, and Ctrl+O at the prompt
 is a toggle: it redraws the whole conversation expanded - every thought, every
-argument and result in full - and pressed again redraws it collapsed, the way
-it scrolled past. Answers are drawn as markdown either way.
+argument and result in full, answers as markdown - and pressed again puts the
+screen back the way it was before (`app._toggle_transcript`, from the rows
+`screen` kept). The collapsed drawing here is only for when there is no such
+screen to put back.
 
 Every turn of this conversation, not only the last: `/clear` and loading
 another session start the record again (`reset`). It is held to `MAX_CHARS`,
@@ -172,7 +174,7 @@ def _draw(kind: str, name: str, body, full: bool) -> None:
             print(f"  {S.MUTED}✻ thought - {lines} line{'s' if lines != 1 else ''} "
                   f"· Ctrl+O shows it{S.R}")
             return
-        print(f"  {S.MUTED}╭─ thinking{S.R}")
+        print(f"\n  {S.MUTED}╭─ thinking{S.R}")
         took: list = []
         with screen.block("thinking"):
             for line in body.split("\n"):
@@ -183,6 +185,8 @@ def _draw(kind: str, name: str, body, full: bool) -> None:
                         print(f"  {S.MUTED}│ {row}{S.R}")
         print(f"  {S.MUTED}╰─{S.R}")
     elif kind == "answer":
+        if full:
+            print()       # off the box above it, which live has no box to need
         with screen.block("answer"):
             print(_render_full(body))
     elif kind == "call":

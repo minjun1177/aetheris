@@ -323,6 +323,33 @@ def typed(prompt: str, answer: str = "") -> None:
     ledger.feed(f"{prompt}{answer}\033[0m\n")
 
 
+def snapshot() -> list:
+    """The rows on record now, to be put back with `restore`."""
+    with ledger.lock:
+        return list(ledger.rows)
+
+
+def restore(rows: list, out) -> None:
+    """Clear the screen and draw `rows` from the top, exactly as they were.
+
+    Not printed again through the code that first printed them: the rows are
+    what the terminal showed, colour, wrapping and all, so drawing them back is
+    the screen as it was - which re-rendering from a record of the turn never
+    quite is. The ledger becomes them too, kinds and all, so a drag over them
+    selects what it did before.
+    """
+    with ledger.lock:
+        if ledger.on_change:
+            ledger.on_change()
+        ledger.rows.clear()
+        ledger.rows.extend(rows)
+        ledger._raw, ledger._used, ledger._soft = "", 0, False
+        ledger._pending = ""
+    out.write("\033[2J\033[3J\033[H\033[0m"
+              + "".join(row.raw + "\033[0m\n" for row in rows))
+    out.flush()
+
+
 def frame(rows_above: int, chosen: dict | None = None, scroll: int = 0) -> str:
     """Draw the rows above the prompt from the ledger, `chosen` highlighted.
 

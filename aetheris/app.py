@@ -1090,21 +1090,72 @@ def _redraw(messages: list[dict]) -> None:
         sys.stdout = mirrored
 
 
-def _toggle_transcript() -> None:
-    """Ctrl+O: the whole conversation again, expanded or collapsed in turn.
+# The screen as it was when Ctrl+O expanded it - the ledger's rows - so that
+# collapsing puts back exactly that, rather than a re-rendering of it.
+_before_expanding: list | None = None
 
-    Drawn from the top, as a resize redraw is, so what is on screen is one
-    view of it rather than the expanded copy printed under the collapsed one.
+
+def _toggle_transcript() -> None:
+    """Ctrl+O: the whole conversation expanded, and pressed again, as it was.
+
+    Expanding draws every turn again from the top, in full. Collapsing does not
+    draw anything again: it puts back the rows that were on screen before, so
+    the token lines, the commits, the verify results and the spacing are what
+    they were, and nothing appears that was not there. Re-rendering the
+    collapsed view from the record of each turn came out close to the live
+    screen but never the same, which is worse than plainly different.
     """
+    global _before_expanding
     if not transcript.turns():
         transcript.show()
         return
-    transcript.toggle()
     mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
     try:
+        if transcript.toggle():
+            _before_expanding = screen.snapshot()
+            _clear_screen()
+            transcript.show(full=True)
+        else:
+            _collapse_transcript()
+        sys.stdout.flush()
+    finally:
+        sys.stdout = mirrored
+
+
+def _collapse_transcript(keep_last: bool = False) -> None:
+    """The screen from before Ctrl+O expanded it.
+
+    `keep_last` carries the row just under it over too: the line a person
+    typed and sent while it was expanded, which belongs to the turn about to
+    start and not to the expanded view it was typed under.
+    """
+    global _before_expanding
+    transcript.expanded = False
+    rows, _before_expanding = _before_expanding, None
+    if rows is None:
+        # Nothing to put back - drawn the way a redraw draws it instead.
         _clear_screen()
         _welcome()
-        transcript.show()
+        transcript.show(full=False)
+        return
+    if keep_last:
+        last = screen.snapshot()[-1:]
+        rows = rows + last
+    screen.restore(rows, screen.beneath(sys.stdout))
+
+
+def _leave_expanded(user_input) -> None:
+    """Something other than Ctrl+O came back from the prompt while expanded."""
+    global _before_expanding
+    if not transcript.expanded:
+        return
+    if user_input is RESIZED:
+        # The rows were laid out for the old width; the redraw replaces both.
+        transcript.expanded, _before_expanding = False, None
+        return
+    mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
+    try:
+        _collapse_transcript(keep_last=isinstance(user_input, str))
         sys.stdout.flush()
     finally:
         sys.stdout = mirrored
@@ -1422,6 +1473,8 @@ def _account_for_prompt(session_pt, line) -> None:
     screen never saw it - and the line it leaves is a row like any other,
     between the answer above it and the one about to be printed.
     """
+    if isinstance(line, promptkeys.Expand):
+        return        # Ctrl+O draws the screen again; the prompt row goes with it
     try:
         if line is None:
             line = session_pt.default_buffer.text
@@ -2914,6 +2967,7 @@ async def main(resume_id: str = "") -> None:
         if user_input is EXPANDED:
             _toggle_transcript()
             continue
+        _leave_expanded(user_input)
 
         if user_input is IDLE_CALL:
             # Outside the `try` above on purpose: Ctrl+C at an approval prompt
