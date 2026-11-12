@@ -245,6 +245,35 @@ check("stream_reply answers after the retry", "fine now" in answer and provider.
 check("and said why it waited", "trying again in 1s (1/3)" in printed, printed[-200:])
 
 
+print("\n--- Ollama switched off is said once, with what to do ---")
+import socket                        # noqa: E402
+
+# A port nothing listens on: bound, then closed, so a connect is refused.
+with socket.socket() as probe:
+    probe.bind(("127.0.0.1", 0))
+    dead = f"http://127.0.0.1:{probe.getsockname()[1]}"
+local = providers.OllamaProvider({"model": "gemma4:e4b", "base_url": dead})
+attempts = []
+
+
+async def one_reply():
+    async for _ in providers.stream_with_retry(
+            lambda: local.stream([{"role": "user", "content": "hi"}]),
+            lambda *a: attempts.append(a)):
+        pass
+
+try:
+    asyncio.run(one_reply())
+    error = None
+except Exception as caught:
+    error = caught
+check("a refused connection is not retried", attempts == [], str(attempts))
+check("and says Ollama is not running, and how to start it",
+      error is not None and "not running" in str(error) and "ollama serve" in str(error),
+      str(error)[:160])
+check("not httpx's own words", "All connection attempts failed" not in str(error))
+
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

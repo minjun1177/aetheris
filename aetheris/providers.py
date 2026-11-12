@@ -732,6 +732,33 @@ def ollama_request(model: str, messages: list, max_tokens: int | None = None) ->
     return request
 
 
+def _refused_connection(error: BaseException) -> bool:
+    """Whether nothing was listening: the daemon is off, not busy or slow.
+
+    The async client hands httpx's own words up from a streamed request - "All
+    connection attempts failed" - and the sync one says "Failed to connect to
+    Ollama". Either way retrying in a second will not start it.
+    """
+    try:
+        import httpx
+        if isinstance(error, httpx.ConnectError):
+            return True
+    except ImportError:
+        pass
+    return isinstance(error, ConnectionRefusedError) or (
+        isinstance(error, ConnectionError) and "Failed to connect to Ollama" in str(error))
+
+
+def ollama_not_running(host: str = "") -> str:
+    """What to do when nothing answers at the Ollama address."""
+    where = host or "http://localhost:11434"
+    return (f"Ollama is not running at {where}.\n"
+            f"Start it - `ollama serve` in another terminal, or open the Ollama "
+            f"app - and send the message again. Not installed: "
+            f"https://ollama.com/download\n"
+            f"Or /connect to a hosted provider instead.")
+
+
 def ollama_supports_tools(model: str, host: str = "") -> bool:
     """Whether this local model was built with a tool-calling template.
 
@@ -946,8 +973,22 @@ class OllamaProvider(Provider):
         think = self.think_value(max_tokens)
         if think is not None:
             request["think"] = think
-        response = await self._client().chat(**request)
-        async for chunk in response:
+        try:
+            response = await self._client().chat(**request)
+            first = await anext(aiter(response), None)
+        except Exception as error:
+            if _refused_connection(error):
+                raise ProviderError(ollama_not_running(self.host)) from None
+            raise
+        if first is None:
+            return
+
+        async def chunks():
+            yield first
+            async for later in response:
+                yield later
+
+        async for chunk in chunks():
             message = chunk.get("message") or {}
             text = message.get("content", "") or ""
             thinking = message.get("thinking", "") or ""
