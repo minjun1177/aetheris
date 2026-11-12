@@ -12,7 +12,7 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~24,900 lines of Python, no framework. It talks to
+A terminal AI assistant, ~27,800 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
 model 43 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
