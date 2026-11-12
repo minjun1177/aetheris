@@ -229,10 +229,16 @@ def _expire_note(app) -> None:
 
 # A terminal reports all of the mouse or none of it, so taking the drag takes
 # the wheel too - and the wheel is how what was said an hour ago is read. So
-# the first turn of the wheel hands the mouse back to the terminal, which
-# scrolls from then on as it always did, and the next key pressed takes it
-# again. That one first notch is the price: it is reported here, not scrolled.
+# the wheel scrolls the rows above the prompt here, redrawn from the ledger the
+# way a drag scrolls them (`view_scroll`), and the mouse stays this program's:
+# a drag still works on whatever the wheel brought back. It used to hand the
+# mouse back to the terminal instead, and from the first notch until a key was
+# pressed nothing could be selected at all.
+#
+# Handing it back is still the fallback for a prompt that does not know where
+# it is on the screen yet, where there is nothing to draw the rows against.
 _scrolling: set = set()       # prompts whose mouse is the terminal's for now
+_view = None                  # a Drag with no anchor: the rows the wheel scrolled back
 _NOT_TYPING = ("<vt100-mouse-event>", "<windows-mouse-event>", "<scroll-up>",
                "<scroll-down>", "<cursor-position-response>")
 
@@ -247,8 +253,53 @@ def hand_back(app) -> None:
     app.output.flush()
 
 
+def view_scroll(app, rows: int) -> None:
+    """The wheel turned with no button held: scroll the rows above the prompt.
+
+    Back through the ledger when `rows` is positive, on towards the newest row
+    when it is negative. Drawn over the screen like a drag's scroll, and put
+    back at the bottom by a key, by anything printed, or by a drag let go.
+    """
+    global _view, _note
+    above = rows_known(app)
+    if above is None or above < 1:
+        if rows > 0:
+            hand_back(app)
+        return
+    view = _view if _view is not None and _view.app is app else Drag(app, None, above)
+    view.settle()
+    deepest = max(len(screen.ledger.rows) - view.rows_above, 0)
+    wanted = min(max(view.scroll + rows, 0), deepest)
+    if wanted == view.scroll:
+        return
+    view.scroll = wanted
+    _view = view if wanted else None
+    _draw(view)
+    _note = ((f"{S.MUTED}⇡ {wanted} rows up - drag to copy, any key goes back{S.R}",
+              time.monotonic() + NOTE_SECONDS) if wanted else ("", 0.0))
+    try:
+        app.invalidate()
+    except Exception:
+        pass
+
+
+def view_reset() -> None:
+    """Draw the rows above the prompt as they are, if the wheel had moved them."""
+    global _view, _note
+    view, _view = _view, None
+    if view is None:
+        return
+    view.scroll = 0
+    _note = ("", 0.0)
+    try:
+        _draw(view)
+    except Exception:
+        pass
+
+
 def take_back(app) -> None:
     """A key was pressed: the person is at the prompt again, and so is the mouse."""
+    view_reset()
     if app not in _scrolling:
         return
     _scrolling.discard(app)
@@ -285,12 +336,17 @@ def _choose(drag) -> bool:
 
 def press(app, x: int, y: int, rows_above: int) -> None:
     """The button went down on row `y`, column `x`, above the prompt."""
-    global _drag
+    global _drag, _view
     release(app, copy=False)
-    index = _row_of(y, rows_above)
+    # Pressed on rows the wheel had scrolled back: the drag starts there, and
+    # takes the scroll over from the view.
+    scrolled = _view.scroll if _view is not None and _view.app is app else 0
+    _view = None
+    index = _row_of(y, rows_above, scrolled)
     if not 0 <= index < len(screen.ledger.rows):
         return
     _drag = Drag(app, (index, x), rows_above)
+    _drag.scroll = scrolled
     _drag.pointer = (x, y)
     # Drawn with nothing chosen yet: from here the rows on screen are the rows
     # in the ledger, whatever they were a moment ago.
@@ -459,6 +515,7 @@ def rows_moved() -> None:
     highlight left on would scroll away with them into the scrollback.
     """
     global _drag
+    view_reset()
     if _drag is None and not _lit:
         return
     drag, _drag = _drag, None
@@ -536,7 +593,7 @@ def handle(app, point) -> None:
         if what == "wheel" and _drag is not None:
             scroll(app, above)          # held: the drag scrolls, it is not let go
         elif what == "wheel":
-            hand_back(app)
+            view_scroll(app, above)
         elif what == "down":
             press(app, x, y, above)
         elif what == "move":

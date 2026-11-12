@@ -446,13 +446,14 @@ if config.PROMPT_TOOLKIT_AVAILABLE:
 check("a setting, on unless switched off", config.MOUSE_SELECT is True
       and "MOUSE_SELECT" in config.settable())
 
-print("\n--- the wheel still scrolls: it hands the mouse back until a key is pressed ---")
+print("\n--- before the prompt knows where it is, the wheel hands the mouse back ---")
+# There is nothing to draw the rows against yet, so the terminal scrolls.
 prompt = Prompt()
 promptkeys.watch(prompt)
-promptkeys.handle(prompt, ("wheel", 3, 3, 0))
-check("the first turn of the wheel gives the mouse to the terminal",
+promptkeys.handle(prompt, ("wheel", 3, 3, promptkeys.WHEEL_ROWS))
+check("the wheel gives the mouse to the terminal",
       prompt.output.mouse == ["off"] and prompt in promptkeys._scrolling)
-promptkeys.handle(prompt, ("wheel", 3, 3, 0))
+promptkeys.handle(prompt, ("wheel", 3, 3, promptkeys.WHEEL_ROWS))
 check("once", prompt.output.mouse == ["off"])
 prompt.key_processor.press("<vt100-mouse-event>")
 prompt.key_processor.press("<cursor-position-response>")
@@ -464,7 +465,7 @@ check("the next key pressed takes it back", prompt.output.mouse == ["off", "on"]
 prompt.key_processor.press("b")
 check("and typing on changes nothing more", prompt.output.mouse == ["off", "on"])
 config.MOUSE_SELECT = False
-promptkeys.handle(prompt, ("wheel", 3, 3, 0))
+promptkeys.handle(prompt, ("wheel", 3, 3, promptkeys.WHEEL_ROWS))
 prompt.key_processor.press("a")
 check("with MOUSE_SELECT off there is nothing to take back",
       prompt.output.mouse == ["off", "on", "off"])
@@ -593,6 +594,47 @@ finally:
 check("scrolled back and let go with nothing chosen: put back at once",
       "line 39" in app.output.written and promptkeys._drag is None
       and "rows up" not in promptkeys.note(), repr(app.output.written[-60:]))
+
+print("\n--- the wheel scrolls here, and a drag still works after it ---")
+# It used to hand the mouse back to the terminal on the first notch, and
+# nothing could be dragged until a key was pressed.
+app = App()
+promptkeys._prompts[app] = {"peak": 0, "above": SHOWN, "last": SHOWN}
+copied.clear()
+app.output.written = ""
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+check("the wheel draws the rows back from the ledger",
+      "line 27" in app.output.written and "line 37" not in app.output.written,
+      repr(app.output.written[-120:]))
+check("and keeps the mouse: nothing is handed to the terminal",
+      app not in promptkeys._scrolling and promptkeys._view is not None)
+check("it says how far up it is", "3 rows up" in promptkeys.note(), promptkeys.note())
+promptkeys.handle(app, ("down", 2, 0, SHOWN))
+check("a press after it lands on the row the wheel brought there",
+      promptkeys._drag is not None and promptkeys._drag.anchor[0] == 27
+      and promptkeys._drag.scroll == 3, str(promptkeys._drag and promptkeys._drag.anchor))
+promptkeys.handle(app, ("move", 20, 1, SHOWN))
+promptkeys.handle(app, ("up", 20, 1, SHOWN))
+check("and the drag copies it", copied and copied[-1] == "line 27\nline 28",
+      repr(copied[-1] if copied else copied))
+for delay, function, args in list(app.loop.later):
+    if delay == promptkeys.FLASH:
+        function(*args)
+app.loop.later.clear()
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+promptkeys.handle(app, ("wheel", 20, 5, -promptkeys.WHEEL_ROWS))
+check("turned back down to the bottom it is the screen as it is",
+      promptkeys._view is None and "rows up" not in promptkeys.note())
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+app.output.written = ""
+ledger.feed("  something new\n")
+check("anything printed puts the view back at the bottom first",
+      promptkeys._view is None and "line 39" in app.output.written,
+      repr(app.output.written[-80:]))
+promptkeys.handle(app, ("wheel", 20, 5, promptkeys.WHEEL_ROWS))
+promptkeys.view_reset()
+check("so does a key (take_back calls view_reset)", promptkeys._view is None)
+del promptkeys._prompts[app]
 
 check("the wheel says which way it turned",
       promptkeys._vt_point(Event("\x1b[<64;9;4M"))[3] == promptkeys.WHEEL_ROWS
