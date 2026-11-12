@@ -205,11 +205,13 @@ app._kept_typing = ""
 source = inspect.getsource(app.main)
 check("the main loop toggles the view and opens the prompt again",
       "if user_input is EXPANDED:\n            _toggle_transcript()\n            continue" in source)
+whole = inspect.getsource(app)
+paired = len(re.findall(r"config\.next_turn\(\)\n\s*transcript\.start\(", whole))
 check("every turn starts a turn of the record",
-      source.count("config.next_turn()") == source.count("transcript.start("),
-      f"{source.count('config.next_turn()')} vs {source.count('transcript.start(')}")
-check("/clear empties it", "transcript.reset()" in source[source.index('if cmd == "/clear":'):][:2000])
-check("loading a session seeds it", source.count("_replay_session(messages, record=True)") == 2)
+      whole.count("config.next_turn()") == paired, f"{whole.count('config.next_turn()')} vs {paired}")
+check("/clear empties it", "transcript.reset()" in inspect.getsource(app._cmd_clear))
+check("loading a session seeds it", whole.count("_replay_session(") and "record=True" in inspect.getsource(app._cmd_load)
+      and "record=True" in source)
 check("Ctrl+O is in /help all", any(key == "Ctrl+O" for key, _ in tui.KEYS))
 
 

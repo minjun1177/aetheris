@@ -2121,6 +2121,650 @@ def _show_agents() -> None:
           f"<path> to take a file back.{S.R}\n")
 
 
+
+# ---------------------------------------------------------------------------
+# the slash commands
+# ---------------------------------------------------------------------------
+#
+# Each was a branch of `main`'s loop, which made that loop nine hundred lines
+# long. Now each is a handler, tried in the order of `_COMMANDS` - which is the
+# order the branches were in, and still matters: `/skills` before `/skill`,
+# `/sessions` before `/load`, `/tdd` last. A handler returns `_HANDLED` (back to
+# the prompt), `_LEAVE` (quit), or a `_Next` - the line and command to go on
+# with, for the three that fall through: `/sessions` into `/load`, an MCP prompt
+# into a message, `/tdd <request>` into its request.
+
+
+class _Chat:
+    """What the commands read and change of the loop's state."""
+
+    def __init__(self, messages, session_id, mcp_servers):
+        self.messages = messages
+        self.session_id = session_id
+        self.mcp_servers = mcp_servers
+
+
+class _Next(tuple):
+    """(user_input, cmd) to carry on with after a command that falls through."""
+
+    def __new__(cls, user_input, cmd):
+        return super().__new__(cls, (user_input, cmd))
+
+
+_HANDLED = object()
+_LEAVE = object()
+
+
+async def _cmd_usage(chat, user_input: str, cmd: str):
+    if providers.current().drives_turns:
+        from aetheris import attacca
+        attacca.show_usage()
+    else:
+        display_usage_graph(chat.messages)
+    return _HANDLED
+
+
+async def _cmd_help(chat, user_input: str, cmd: str):
+    arg = user_input[len("/help"):].strip().lower()
+    if arg not in ("", "all"):
+        print(f"  {S.ERR}✗ Usage: /help [all]{S.R}\n")
+        return _HANDLED
+    _show_help(everything=arg == "all")
+    return _HANDLED
+
+
+async def _cmd_clear(chat, user_input: str, cmd: str):
+    config.LOADED_MCP_SERVERS.clear()
+    config.SYSTEM_PROMPT = _build_system_prompt()
+    chat.messages = [{"role": "system", "content": _compose_system_prompt()}]
+    chat.session_id = None
+    config.SESSION_TITLE = ""
+    # A cleared conversation here is a new one there, too: Attacca
+    # keeps its own context, and the old session would remember it all.
+    config.ATTACCA_SESSION = ""
+    config.ATTACCA_CURSOR = 0
+    config.ATTACCA_JOB = ""
+    config.token_history.clear()
+    config.turn_index = 0
+    config.LOADED_SKILLS.clear()
+    config.TODOS.clear()
+    rewind.forget()
+    transcript.reset()
+    # The prompt was just rebuilt for an empty set of loaded servers,
+    # so what it was built for has to move with it - otherwise the next
+    # message sees a difference that is not there and rebuilds again.
+    chat.mcp_servers = sorted(config.LOADED_MCP_SERVERS)
+    print("\033[2J\033[H", end="")
+    _welcome()
+    _report_usage(chat.messages)
+    print(f"  {S.OK}✓ Conversation and usage cleared.{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_models(chat, user_input: str, cmd: str):
+    provider = providers.current()
+    print(f"\n  {S.BOLD}{S.ACCENT}{provider.label} Models{S.R}")
+    print(f"  {_hr(width=50)}")
+    try:
+        available = provider.list_models()
+        if not available:
+            print(f"  {S.WARN}\u26a0 None found.{S.R}")
+        for i, entry in enumerate(available, 1):
+            marker = f" {S.OK}\u25c0 current{S.R}" if entry["name"] == config.MODEL else ""
+            detail = f"  {S.GRAY}({entry['detail']}){S.R}" if entry.get("detail") else ""
+            print(f"  {S.ACCENT}{i:3}.{S.R} {S.WHITE}{entry['name']}{S.R}{detail}{marker}")
+    except Exception as e:
+        connect._print_problem("Failed to list models", e)
+    print()
+    return _HANDLED
+
+
+async def _cmd_model(chat, user_input: str, cmd: str):
+    provider = providers.current()
+    print(f"\n  {S.GRAY}provider{S.R}  {S.WHITE}{provider.label}{S.R}")
+    print(f"  {S.GRAY}model{S.R}     {S.WHITE}{config.MODEL}{S.R}\n")
+    connect.run(provider.name)
+    return _HANDLED
+
+
+async def _cmd_connect(chat, user_input: str, cmd: str):
+    connect.run(user_input.split(" ", 1)[1].strip() if " " in user_input else "")
+    _refresh_system_prompt(chat.messages)
+    return _HANDLED
+
+
+async def _cmd_sessions(chat, user_input: str, cmd: str):
+    # One step: the list asks which to open, and the answer goes on to
+    # `/load` below as if it had been typed there.
+    picked = _pick_session(chat.session_id, user_input.partition(" ")[2].strip())
+    if not picked:
+        return _HANDLED
+    user_input = f"/load {picked}"
+    cmd = user_input.lower()
+    return _Next(user_input, cmd)
+
+
+async def _cmd_load(chat, user_input: str, cmd: str):
+    parts = user_input.split(" ", 1)
+    if len(parts) < 2 or not parts[1].strip():
+        print(f"  {S.ERR}✗ Usage: /load <id or title>{S.MUTED} - or /sessions "
+              f"to pick from the list{S.R}\n")
+        return _HANDLED
+    query = parts[1].strip()
+    matches = find_sessions(query)
+    if len(matches) > 1:
+        _show_ambiguous(query, matches, "Re-run /load with one of the ids above.")
+        return _HANDLED
+    sid = matches[0][0] if matches else query
+    loaded = load_session(sid)
+    if loaded:
+        chat.messages = _adopt_session(loaded)
+        chat.session_id = sid
+        label = config.SESSION_TITLE or sid
+        # From the top, as `--resume` draws it: below whatever this
+        # screen already held, the loaded conversation read as a
+        # continuation of the one it replaced.
+        _clear_screen()
+        _welcome()
+        print(f"  {S.OK}✓ Loaded session: {label} (Model: {config.MODEL}){S.R}\n")
+        transcript.reset()
+        _replay_session(chat.messages, record=True)
+    else:
+        print(f"  {S.ERR}✗ Session not found: {sid}{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_title(chat, user_input: str, cmd: str):
+    parts = user_input.split(" ", 1)
+    new_title = parts[1].strip() if len(parts) > 1 else ""
+    if not new_title:
+        shown = config.SESSION_TITLE or f"{S.GRAY}(untitled){S.R}"
+        print(f"\n  {S.GRAY}title{S.R}  {S.WHITE}{shown}{S.R}")
+        print(f"  {S.GRAY}id{S.R}     {S.WHITE}{chat.session_id or '(not saved yet)'}{S.R}")
+        print(f"  {S.MUTED}Rename with /title <new title>{S.R}\n")
+        return _HANDLED
+    if not clean_title(new_title):
+        print(f"  {S.ERR}✗ That title is empty after cleanup.{S.R}\n")
+        return _HANDLED
+    chat.session_id = rename_session(chat.session_id, new_title)
+    print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({chat.session_id or 'saved on next message'}){S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_update(chat, user_input: str, cmd: str):
+    update.run(connect._ask)
+    return _HANDLED
+
+
+async def _cmd_context(chat, user_input: str, cmd: str):
+    _context(user_input[len("/context"):])
+    return _HANDLED
+
+
+async def _cmd_effort(chat, user_input: str, cmd: str):
+    _effort(user_input[len("/effort"):])
+    return _HANDLED
+
+
+async def _cmd_copy(chat, user_input: str, cmd: str):
+    _copy(chat.messages, user_input[len("/copy"):].strip())
+    return _HANDLED
+
+
+async def _cmd_btw(chat, user_input: str, cmd: str):
+    global _stoppable
+    question = user_input[len("/btw"):].strip()
+    if not question:
+        print(f"  {S.ERR}✗ Usage: /btw <question>{S.R}\n")
+        return _HANDLED
+    if providers.current().drives_turns:
+        print(f"  {S.WARN}⚠ Attacca answers inside its own conversation, so a "
+              f"question there would be kept. Ask it as a message.{S.R}\n")
+        return _HANDLED
+    # Its own bar in /usage: it was paid for, and it is not the turn
+    # before it.
+    config.next_turn()
+    transcript.start(user_input)
+    leaving = False
+    _stoppable = True
+    try:
+        await llm_client.side_question(chat.messages, question)
+        print(f"  {S.MUTED}↳ /btw - not kept in the conversation{S.R}\n")
+    except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+        leaving = _interrupted(pressed)
+        await _absorb_cancel()
+        if not leaving:
+            _say_how_to_leave()
+    except Exception as e:
+        print()
+        connect._print_problem("Error", e)
+    finally:
+        _stoppable = False
+    if leaving:
+        _shut_down()
+        print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+        return _LEAVE
+    return _HANDLED
+
+
+async def _cmd_rewind(chat, user_input: str, cmd: str):
+    chat.session_id = _rewind(chat.messages, user_input[len("/rewind"):].strip(),
+                                 chat.session_id)
+    return _HANDLED
+
+
+async def _cmd_autotitle(chat, user_input: str, cmd: str):
+    chosen = _switch(
+        "/autotitle", user_input[len("/autotitle"):], config.AUTO_TITLE,
+        "Auto session titling",
+        "the model names a new session after its first exchange",
+        on_note="New sessions are named for you; /title renames one.",
+        off_note="New sessions stay untitled until you name them with /title.")
+    if chosen is not None:
+        config.AUTO_TITLE = chosen
+    return _HANDLED
+
+
+async def _cmd_automode(chat, user_input: str, cmd: str):
+    chosen = _switch(
+        "/automode", user_input[len("/automode"):], config.AUTO_ALLOW,
+        "Automode",
+        "every guarded tool runs without stopping to ask you first",
+        on_note="Tools run without asking. /perms is the finer-grained way.",
+        off_note="Every guarded tool waits for your approval again.")
+    if chosen is not None:
+        config.AUTO_ALLOW = chosen
+    return _HANDLED
+
+
+async def _cmd_fullcontent(chat, user_input: str, cmd: str):
+    chosen = _switch(
+        "/fullcontent", user_input[len("/fullcontent"):],
+        config.RETURN_ALL_FILE_CONTENT, "Full content",
+        "a file or page reaches the model whole rather than cut short",
+        on_note="read_file and get_url hand over the whole thing.",
+        off_note=f"They stop at {config.FILE_MAX_DISPLAY_LENGTH} characters.")
+    if chosen is not None:
+        config.RETURN_ALL_FILE_CONTENT = chosen
+    return _HANDLED
+
+
+async def _cmd_record(chat, user_input: str, cmd: str):
+    chosen = _switch(
+        "/record", user_input[len("/record"):], config.SAVE_CHAT_HISTORY,
+        "Chat history recording",
+        f"conversations are saved under {config.SESSION_DIR}",
+        on_note="This conversation is saved as you go; /sessions lists them.",
+        off_note="Nothing more is written to disk for this conversation.")
+    if chosen is not None:
+        config.SAVE_CHAT_HISTORY = chosen
+    return _HANDLED
+
+
+async def _cmd_export(chat, user_input: str, cmd: str):
+    # `user_input`, not `cmd`: see `_export_command`.
+    _export_command(user_input[len("/export"):], chat.messages)
+    return _HANDLED
+
+
+async def _cmd_system(chat, user_input: str, cmd: str):
+    # `user_input`, not `cmd`: see `_system_command`.
+    _system_command(user_input[len("/system"):], chat.messages)
+    return _HANDLED
+
+
+async def _cmd_planmode(chat, user_input: str, cmd: str):
+    elsewhere = providers.current().drives_turns
+    chosen = _switch(
+        "/planmode", user_input[len("/planmode"):], config.PLANMODE,
+        "Plan mode",
+        "the model must submit a plan for approval before it changes anything",
+        on_note=("Your next message starts a plan-mode job on Attacca: its "
+                 "agent investigates, shows the plan here and waits for you."
+                 if elsewhere else
+                 "It calls submit_plan_for_approval first and waits for you."),
+        off_note="It goes straight at the work again.")
+    if chosen is not None:
+        config.PLANMODE = chosen
+        if chosen and elsewhere:
+            # Said again, it means "plan the next thing too".
+            from aetheris import attacca
+            attacca.plan_anew()
+    return _HANDLED
+
+
+async def _cmd_artifacts(chat, user_input: str, cmd: str):
+    if not providers.current().drives_turns:
+        print(f"  {S.GRAY}/artifacts lists what an Attacca agent made; this "
+              f"session is on {providers.current().label}.{S.R}\n")
+        return _HANDLED
+    from aetheris import attacca
+    attacca.show_artifacts(user_input[len("/artifacts"):])
+    return _HANDLED
+
+
+async def _cmd_skills(chat, user_input: str, cmd: str):
+    arg = user_input.split(" ", 1)[1].strip().lower() if " " in user_input else ""
+    if not arg:
+        _show_skills()
+    elif arg == "reload":
+        skills.discover_skills(force=True)
+        _refresh_system_prompt(chat.messages)
+        print(f"  {S.OK}✓ Skills reloaded: {len(skills.list_skills())} available.{S.R}\n")
+    else:
+        print(f"  {S.ERR}✗ Usage: /skills [reload]{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_skill(chat, user_input: str, cmd: str):
+    parts = user_input.split(" ", 1)
+    if len(parts) < 2 or not parts[1].strip():
+        print(f"  {S.ERR}✗ Usage: /skill <name>  (see /skills){S.R}\n")
+        return _HANDLED
+    skill = skills.get_skill(parts[1].strip())
+    if skill is None:
+        print(f"  {S.ERR}✗ Skill not found: {parts[1].strip()}{S.R}\n")
+        return _HANDLED
+    _fmt_tool_call("use_skill", {"skill_name": skill["name"]})
+    result = skills.handle_use_skill(skill["name"])
+    _fmt_tool_result("use_skill", result)
+    print()             # one blank line, like every other command here
+    chat.messages.append({"role": "user", "content": f"[Tool Result for 'use_skill']:\n{result}"})
+    chat.session_id = save_session(chat.messages, chat.session_id)
+    return _HANDLED
+
+
+async def _cmd_mcp(chat, user_input: str, cmd: str):
+    parts = user_input.split()
+    sub = parts[1].lower() if len(parts) > 1 else ""
+    args = parts[2:]
+    injected = ""
+
+    if not sub:
+        _show_mcp()
+    elif sub in ("tools", "prompts", "all"):
+        _show_mcp(sub, args[0] if args else "")
+    elif sub in ("reload", "refresh"):
+        sys.stdout.write(f"  {S.MUTED}⟳ reloading MCP servers…{S.R}")
+        sys.stdout.flush()
+        mcp_client.reconnect()
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+        _refresh_system_prompt(chat.messages)
+        print(f"  {S.OK}✓ MCP reloaded: {mcp_client.status_summary()}.{S.R}\n")
+        _report_mcp_problems([s for s in mcp_client.all_servers() if s.state == "failed"])
+    elif sub in ("connect", "reconnect"):
+        if not args:
+            print(f"  {S.ERR}✗ Usage: /mcp connect <server name>{S.R}\n")
+        else:
+            touched = mcp_client.reconnect(args[0])
+            if not touched:
+                print(f"  {S.ERR}✗ No MCP server named '{args[0]}'. See /mcp.{S.R}\n")
+            else:
+                server = touched[0]
+                _refresh_system_prompt(chat.messages)
+                if server.state == "connected":
+                    print(f"  {S.OK}✓ '{server.name}' connected: {len(server.tools)} tool(s).{S.R}\n")
+                else:
+                    print(f"  {S.ERR}✗ '{server.name}' is {server.state}:{S.R}")
+                    for line in _wrapped(server.error):
+                        print(f"  {S.MUTED}  {line}{S.R}")
+                    print()
+    elif sub == "resources":
+        print()
+        print(mcp_client.list_resources_text(args[0] if args else ""))
+        print()
+    elif sub == "prompt":
+        if len(args) < 2:
+            print(f"  {S.ERR}✗ Usage: /mcp prompt <server> <prompt name> [key=value ...]{S.R}\n")
+        else:
+            server = mcp_client.get_server(args[0])
+            if server is None or server.state != "connected":
+                print(f"  {S.ERR}✗ No connected MCP server named '{args[0]}'.{S.R}\n")
+            else:
+                prompt_args = {}
+                for token in args[2:]:
+                    key, sep, value = token.partition("=")
+                    if sep:
+                        prompt_args[key] = value
+                try:
+                    fetched = server.get_prompt(args[1], prompt_args)
+                except Exception as e:
+                    print(f"  {S.ERR}✗ {server.name}: {e}{S.R}\n")
+                else:
+                    injected = mcp_client.prompt_to_text(fetched)
+                    print(f"\n  {S.MUTED}─ prompt '{args[1]}' from {server.name}{S.R}")
+                    print(_render_full(injected))
+                    print()
+    elif sub in ("on", "off"):
+        config.MCP_ENABLED = sub == "on"
+        if config.MCP_ENABLED:
+            _report_mcp_problems(_connect_mcp_servers())
+        else:
+            mcp_client.shutdown()
+        _refresh_system_prompt(chat.messages)
+        _switch("/mcp", sub, config.MCP_ENABLED, "MCP",
+                "the attached servers' tools are offered to the model",
+                on_note=f"{mcp_client.status_summary()}. /mcp lists them.",
+                off_note="No server's tools reach the model, and none is running.")
+    else:
+        print(f"  {S.ERR}✗ Usage: /mcp [tools|prompts|all|resources|reload|connect <name>|prompt <server> <name>|on|off]{S.R}\n")
+
+    if not injected:
+        return _HANDLED
+    user_input = injected
+    return _Next(user_input, cmd)
+
+
+async def _cmd_perms(chat, user_input: str, cmd: str):
+    parts = user_input.split(" ", 2)
+    sub = parts[1].lower() if len(parts) > 1 else ""
+    argument = parts[2].strip() if len(parts) > 2 else ""
+
+    if not sub:
+        _show_perms()
+    elif sub in ("reload", "refresh"):
+        permissions.load_rules(force=True)
+        allowed = len(permissions.rules_for("allow"))
+        denied = len(permissions.rules_for("deny"))
+        print(f"  {S.OK}✓ Permission rules reloaded: {allowed} allow, {denied} deny.{S.R}\n")
+        for problem in permissions.errors:
+            print(f"  {S.ERR}✗ {problem}{S.R}")
+    elif sub in ("allow", "deny"):
+        if not argument:
+            print(f"  {S.ERR}✗ Usage: /perms {sub} <rule>   e.g. /perms {sub} run_cmd(git *){S.R}\n")
+        else:
+            saved, where = permissions.add_rule(argument, sub)
+            if saved:
+                print(f"  {S.OK}✓ {sub}: {argument}{S.R} {S.MUTED}({where}){S.R}\n")
+            else:
+                print(f"  {S.ERR}✗ Could not save the rule: {where}{S.R}\n")
+    else:
+        print(f"  {S.ERR}✗ Usage: /perms [reload|allow <rule>|deny <rule>]{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_think(chat, user_input: str, cmd: str):
+    chosen = _switch(
+        "/think", user_input[len("/think"):], config.SHOW_THINKING,
+        "Model reasoning",
+        "a reasoning model's scratch work is shown as it arrives",
+        on_note="It is shown dimmed, and still never kept in the history.",
+        off_note="It is hidden. It was never kept in the history either way.")
+    if chosen is not None:
+        config.SHOW_THINKING = chosen
+    return _HANDLED
+
+
+async def _cmd_undo(chat, user_input: str, cmd: str):
+    ok, message = git_ops.undo_last()
+    colour = S.OK if ok else S.WARN
+    print(f"  {colour}{'✓' if ok else '⚠'} {message}{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_autocommit(chat, user_input: str, cmd: str):
+    standing = []
+    if not git_ops.repo_root():
+        standing.append("This directory is not a git repository, so nothing "
+                        "is committed either way.")
+    recent = git_ops.recent_ai_commits(5)
+    standing += [f"│ {c['sha']}  {c['subject']}  ({c['when']})" for c in recent]
+    if recent:
+        standing.append("╰─ /undo takes the newest one back")
+    chosen = _switch(
+        "/autocommit", user_input[len("/autocommit"):], config.GIT_AUTO_COMMIT,
+        "Auto-commit",
+        "each file an AI tool changes is committed on its own",
+        on_note="Each AI edit gets its own commit; /undo takes one back.",
+        off_note="AI edits are no longer committed for you.",
+        extra=standing)
+    if chosen is not None:
+        config.GIT_AUTO_COMMIT = chosen
+    return _HANDLED
+
+
+async def _cmd_autoverify(chat, user_input: str, cmd: str):
+    standing = [f"│ {name} in {os.path.basename(root) or root}: {reason}"
+                for (name, root), reason in verify.turned_off().items()]
+    standing.append("It runs only a check the project already declares - "
+                    f"{', '.join(c.name for c in verify.CHECKS)} - and "
+                    "never invents one.")
+    chosen = _switch(
+        "/autoverify", user_input[len("/autoverify"):], config.AUTO_VERIFY,
+        "Auto-verify",
+        "after a turn changes a file, this project's own check is run and "
+        "a failure goes back to the model",
+        on_note=("An edit that breaks the project's check comes back to the "
+                 f"model with the error, up to {llm_client.MAX_VERIFY_FAILURES} times."),
+        off_note="Nothing is run after an edit; checking the work is yours again.",
+        extra=standing)
+    if chosen is not None:
+        config.AUTO_VERIFY = chosen
+        # `on` after one turned itself off has to mean "try it again",
+        # or the command would report ON and still run nothing.
+        if chosen:
+            verify.reset()
+    return _HANDLED
+
+
+async def _cmd_deepthink(chat, user_input: str, cmd: str):
+    standing = [f"│ {i}. {stage.title}"
+                for i, stage in enumerate(deepthink.STAGES, 1)]
+    standing.append("├─ a request that needs no changes stops after the first.")
+    standing.append("╰─ a final check that says it is not done starts again "
+                    f"at 1, up to {config.DEEPTHINK_MAX_PASSES} times.")
+    chosen = _switch(
+        "/deepthink", user_input[len("/deepthink"):], config.DEEPTHINK,
+        "Deepthink",
+        f"one request becomes {len(deepthink.STAGES)} turns",
+        on_note="Say what you want built and it will plan, argue with the "
+                "plan, build it, review the diff, then run it.",
+        off_note="Back to one turn per request.",
+        extra=standing)
+    if chosen is not None:
+        config.DEEPTHINK = chosen
+    return _HANDLED
+
+
+async def _cmd_agents(chat, user_input: str, cmd: str):
+    _agents_command(user_input[len("/agents"):])
+    return _HANDLED
+
+
+async def _cmd_remote(chat, user_input: str, cmd: str):
+    _remote_command(user_input[len("/remote"):])
+    return _HANDLED
+
+
+async def _cmd_vm(chat, user_input: str, cmd: str):
+    _vm_command(user_input[len("/vm"):])
+    return _HANDLED
+
+
+async def _cmd_set(chat, user_input: str, cmd: str):
+    # The user's own casing, not `cmd`: a string setting keeps what
+    # they typed, and only the name is case-insensitive.
+    _set_command(user_input[len("/set"):], chat.messages)
+    return _HANDLED
+
+
+# Last of the commands on purpose: `/tdd <request>` arms the lock and
+# then *falls through* with the request as the message, so it has to
+# sit where falling through lands on the fall-through.
+async def _cmd_tdd(chat, user_input: str, cmd: str):
+    rest = user_input[len("/tdd"):].strip()
+    if rest.lower() == "off":
+        dropped = permissions.release(_TDD_LABEL)
+        config.TDD_LOCK = False
+        print(f"  {S.INFO}✓ /tdd lifted.{S.MUTED}"
+              f"{f' {len(dropped)} rules dropped.' if dropped else ''}{S.R}\n")
+        return _HANDLED
+    if not rest:
+        _arm_tdd()
+        print(f"  {S.MUTED}Send your request now, or /tdd off to lift "
+              f"it.{S.R}")
+        print()
+        return _HANDLED
+    _arm_tdd()
+    print()
+    user_input = rest          # and on to the fall-through below
+    return _Next(user_input, cmd)
+
+
+_COMMANDS = (
+    (lambda cmd: cmd == "/usage", _cmd_usage),
+    (lambda cmd: cmd == "/help" or cmd.startswith("/help "), _cmd_help),
+    (lambda cmd: cmd == "/clear", _cmd_clear),
+    (lambda cmd: cmd == "/models", _cmd_models),
+    (lambda cmd: cmd == "/model", _cmd_model),
+    (lambda cmd: cmd == "/connect" or cmd.startswith("/connect "), _cmd_connect),
+    (lambda cmd: cmd == "/sessions" or cmd.startswith("/sessions ") or cmd == "/load", _cmd_sessions),
+    (lambda cmd: cmd.startswith("/load"), _cmd_load),
+    (lambda cmd: cmd == "/title" or cmd.startswith("/title "), _cmd_title),
+    (lambda cmd: cmd == "/update", _cmd_update),
+    (lambda cmd: cmd == "/context" or cmd.startswith("/context "), _cmd_context),
+    (lambda cmd: cmd == "/effort" or cmd.startswith("/effort "), _cmd_effort),
+    (lambda cmd: cmd == "/copy" or cmd.startswith("/copy "), _cmd_copy),
+    (lambda cmd: cmd == "/btw" or cmd.startswith("/btw "), _cmd_btw),
+    (lambda cmd: cmd == "/rewind" or cmd.startswith("/rewind "), _cmd_rewind),
+    (lambda cmd: cmd == "/autotitle" or cmd.startswith("/autotitle "), _cmd_autotitle),
+    (lambda cmd: cmd == "/automode" or cmd.startswith("/automode "), _cmd_automode),
+    (lambda cmd: cmd == "/fullcontent" or cmd.startswith("/fullcontent "), _cmd_fullcontent),
+    (lambda cmd: cmd == "/record" or cmd.startswith("/record "), _cmd_record),
+    (lambda cmd: cmd.startswith("/export"), _cmd_export),
+    (lambda cmd: cmd.startswith("/system"), _cmd_system),
+    (lambda cmd: cmd == "/planmode" or cmd.startswith("/planmode "), _cmd_planmode),
+    (lambda cmd: cmd == "/artifacts" or cmd.startswith("/artifacts "), _cmd_artifacts),
+    (lambda cmd: cmd == "/skills" or cmd.startswith("/skills "), _cmd_skills),
+    (lambda cmd: cmd.startswith("/skill"), _cmd_skill),
+    (lambda cmd: cmd == "/mcp" or cmd.startswith("/mcp "), _cmd_mcp),
+    (lambda cmd: cmd == "/perms" or cmd.startswith("/perms "), _cmd_perms),
+    (lambda cmd: cmd == "/think" or cmd.startswith("/think "), _cmd_think),
+    (lambda cmd: cmd == "/undo", _cmd_undo),
+    (lambda cmd: cmd == "/autocommit" or cmd.startswith("/autocommit "), _cmd_autocommit),
+    (lambda cmd: cmd == "/autoverify" or cmd.startswith("/autoverify "), _cmd_autoverify),
+    (lambda cmd: cmd == "/deepthink" or cmd.startswith("/deepthink "), _cmd_deepthink),
+    (lambda cmd: cmd == "/agents" or cmd.startswith("/agents "), _cmd_agents),
+    (lambda cmd: cmd == "/remote" or cmd.startswith("/remote "), _cmd_remote),
+    (lambda cmd: cmd == "/vm" or cmd.startswith("/vm "), _cmd_vm),
+    (lambda cmd: cmd == "/set" or cmd.startswith("/set "), _cmd_set),
+    (lambda cmd: cmd == "/tdd" or cmd.startswith("/tdd "), _cmd_tdd),
+)
+
+
+async def _slash_command(chat, user_input: str, cmd: str):
+    """Run the command `cmd` names. `_HANDLED`, `_LEAVE`, or a `_Next`."""
+    for wanted, handler in _COMMANDS:
+        if wanted(cmd):
+            outcome = await handler(chat, user_input, cmd)
+            if not isinstance(outcome, _Next):
+                return outcome
+            user_input, cmd = outcome
+    return _Next(user_input, cmd)
+
+
+
 async def main(resume_id: str = "") -> None:
 
     if config.CURRENT_OS == "Windows":
@@ -2230,6 +2874,7 @@ async def main(resume_id: str = "") -> None:
 
     global _stoppable, _deferred_interrupt
     give_back_ctrl_c = _own_ctrl_c()
+    chat = _Chat(messages, current_session_id, mcp_servers_in_prompt)
 
     while True:
         if _deferred_interrupt:
@@ -2372,494 +3017,17 @@ async def main(resume_id: str = "") -> None:
             _shut_down()
             print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
             break
-        if cmd == "/usage":
-            if providers.current().drives_turns:
-                from aetheris import attacca
-                attacca.show_usage()
-            else:
-                display_usage_graph(messages)
+        # The slash commands, one handler each: see `_COMMANDS`.
+        chat.messages, chat.session_id = messages, current_session_id
+        chat.mcp_servers = mcp_servers_in_prompt
+        outcome = await _slash_command(chat, user_input, cmd)
+        messages, current_session_id = chat.messages, chat.session_id
+        mcp_servers_in_prompt = chat.mcp_servers
+        if outcome is _LEAVE:
+            break
+        if outcome is _HANDLED:
             continue
-        if cmd == "/help" or cmd.startswith("/help "):
-            arg = user_input[len("/help"):].strip().lower()
-            if arg not in ("", "all"):
-                print(f"  {S.ERR}✗ Usage: /help [all]{S.R}\n")
-                continue
-            _show_help(everything=arg == "all")
-            continue
-        if cmd == "/clear":
-            config.LOADED_MCP_SERVERS.clear()
-            config.SYSTEM_PROMPT = _build_system_prompt()
-            messages = [{"role": "system", "content": _compose_system_prompt()}]
-            current_session_id = None
-            config.SESSION_TITLE = ""
-            # A cleared conversation here is a new one there, too: Attacca
-            # keeps its own context, and the old session would remember it all.
-            config.ATTACCA_SESSION = ""
-            config.ATTACCA_CURSOR = 0
-            config.ATTACCA_JOB = ""
-            config.token_history.clear()
-            config.turn_index = 0
-            config.LOADED_SKILLS.clear()
-            config.TODOS.clear()
-            rewind.forget()
-            transcript.reset()
-            # The prompt was just rebuilt for an empty set of loaded servers,
-            # so what it was built for has to move with it - otherwise the next
-            # message sees a difference that is not there and rebuilds again.
-            mcp_servers_in_prompt = sorted(config.LOADED_MCP_SERVERS)
-            print("\033[2J\033[H", end="")
-            _welcome()
-            _report_usage(messages)
-            print(f"  {S.OK}✓ Conversation and usage cleared.{S.R}\n")
-            continue
-        if cmd == "/models":
-            provider = providers.current()
-            print(f"\n  {S.BOLD}{S.ACCENT}{provider.label} Models{S.R}")
-            print(f"  {_hr(width=50)}")
-            try:
-                available = provider.list_models()
-                if not available:
-                    print(f"  {S.WARN}\u26a0 None found.{S.R}")
-                for i, entry in enumerate(available, 1):
-                    marker = f" {S.OK}\u25c0 current{S.R}" if entry["name"] == config.MODEL else ""
-                    detail = f"  {S.GRAY}({entry['detail']}){S.R}" if entry.get("detail") else ""
-                    print(f"  {S.ACCENT}{i:3}.{S.R} {S.WHITE}{entry['name']}{S.R}{detail}{marker}")
-            except Exception as e:
-                connect._print_problem("Failed to list models", e)
-            print()
-            continue
-        if cmd == "/model":
-            provider = providers.current()
-            print(f"\n  {S.GRAY}provider{S.R}  {S.WHITE}{provider.label}{S.R}")
-            print(f"  {S.GRAY}model{S.R}     {S.WHITE}{config.MODEL}{S.R}\n")
-            connect.run(provider.name)
-            continue
-        if cmd == "/connect" or cmd.startswith("/connect "):
-            connect.run(user_input.split(" ", 1)[1].strip() if " " in user_input else "")
-            _refresh_system_prompt(messages)
-            continue
-        if cmd == "/sessions" or cmd.startswith("/sessions ") or cmd == "/load":
-            # One step: the list asks which to open, and the answer goes on to
-            # `/load` below as if it had been typed there.
-            picked = _pick_session(current_session_id, user_input.partition(" ")[2].strip())
-            if not picked:
-                continue
-            user_input = f"/load {picked}"
-            cmd = user_input.lower()
-        if cmd.startswith("/load"):
-            parts = user_input.split(" ", 1)
-            if len(parts) < 2 or not parts[1].strip():
-                print(f"  {S.ERR}✗ Usage: /load <id or title>{S.MUTED} - or /sessions "
-                      f"to pick from the list{S.R}\n")
-                continue
-            query = parts[1].strip()
-            matches = find_sessions(query)
-            if len(matches) > 1:
-                _show_ambiguous(query, matches, "Re-run /load with one of the ids above.")
-                continue
-            sid = matches[0][0] if matches else query
-            loaded = load_session(sid)
-            if loaded:
-                messages = _adopt_session(loaded)
-                current_session_id = sid
-                label = config.SESSION_TITLE or sid
-                # From the top, as `--resume` draws it: below whatever this
-                # screen already held, the loaded conversation read as a
-                # continuation of the one it replaced.
-                _clear_screen()
-                _welcome()
-                print(f"  {S.OK}✓ Loaded session: {label} (Model: {config.MODEL}){S.R}\n")
-                transcript.reset()
-                _replay_session(messages, record=True)
-            else:
-                print(f"  {S.ERR}✗ Session not found: {sid}{S.R}\n")
-            continue
-        if cmd == "/title" or cmd.startswith("/title "):
-            parts = user_input.split(" ", 1)
-            new_title = parts[1].strip() if len(parts) > 1 else ""
-            if not new_title:
-                shown = config.SESSION_TITLE or f"{S.GRAY}(untitled){S.R}"
-                print(f"\n  {S.GRAY}title{S.R}  {S.WHITE}{shown}{S.R}")
-                print(f"  {S.GRAY}id{S.R}     {S.WHITE}{current_session_id or '(not saved yet)'}{S.R}")
-                print(f"  {S.MUTED}Rename with /title <new title>{S.R}\n")
-                continue
-            if not clean_title(new_title):
-                print(f"  {S.ERR}✗ That title is empty after cleanup.{S.R}\n")
-                continue
-            current_session_id = rename_session(current_session_id, new_title)
-            print(f"  {S.OK}✓ Session titled: {config.SESSION_TITLE}{S.R} {S.MUTED}({current_session_id or 'saved on next message'}){S.R}\n")
-            continue
-        if cmd == "/update":
-            update.run(connect._ask)
-            continue
-        if cmd == "/context" or cmd.startswith("/context "):
-            _context(user_input[len("/context"):])
-            continue
-        if cmd == "/effort" or cmd.startswith("/effort "):
-            _effort(user_input[len("/effort"):])
-            continue
-        if cmd == "/copy" or cmd.startswith("/copy "):
-            _copy(messages, user_input[len("/copy"):].strip())
-            continue
-        if cmd == "/btw" or cmd.startswith("/btw "):
-            question = user_input[len("/btw"):].strip()
-            if not question:
-                print(f"  {S.ERR}✗ Usage: /btw <question>{S.R}\n")
-                continue
-            if providers.current().drives_turns:
-                print(f"  {S.WARN}⚠ Attacca answers inside its own conversation, so a "
-                      f"question there would be kept. Ask it as a message.{S.R}\n")
-                continue
-            # Its own bar in /usage: it was paid for, and it is not the turn
-            # before it.
-            config.next_turn()
-            transcript.start(user_input)
-            leaving = False
-            _stoppable = True
-            try:
-                await llm_client.side_question(messages, question)
-                print(f"  {S.MUTED}↳ /btw - not kept in the conversation{S.R}\n")
-            except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
-                leaving = _interrupted(pressed)
-                await _absorb_cancel()
-                if not leaving:
-                    _say_how_to_leave()
-            except Exception as e:
-                print()
-                connect._print_problem("Error", e)
-            finally:
-                _stoppable = False
-            if leaving:
-                _shut_down()
-                print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
-                break
-            continue
-        if cmd == "/rewind" or cmd.startswith("/rewind "):
-            current_session_id = _rewind(messages, user_input[len("/rewind"):].strip(),
-                                         current_session_id)
-            continue
-        if cmd == "/autotitle" or cmd.startswith("/autotitle "):
-            chosen = _switch(
-                "/autotitle", user_input[len("/autotitle"):], config.AUTO_TITLE,
-                "Auto session titling",
-                "the model names a new session after its first exchange",
-                on_note="New sessions are named for you; /title renames one.",
-                off_note="New sessions stay untitled until you name them with /title.")
-            if chosen is not None:
-                config.AUTO_TITLE = chosen
-            continue
-        if cmd == "/automode" or cmd.startswith("/automode "):
-            chosen = _switch(
-                "/automode", user_input[len("/automode"):], config.AUTO_ALLOW,
-                "Automode",
-                "every guarded tool runs without stopping to ask you first",
-                on_note="Tools run without asking. /perms is the finer-grained way.",
-                off_note="Every guarded tool waits for your approval again.")
-            if chosen is not None:
-                config.AUTO_ALLOW = chosen
-            continue
-        if cmd == "/fullcontent" or cmd.startswith("/fullcontent "):
-            chosen = _switch(
-                "/fullcontent", user_input[len("/fullcontent"):],
-                config.RETURN_ALL_FILE_CONTENT, "Full content",
-                "a file or page reaches the model whole rather than cut short",
-                on_note="read_file and get_url hand over the whole thing.",
-                off_note=f"They stop at {config.FILE_MAX_DISPLAY_LENGTH} characters.")
-            if chosen is not None:
-                config.RETURN_ALL_FILE_CONTENT = chosen
-            continue
-        if cmd == "/record" or cmd.startswith("/record "):
-            chosen = _switch(
-                "/record", user_input[len("/record"):], config.SAVE_CHAT_HISTORY,
-                "Chat history recording",
-                f"conversations are saved under {config.SESSION_DIR}",
-                on_note="This conversation is saved as you go; /sessions lists them.",
-                off_note="Nothing more is written to disk for this conversation.")
-            if chosen is not None:
-                config.SAVE_CHAT_HISTORY = chosen
-            continue
-        if cmd.startswith("/export"):
-            # `user_input`, not `cmd`: see `_export_command`.
-            _export_command(user_input[len("/export"):], messages)
-            continue
-        if cmd.startswith("/system"):
-            # `user_input`, not `cmd`: see `_system_command`.
-            _system_command(user_input[len("/system"):], messages)
-            continue
-        if cmd == "/planmode" or cmd.startswith("/planmode "):
-            elsewhere = providers.current().drives_turns
-            chosen = _switch(
-                "/planmode", user_input[len("/planmode"):], config.PLANMODE,
-                "Plan mode",
-                "the model must submit a plan for approval before it changes anything",
-                on_note=("Your next message starts a plan-mode job on Attacca: its "
-                         "agent investigates, shows the plan here and waits for you."
-                         if elsewhere else
-                         "It calls submit_plan_for_approval first and waits for you."),
-                off_note="It goes straight at the work again.")
-            if chosen is not None:
-                config.PLANMODE = chosen
-                if chosen and elsewhere:
-                    # Said again, it means "plan the next thing too".
-                    from aetheris import attacca
-                    attacca.plan_anew()
-            continue
-        if cmd == "/artifacts" or cmd.startswith("/artifacts "):
-            if not providers.current().drives_turns:
-                print(f"  {S.GRAY}/artifacts lists what an Attacca agent made; this "
-                      f"session is on {providers.current().label}.{S.R}\n")
-                continue
-            from aetheris import attacca
-            attacca.show_artifacts(user_input[len("/artifacts"):])
-            continue
-        if cmd == "/skills" or cmd.startswith("/skills "):
-            arg = user_input.split(" ", 1)[1].strip().lower() if " " in user_input else ""
-            if not arg:
-                _show_skills()
-            elif arg == "reload":
-                skills.discover_skills(force=True)
-                _refresh_system_prompt(messages)
-                print(f"  {S.OK}✓ Skills reloaded: {len(skills.list_skills())} available.{S.R}\n")
-            else:
-                print(f"  {S.ERR}✗ Usage: /skills [reload]{S.R}\n")
-            continue
-        if cmd.startswith("/skill"):
-            parts = user_input.split(" ", 1)
-            if len(parts) < 2 or not parts[1].strip():
-                print(f"  {S.ERR}✗ Usage: /skill <name>  (see /skills){S.R}\n")
-                continue
-            skill = skills.get_skill(parts[1].strip())
-            if skill is None:
-                print(f"  {S.ERR}✗ Skill not found: {parts[1].strip()}{S.R}\n")
-                continue
-            _fmt_tool_call("use_skill", {"skill_name": skill["name"]})
-            result = skills.handle_use_skill(skill["name"])
-            _fmt_tool_result("use_skill", result)
-            print()             # one blank line, like every other command here
-            messages.append({"role": "user", "content": f"[Tool Result for 'use_skill']:\n{result}"})
-            current_session_id = save_session(messages, current_session_id)
-            continue
-        if cmd == "/mcp" or cmd.startswith("/mcp "):
-            parts = user_input.split()
-            sub = parts[1].lower() if len(parts) > 1 else ""
-            args = parts[2:]
-            injected = ""
-
-            if not sub:
-                _show_mcp()
-            elif sub in ("tools", "prompts", "all"):
-                _show_mcp(sub, args[0] if args else "")
-            elif sub in ("reload", "refresh"):
-                sys.stdout.write(f"  {S.MUTED}⟳ reloading MCP servers…{S.R}")
-                sys.stdout.flush()
-                mcp_client.reconnect()
-                sys.stdout.write("\r\033[K")
-                sys.stdout.flush()
-                _refresh_system_prompt(messages)
-                print(f"  {S.OK}✓ MCP reloaded: {mcp_client.status_summary()}.{S.R}\n")
-                _report_mcp_problems([s for s in mcp_client.all_servers() if s.state == "failed"])
-            elif sub in ("connect", "reconnect"):
-                if not args:
-                    print(f"  {S.ERR}✗ Usage: /mcp connect <server name>{S.R}\n")
-                else:
-                    touched = mcp_client.reconnect(args[0])
-                    if not touched:
-                        print(f"  {S.ERR}✗ No MCP server named '{args[0]}'. See /mcp.{S.R}\n")
-                    else:
-                        server = touched[0]
-                        _refresh_system_prompt(messages)
-                        if server.state == "connected":
-                            print(f"  {S.OK}✓ '{server.name}' connected: {len(server.tools)} tool(s).{S.R}\n")
-                        else:
-                            print(f"  {S.ERR}✗ '{server.name}' is {server.state}:{S.R}")
-                            for line in _wrapped(server.error):
-                                print(f"  {S.MUTED}  {line}{S.R}")
-                            print()
-            elif sub == "resources":
-                print()
-                print(mcp_client.list_resources_text(args[0] if args else ""))
-                print()
-            elif sub == "prompt":
-                if len(args) < 2:
-                    print(f"  {S.ERR}✗ Usage: /mcp prompt <server> <prompt name> [key=value ...]{S.R}\n")
-                else:
-                    server = mcp_client.get_server(args[0])
-                    if server is None or server.state != "connected":
-                        print(f"  {S.ERR}✗ No connected MCP server named '{args[0]}'.{S.R}\n")
-                    else:
-                        prompt_args = {}
-                        for token in args[2:]:
-                            key, sep, value = token.partition("=")
-                            if sep:
-                                prompt_args[key] = value
-                        try:
-                            fetched = server.get_prompt(args[1], prompt_args)
-                        except Exception as e:
-                            print(f"  {S.ERR}✗ {server.name}: {e}{S.R}\n")
-                        else:
-                            injected = mcp_client.prompt_to_text(fetched)
-                            print(f"\n  {S.MUTED}─ prompt '{args[1]}' from {server.name}{S.R}")
-                            print(_render_full(injected))
-                            print()
-            elif sub in ("on", "off"):
-                config.MCP_ENABLED = sub == "on"
-                if config.MCP_ENABLED:
-                    _report_mcp_problems(_connect_mcp_servers())
-                else:
-                    mcp_client.shutdown()
-                _refresh_system_prompt(messages)
-                _switch("/mcp", sub, config.MCP_ENABLED, "MCP",
-                        "the attached servers' tools are offered to the model",
-                        on_note=f"{mcp_client.status_summary()}. /mcp lists them.",
-                        off_note="No server's tools reach the model, and none is running.")
-            else:
-                print(f"  {S.ERR}✗ Usage: /mcp [tools|prompts|all|resources|reload|connect <name>|prompt <server> <name>|on|off]{S.R}\n")
-
-            if not injected:
-                continue
-            user_input = injected
-        if cmd == "/perms" or cmd.startswith("/perms "):
-            parts = user_input.split(" ", 2)
-            sub = parts[1].lower() if len(parts) > 1 else ""
-            argument = parts[2].strip() if len(parts) > 2 else ""
-
-            if not sub:
-                _show_perms()
-            elif sub in ("reload", "refresh"):
-                permissions.load_rules(force=True)
-                allowed = len(permissions.rules_for("allow"))
-                denied = len(permissions.rules_for("deny"))
-                print(f"  {S.OK}✓ Permission rules reloaded: {allowed} allow, {denied} deny.{S.R}\n")
-                for problem in permissions.errors:
-                    print(f"  {S.ERR}✗ {problem}{S.R}")
-            elif sub in ("allow", "deny"):
-                if not argument:
-                    print(f"  {S.ERR}✗ Usage: /perms {sub} <rule>   e.g. /perms {sub} run_cmd(git *){S.R}\n")
-                else:
-                    saved, where = permissions.add_rule(argument, sub)
-                    if saved:
-                        print(f"  {S.OK}✓ {sub}: {argument}{S.R} {S.MUTED}({where}){S.R}\n")
-                    else:
-                        print(f"  {S.ERR}✗ Could not save the rule: {where}{S.R}\n")
-            else:
-                print(f"  {S.ERR}✗ Usage: /perms [reload|allow <rule>|deny <rule>]{S.R}\n")
-            continue
-        if cmd == "/think" or cmd.startswith("/think "):
-            chosen = _switch(
-                "/think", user_input[len("/think"):], config.SHOW_THINKING,
-                "Model reasoning",
-                "a reasoning model's scratch work is shown as it arrives",
-                on_note="It is shown dimmed, and still never kept in the history.",
-                off_note="It is hidden. It was never kept in the history either way.")
-            if chosen is not None:
-                config.SHOW_THINKING = chosen
-            continue
-
-        if cmd == "/undo":
-            ok, message = git_ops.undo_last()
-            colour = S.OK if ok else S.WARN
-            print(f"  {colour}{'✓' if ok else '⚠'} {message}{S.R}\n")
-            continue
-
-        if cmd == "/autocommit" or cmd.startswith("/autocommit "):
-            standing = []
-            if not git_ops.repo_root():
-                standing.append("This directory is not a git repository, so nothing "
-                                "is committed either way.")
-            recent = git_ops.recent_ai_commits(5)
-            standing += [f"│ {c['sha']}  {c['subject']}  ({c['when']})" for c in recent]
-            if recent:
-                standing.append("╰─ /undo takes the newest one back")
-            chosen = _switch(
-                "/autocommit", user_input[len("/autocommit"):], config.GIT_AUTO_COMMIT,
-                "Auto-commit",
-                "each file an AI tool changes is committed on its own",
-                on_note="Each AI edit gets its own commit; /undo takes one back.",
-                off_note="AI edits are no longer committed for you.",
-                extra=standing)
-            if chosen is not None:
-                config.GIT_AUTO_COMMIT = chosen
-            continue
-
-        if cmd == "/autoverify" or cmd.startswith("/autoverify "):
-            standing = [f"│ {name} in {os.path.basename(root) or root}: {reason}"
-                        for (name, root), reason in verify.turned_off().items()]
-            standing.append("It runs only a check the project already declares - "
-                            f"{', '.join(c.name for c in verify.CHECKS)} - and "
-                            "never invents one.")
-            chosen = _switch(
-                "/autoverify", user_input[len("/autoverify"):], config.AUTO_VERIFY,
-                "Auto-verify",
-                "after a turn changes a file, this project's own check is run and "
-                "a failure goes back to the model",
-                on_note=("An edit that breaks the project's check comes back to the "
-                         f"model with the error, up to {llm_client.MAX_VERIFY_FAILURES} times."),
-                off_note="Nothing is run after an edit; checking the work is yours again.",
-                extra=standing)
-            if chosen is not None:
-                config.AUTO_VERIFY = chosen
-                # `on` after one turned itself off has to mean "try it again",
-                # or the command would report ON and still run nothing.
-                if chosen:
-                    verify.reset()
-            continue
-
-        if cmd == "/deepthink" or cmd.startswith("/deepthink "):
-            standing = [f"│ {i}. {stage.title}"
-                        for i, stage in enumerate(deepthink.STAGES, 1)]
-            standing.append("├─ a request that needs no changes stops after the first.")
-            standing.append("╰─ a final check that says it is not done starts again "
-                            f"at 1, up to {config.DEEPTHINK_MAX_PASSES} times.")
-            chosen = _switch(
-                "/deepthink", user_input[len("/deepthink"):], config.DEEPTHINK,
-                "Deepthink",
-                f"one request becomes {len(deepthink.STAGES)} turns",
-                on_note="Say what you want built and it will plan, argue with the "
-                        "plan, build it, review the diff, then run it.",
-                off_note="Back to one turn per request.",
-                extra=standing)
-            if chosen is not None:
-                config.DEEPTHINK = chosen
-            continue
-
-        if cmd == "/agents" or cmd.startswith("/agents "):
-            _agents_command(user_input[len("/agents"):])
-            continue
-
-        if cmd == "/remote" or cmd.startswith("/remote "):
-            _remote_command(user_input[len("/remote"):])
-            continue
-
-        if cmd == "/vm" or cmd.startswith("/vm "):
-            _vm_command(user_input[len("/vm"):])
-            continue
-
-        if cmd == "/set" or cmd.startswith("/set "):
-            # The user's own casing, not `cmd`: a string setting keeps what
-            # they typed, and only the name is case-insensitive.
-            _set_command(user_input[len("/set"):], messages)
-            continue
-
-        # Last of the commands on purpose: `/tdd <request>` arms the lock and
-        # then *falls through* with the request as the message, so it has to
-        # sit where falling through lands on the fall-through.
-        if cmd == "/tdd" or cmd.startswith("/tdd "):
-            rest = user_input[len("/tdd"):].strip()
-            if rest.lower() == "off":
-                dropped = permissions.release(_TDD_LABEL)
-                config.TDD_LOCK = False
-                print(f"  {S.INFO}✓ /tdd lifted.{S.MUTED}"
-                      f"{f' {len(dropped)} rules dropped.' if dropped else ''}{S.R}\n")
-                continue
-            if not rest:
-                _arm_tdd()
-                print(f"  {S.MUTED}Send your request now, or /tdd off to lift "
-                      f"it.{S.R}")
-                print()
-                continue
-            _arm_tdd()
-            print()
-            user_input = rest          # and on to the fall-through below
+        user_input, cmd = outcome
 
         if (cmd == "/aether" or cmd.startswith("/aether ")) and IS_APRIL_FOOL:
             import webbrowser

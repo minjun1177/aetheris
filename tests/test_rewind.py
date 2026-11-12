@@ -175,7 +175,7 @@ source = inspect.getsource(app.main)
 check("a point is taken before the prompt is added",
       0 <= source.find("rewind.mark(messages, user_input)")
       < source.find('turn = {"role": "user", "content": user_input}'))
-check("/clear forgets them", "rewind.forget()" in source)
+check("/clear forgets them", "rewind.forget()" in inspect.getsource(app._cmd_clear))
 check("and so does opening a saved session",
       "rewind.forget()" in inspect.getsource(app._adopt_session))
 
