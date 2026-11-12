@@ -287,6 +287,24 @@ check("a daemon that would not list is not taken as proof the model is gone",
 providers._ollama_installed.clear()
 
 
+class _SlowRefusal:
+    """Windows: a closed localhost port is refused only after ~2s of retries."""
+
+    def list(self):
+        import httpx
+        raise httpx.ConnectTimeout("timed out")
+
+
+real_client = providers.ollama_client
+providers.ollama_client = lambda host="", timeout=None: _SlowRefusal()
+try:
+    check("a connect that times out is the daemon off too, as on Windows",
+          "not running" in local.ready(), local.ready())
+finally:
+    providers.ollama_client = real_client
+    providers._ollama_installed.clear()
+
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

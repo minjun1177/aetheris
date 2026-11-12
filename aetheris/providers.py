@@ -749,6 +749,22 @@ def _refused_connection(error: BaseException) -> bool:
         isinstance(error, ConnectionError) and "Failed to connect to Ollama" in str(error))
 
 
+def _connect_timed_out(error: BaseException) -> bool:
+    """Whether the connection itself was never made in time.
+
+    Windows does not refuse a closed localhost port at once: it retries the
+    connection for about two seconds first, so the short probe below gives up
+    before the refusal arrives and sees a connect timeout instead. A timeout
+    while *connecting* - not while waiting for an answer - is nothing
+    listening there as far as this probe can tell.
+    """
+    try:
+        import httpx
+        return isinstance(error, httpx.ConnectTimeout)
+    except ImportError:
+        return False
+
+
 # host -> (when, installed names or None when the daemon did not answer).
 # `ready()` is asked while a person types `/connect ` and the menu redraws, so
 # the answer is reused for a few seconds rather than fetched per keystroke.
@@ -777,7 +793,7 @@ def _installed_ollama_models(host: str):
         # Only "nothing is listening" is worth saying. Anything else - an old
         # daemon, a proxy that answers oddly - is not proof the model is gone,
         # and calling it unready would block a model that works.
-        found = None if _refused_connection(error) else ""
+        found = None if _refused_connection(error) or _connect_timed_out(error) else ""
     _ollama_installed[host] = (_time.monotonic(), found)
     return found
 
