@@ -198,7 +198,7 @@ def _render_line(line: str, in_code: bool, in_latex_block: bool = False) -> tupl
     return f"  {line}", in_code, in_latex_block
 
 
-_HANG = re.compile(r"^(\s*(?:•\s|\d+\.\s)?)")
+_HANG = re.compile(r"^(\s*(?:•\s+|\d+\.\s+)?)")
 
 
 def fit_rows(line: str, width: int | None = None) -> list[tuple[str, str | None]]:

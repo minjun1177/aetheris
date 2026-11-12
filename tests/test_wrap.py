@@ -170,6 +170,10 @@ bullet_rows = prose[next(i for i, r in enumerate(prose) if "•" in r):]
 check("a bullet's later rows hang under its text, not under the bullet",
       len(bullet_rows) > 1 and all(r.startswith("    ") for r in bullet_rows[1:]),
       str(bullet_rows))
+rows = renderer.fit_rows("  1.  " + ANSWER, 30)
+check("a number followed by two spaces hangs under its text, not a column short",
+      all(row.startswith(" " * 6) and not row.startswith(" " * 7) for row, _ in rows[1:]),
+      str([row for row, _ in rows]))
 rows = renderer.fit_rows("  " + ANSWER, 30)
 check("fit_rows gives back the line when its rows are glued",
       rows[0][0] + "".join((glue or "") + row[2:] for row, glue in rows[1:]) == "  " + ANSWER,
