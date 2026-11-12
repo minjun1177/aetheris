@@ -53,6 +53,7 @@ _ESCAPE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 # only the box around something.
 _GUTTER = re.compile(r"^\s*[│┃❯$] ")
 _FRAME = re.compile(r"^\s*(?:[╭╰]─|[─━]{4,}\s*$)")
+_BLANK = re.compile(r"^\s*(?:[│┃]\s*)?$")
 _INDENT = 2                   # the margin everything else is printed behind
 
 REVERSE, PLAIN = "\033[7m", "\033[27m"
@@ -74,16 +75,25 @@ class Row:
     def plain(self) -> str:
         return _ESCAPE.sub("", self.raw)
 
+    @property
+    def blank(self) -> bool:
+        """An empty line of a block: nothing on it, or only its gutter."""
+        return not self.soft and _BLANK.match(self.plain) is not None
+
     def bounds(self, wrapped: bool = False) -> tuple:
         """The cells of this row that are text: (first, one past the last).
 
         `wrapped` is a row the terminal carried over into the next: it runs to
         its last cell, and a space there is the one between two words.
         """
-        plain = self.plain if wrapped else self.plain.rstrip()
+        full = self.plain
+        plain = full if wrapped else full.rstrip()
         if not plain.strip() or _FRAME.match(plain):
             return 0, 0
-        gutter = None if self.soft else _GUTTER.match(plain)
+        # Matched before the strip as well: an empty line of a thought is
+        # `  │ `, and stripped to `  │` it no longer looked like a gutter - so
+        # the `│` itself was taken as the text and a drag copied the rail.
+        gutter = None if self.soft else (_GUTTER.match(plain) or _GUTTER.match(full))
         if gutter:
             if plain.endswith(" │"):          # the far wall of a code frame
                 plain = plain[:-2].rstrip()
@@ -212,6 +222,10 @@ class Ledger:
                 end = min(hi, self._snap(index, right, after=True)) if index == bottom else hi
                 if end > start:
                     chosen[index] = (start, end)
+                elif top < index < bottom and self.rows[index].blank:
+                    # Kept as an empty span, so the copy keeps the empty line
+                    # between two paragraphs instead of closing them up.
+                    chosen[index] = (hi, hi)
             return chosen
 
     def _snap(self, index: int, column: int, after: bool = False) -> int:

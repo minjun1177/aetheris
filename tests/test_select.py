@@ -140,6 +140,29 @@ check("anything else is selected as a line of its own",
       ledger.text(chosen) == "▸ read_file notes.txt", repr(ledger.text(chosen)))
 check("a point past the end of the ledger selects nothing", ledger.select((40, 0), (41, 3)) == {})
 
+print("\n--- an empty line in a thought copies as an empty line, not its rail ---")
+blank = fresh()
+blank.feed(f"  {S.MUTED}╭─ thinking{S.R}\n")
+with screen.block("thinking"):
+    for line in ("first paragraph", "", "second paragraph"):
+        blank.feed(f"  {S.MUTED}│ {line}{S.R}\n")
+blank.feed(f"  {S.MUTED}╰─{S.R}\n")
+check("the empty row's text is nothing at all, not the │",
+      blank.rows[2].bounds()[0] == blank.rows[2].bounds()[1], str(blank.rows[2].bounds()))
+chosen = blank.select((1, 0), (3, 99))
+check("a drag over all three copies the empty line between them",
+      blank.text(chosen) == "first paragraph\n\nsecond paragraph", repr(blank.text(chosen)))
+check("and never the rail", "│" not in blank.text(chosen))
+check("a drag on the empty row alone takes nothing",
+      blank.text(blank.select((2, 0), (2, 9))) == "")
+with screen.block("answer"):
+    for line in ("one", "", "two"):
+        blank.feed(f"  {line}\n" if line else "\n")
+chosen = blank.select((5, 0), (7, 99))
+check("an answer's empty line is kept too", blank.text(chosen) == "one\n\ntwo",
+      repr(blank.text(chosen)))
+screen.ledger = ledger                      # the one the drawing below is of
+
 print("\n--- drawing it ---")
 lit = ledger.paint(1, (4, 9))
 check("the chosen cells are drawn in reverse, the rest as they were",
