@@ -4,7 +4,7 @@
 
 ## Tool Capabilities
 
-The client equips the model with 43 tools. They are listed in one table in
+The client equips the model with 44 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -256,6 +256,25 @@ that says what went wrong.
 - `read_file`: Read contents of a local file formatted with line numbers and line MD5 hashes.
 - `write_file`: Create new files or overwrite existing file content. The body comes in a `<content>` raw block.
 - `edit_file`: Replace part of a file, via `<old_content>` / `<new_content>` raw blocks. `old_content` either names the lines by hashline anchor (`50:1fa`) or quotes them as text - see *Editing by hashline anchor*.
+- `multi_edit`: Several edits in one call - in one file or across several - applied all together or not at all, approved once, committed once, taken back with one `/undo`. One `<edits>` raw block of SEARCH/REPLACE blocks:
+
+  ```text
+  /abs/path/app.py
+  <<<<<<< SEARCH
+  50:1fa-53:9c0
+  =======
+  def total(items, tax):
+      return sum(items) * (1 + tax)
+  >>>>>>> REPLACE
+  /abs/path/cart.py
+  <<<<<<< SEARCH
+  12:ab3
+  =======
+  print(total(cart, 0.1))
+  >>>>>>> REPLACE
+  ```
+
+  SEARCH takes whatever `edit_file`'s `old_content` would (anchors or exact text) and may be empty when every REPLACE row carries its own anchor. Edits are applied bottom-up within each file, so every anchor is the one `read_file` gave even after an earlier block changes the line count. Permission rules and `/tdd` locks for `edit_file` apply to each file in it.
 - `delete_file`: Remove a file from disk.
 - `copy_file`: Copy a file to a new location.
 - `move_file`: Move or rename a file in one step. A file git tracks moves with `git mv`, so the rename is one commit, `/undo` takes it back whole, and the history follows the file. Never overwrites an existing file.

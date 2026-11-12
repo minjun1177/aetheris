@@ -179,6 +179,14 @@ TOOLS = (
         ),
     ),
     Tool(
+        name='multi_edit',
+        description='Make several edits in one call - in one file or across several - applied all together or not at all, as one change the user approves once and can /undo once. Use it for a change that touches more than one place: a renamed function and its callers, two separate parts of one file. The edits are NOT a JSON parameter: put them in one <edits> raw block after the JSON object, inside the same <tool_call> (see DO rule 3). Each edit is the file path on its own line, then <<<<<<< SEARCH, what edit_file\'s old_content would hold (hashline anchors like 50:1fa-53:9c0, or the exact old text), =======, the new lines, and >>>>>>> REPLACE. Several blocks may name the same file; anchors are the ones read_file gave, even after an earlier edit in the same call changes the line count.',
+        native_description="Make several edits in one call - in one file or across several - applied all together or not at all, as one change the user approves once and can /undo once. Use it for a change that touches more than one place: a renamed function and its callers, two separate parts of one file. Each edit is the file path on its own line, then <<<<<<< SEARCH, what edit_file's old_content would hold (hashline anchors like 50:1fa-53:9c0, or the exact old text), =======, the new lines, and >>>>>>> REPLACE. Several blocks may name the same file; anchors are the ones read_file gave, even after an earlier edit in the same call changes the line count.",
+        params=(
+            Param(name='edits', description='The edit blocks, in an <edits> raw block.', block=True, native_description='The edit blocks, one after another: path line, <<<<<<< SEARCH, old, =======, new, >>>>>>> REPLACE.'),
+        ),
+    ),
+    Tool(
         name='delete_file',
         description='Delete a specific file.',
         params=(

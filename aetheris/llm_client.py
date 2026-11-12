@@ -455,7 +455,7 @@ def _close_brackets(blob: str) -> dict | None:
 
 # Parameters that carry a whole file or document, where the model has to escape
 # hundreds of quotes and backslashes correctly - and often does not.
-_LONG_TEXT_KEYS = ("content", "new_content", "old_content", "text", "body",
+_LONG_TEXT_KEYS = ("content", "new_content", "old_content", "edits", "text", "body",
                    "payload", "stdin")
 
 _JSON_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b",
@@ -555,11 +555,11 @@ def _normalise_arguments(tool_data: dict) -> dict:
 # small models get wrong most often - a bare quote, a lost backslash before a
 # line continuation, one uncounted brace - and this removes the need entirely.
 _RAW_BLOCK_PATTERN = re.compile(
-    r"<(content|new_content|old_content|text|body|stdin)>\r?\n?(.*?)\r?\n?</\1>",
+    r"<(content|new_content|old_content|edits|text|body|stdin)>\r?\n?(.*?)\r?\n?</\1>",
     re.DOTALL)
 
 
-_RAW_OPEN_PATTERN = re.compile(r"<(content|new_content|old_content|text|body|stdin)>\r?\n?")
+_RAW_OPEN_PATTERN = re.compile(r"<(content|new_content|old_content|edits|text|body|stdin)>\r?\n?")
 
 
 # A model whose template has no tool-call format of its own reaches for the
@@ -880,8 +880,7 @@ class CallGuard:
     def note(self, name: str, arguments: dict, result) -> str:
         """Count a call that ran. Returns the result, with a warning if due."""
         key = self._key(name, arguments)
-        wrote = (name in _tools._WRITES_FILES and isinstance(result, str)
-                 and result.startswith("[Success"))
+        wrote = bool(_tools._paths_written(name, arguments or {}, result))
         if wrote:
             # Every *other* count starts again; this one does not, or the same
             # write sent four times would reset itself each time.

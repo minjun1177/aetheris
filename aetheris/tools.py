@@ -320,6 +320,11 @@ def _write_file(filepath: str, text: str, newline: str = "\n",
                     f"saved as {encoding}, which cannot hold {bad!r}. Write it "
                     f"without that character, or ask the user to convert the "
                     f"file to UTF-8 first.")
+    if _batch is not None:
+        # Inside `multi_edit`: every check above has passed, and the text is
+        # kept for the batch to write once all of its edits have.
+        _batch[_batch_key(filepath)] = text
+        return ""
     if newline != "\n":
         text = text.replace("\n", newline)
     try:
@@ -877,7 +882,7 @@ def _edit_by_patch(filepath: str, file_content: str, patch: list,
                         f"{_preview(lines[number - 1], 60)}  →  {_preview(text, 60)}"))
     if len(patch) > 8:
         details.append(("", f"...and {len(patch) - 8} more"))
-    if not _approval_prompt("Edit File", details, rule=f"edit_file({filepath})"):
+    if not _approve("Edit File", details, rule=f"edit_file({filepath})"):
         return "[System] User denied file edit."
 
     for number, _, text in patch:
@@ -962,7 +967,7 @@ def _edit_by_anchor(filepath: str, file_content: str, start: int, end: int,
     details = [("path", filepath), ("replacing", where),
                ("from", _preview(replaced)),
                ("to", _preview(new_content) if replacement else "(the lines are removed)")]
-    if not _approval_prompt("Edit File", details, rule=f"edit_file({filepath})"):
+    if not _approve("Edit File", details, rule=f"edit_file({filepath})"):
         return "[System] User denied file edit."
 
     lines[start - 1:end] = replacement
@@ -1157,7 +1162,9 @@ def handle_edit_file(filepath: str, old_content: str, new_content: str) -> str:
     old_content, new_content = _as_text(old_content), _as_text(new_content)
 
     try:
-        file_content = _read_text(filepath)[0]
+        file_content = (_batch[_batch_key(filepath)]
+                        if _batch is not None and _batch_key(filepath) in _batch
+                        else _read_text(filepath)[0])
     except Exception as e:
         return f"[Error] Cannot read file: {e}"
 
@@ -1192,7 +1199,7 @@ def handle_edit_file(filepath: str, old_content: str, new_content: str) -> str:
 
     old_preview = _preview(old_content)
     new_preview = _preview(new_content)
-    approved = _approval_prompt("Edit File", [("path", filepath), ("from", old_preview), ("to", new_preview)],
+    approved = _approve("Edit File", [("path", filepath), ("from", old_preview), ("to", new_preview)],
                                 rule=f"edit_file({filepath})")
     if not approved: return "[System] User denied file edit."
 
@@ -1210,6 +1217,233 @@ def handle_edit_file(filepath: str, old_content: str, new_content: str) -> str:
     shifted = new_content.count("\n") != old_content.count("\n")
     return (f"[Success] File edited: {filepath}"
             + _echo_region(new_file_content, touched, moved=shifted))
+
+# ---------------------------------------------------------------------------
+# multi_edit: several changes, to one file or several, as one
+# ---------------------------------------------------------------------------
+#
+# `edit_file` changes one place in one file. A change that touches a function
+# and its three callers took four calls, four approvals and four commits, and
+# when the third was refused the first two stayed - half a rename. Here every
+# change is checked first and none is written unless all of them can be; then
+# one approval, one write per file, one commit, one /undo.
+#
+# Each change is made by `handle_edit_file` itself, so every form it accepts
+# and every check it makes - anchors verified against the file, a quoted
+# snippet that must occur exactly once - is the same here. `_batch` holds the
+# files as they would become, so the edits run against those, and nothing
+# reaches the disk until the end.
+
+_batch = None                    # {path key: text} while a multi_edit is staging
+
+
+def _batch_key(filepath: str) -> str:
+    return os.path.normcase(os.path.abspath(filepath))
+
+
+def _approve(label: str, details: list, rule: str = "") -> bool:
+    """`_approval_prompt`, except inside a multi_edit - asked once, for all of it."""
+    if _batch is not None:
+        return True
+    return _approval_prompt(label, details, rule=rule)
+
+
+_SEARCH = re.compile(r"^\s*<{5,9}\s*(?:SEARCH)?\s*$")
+_DIVIDE = re.compile(r"^\s*={5,9}\s*$")
+_REPLACE = re.compile(r"^\s*>{5,9}\s*(?:REPLACE)?\s*$")
+
+
+def _clean_edit_path(line: str) -> str:
+    """The path line in front of a block, without what a model wraps it in."""
+    text = line.strip().strip("`*").strip()
+    for prefix in ("FILE:", "File:", "file:", "PATH:", "Path:", "path:", "###", "##", "#"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip().strip("`*").strip()
+    return text
+
+
+def _parse_edits(text) -> tuple:
+    """`edits` as [(path, old, new)], or ([], why it could not be read).
+
+    The blocks are the SEARCH/REPLACE shape most models have seen:
+
+        /abs/path/file.py
+        <<<<<<< SEARCH
+        50:1fa-53:9c0
+        =======
+        the new lines
+        >>>>>>> REPLACE
+
+    SEARCH holds whatever `edit_file`'s old_content may hold - anchors or the
+    exact old text - and may be empty when every REPLACE row carries its own
+    anchor. A path line is needed before the first block only; a block without
+    one belongs to the file before it.
+    """
+    text = _as_text(text).replace("\r\n", "\n")
+    edits, path, state, old, new = [], "", "path", [], []
+    for number, line in enumerate(text.split("\n"), 1):
+        if state == "path":
+            if _SEARCH.match(line):
+                if not path:
+                    return [], (f"line {number}: a <<<<<<< SEARCH block with no file "
+                                f"path on the line above it")
+                state, old = "old", []
+            elif line.strip() and not line.strip().startswith("```"):
+                path = _clean_edit_path(line)
+        elif state == "old":
+            if _DIVIDE.match(line):
+                state, new = "new", []
+            elif _REPLACE.match(line):
+                return [], f"line {number}: >>>>>>> REPLACE before the ======= divider"
+            else:
+                old.append(line)
+        else:
+            if _REPLACE.match(line):
+                edits.append((path, "\n".join(old), "\n".join(new)))
+                state = "path"
+            else:
+                new.append(line)
+    if state != "path":
+        return [], "the last block is not closed with >>>>>>> REPLACE"
+    if not edits:
+        return [], "no <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks were found"
+    return edits, ""
+
+
+def edit_paths(text) -> list:
+    """The distinct files `edits` names, in the order first named."""
+    edits, _ = _parse_edits(text)
+    seen, paths = set(), []
+    for path, _, _ in edits:
+        if path and _batch_key(path) not in seen:
+            seen.add(_batch_key(path))
+            paths.append(path)
+    return paths
+
+
+def _edit_start(filepath: str, file_content: str, old: str, new: str) -> int:
+    """The first line an edit touches in the file as it stands, 0 if not known.
+
+    Edits are applied bottom-up so that an earlier one cannot move the lines a
+    later one names: every anchor stays the number read_file gave it.
+    """
+    patch = _parse_patch(new)
+    if patch is not None:
+        return min(number for number, _, _ in patch)
+    if (old or "").strip():
+        start, _end, _problem = _anchor_target(filepath, file_content, old)
+        if start:
+            return start
+        at = file_content.find(_strip_hashlines(old))
+        if at >= 0:
+            return file_content.count("\n", 0, at) + 1
+    return 0
+
+
+_MULTI_EDIT_FORMAT = ("/abs/path/file.py\n<<<<<<< SEARCH\n50:1fa-53:9c0\n=======\n"
+                      "the new lines\n>>>>>>> REPLACE")
+
+
+def handle_multi_edit(edits: str) -> str:
+    """Several edits, to one file or several: all of them, or none."""
+    global _batch
+    parsed, problem = _parse_edits(edits)
+    if problem:
+        return (f"[Error] Nothing was written: {problem}. Each edit is a block like\n"
+                f"{_MULTI_EDIT_FORMAT}")
+    files: dict = {}                       # key -> (path as given, [(old, new)])
+    for path, old, new in parsed:
+        path, complaint = _as_path(path)
+        if complaint:
+            return complaint
+        files.setdefault(_batch_key(path), (path, []))[1].append((old, new))
+
+    originals, plans = {}, {}
+    for key, (path, changes) in files.items():
+        if not os.path.isfile(path):
+            return (f"[Error] Nothing was written: {path} does not exist. multi_edit "
+                    f"changes existing files; create a new one with write_file.")
+        try:
+            originals[key] = _read_text(path)[0]
+        except Exception as error:
+            return f"[Error] Nothing was written: cannot read {path}: {error}"
+        ordered = sorted(changes, key=lambda change: _edit_start(
+            path, originals[key], *change), reverse=True)
+        plans[key] = ordered
+
+    _batch = {}
+    applied: dict = {}                     # key -> [(start, lines before, lines after)]
+    try:
+        total = sum(len(plan) for plan in plans.values())
+        done = 0
+        for key, ordered in plans.items():
+            path = files[key][0]
+            for old, new in ordered:
+                done += 1
+                before = _batch.get(key, originals[key])
+                start = _edit_start(path, before, old, new)
+                result = handle_edit_file(path, old, new)
+                if not result.startswith("[Success"):
+                    said = result.split("] ", 1)[-1] if result.startswith("[") else result
+                    return (f"[Error] Nothing was written. Edit {done} of {total}, to "
+                            f"{path}, could not be made: {said}")
+                after = _batch[key]
+                applied.setdefault(key, []).append(
+                    (start, before.count("\n"), after.count("\n"), new))
+        staged = dict(_batch)
+    finally:
+        _batch = None
+
+    details = []
+    for key, steps in applied.items():
+        moved = staged[key].count("\n") - originals[key].count("\n")
+        details.append(("path", f"{files[key][0]}  ({len(steps)} change"
+                                f"{'s' if len(steps) != 1 else ''}, "
+                                f"{moved:+d} line{'s' if abs(moved) != 1 else ''})"))
+    details.append(("diff", _preview(_batch_diff(originals, staged, files), 1200)))
+    rule = (f"edit_file({files[next(iter(files))][0]})" if len(files) == 1 else "")
+    if not _approval_prompt("Edit Files", details, rule=rule):
+        return "[System] User denied the edits."
+
+    written = []
+    for key, text in staged.items():
+        path = files[key][0]
+        problem = _write_file(path, text, _existing_newline(path), _existing_encoding(path))
+        if problem:
+            # Put back what was already written, so a batch is still one thing.
+            for done_key in written:
+                done_path = files[done_key][0]
+                _write_file(done_path, originals[done_key],
+                            _existing_newline(done_path), _existing_encoding(done_path))
+            return (f"[Error] Nothing was kept: writing {path} failed, and the "
+                    f"{len(written)} file(s) written before it were put back. {problem}")
+        written.append(key)
+
+    report = [f"[Success] Edited {len(files)} file{'s' if len(files) != 1 else ''} "
+              f"in one change ({total} edit{'s' if total != 1 else ''}, all applied)."]
+    for key, steps in applied.items():
+        touched = []
+        for start, lines_before, lines_after, new in steps:
+            # Applied bottom-up, so only the edits above this one moved it.
+            shift = sum(b2 - b1 for s2, b1, b2, _ in steps if s2 and s2 < start)
+            rows = max(1, len(new.split("\n")) if new else 1)
+            if start:
+                touched.extend(range(start + shift, start + shift + rows))
+        moved = staged[key] != originals[key] and any(b != a for _, b, a, _ in steps)
+        report.append(f"\n{files[key][0]}:" + _echo_region(staged[key], touched, moved))
+    return "\n".join(report)
+
+
+def _batch_diff(originals: dict, staged: dict, files: dict) -> str:
+    """A unified diff of the whole batch, for the one approval it gets."""
+    import difflib
+    out = []
+    for key, text in staged.items():
+        path = files[key][0]
+        out.extend(difflib.unified_diff(originals[key].split("\n"), text.split("\n"),
+                                        fromfile=path, tofile=path, lineterm="", n=1))
+    return "\n".join(out)
+
 
 def handle_delete_file(filepath: str) -> str:
     filepath, complaint = _as_path(filepath)
@@ -2429,10 +2663,41 @@ _WRITES_FILES = {
 # `send_input` are here because a command can write as easily as it can read,
 # and a stage that is meant to be read-only cannot check which.
 _CHANGES_THINGS = frozenset(_WRITES_FILES) | {
-    "create_dir", "run_cmd", "send_input", "end_process", "run_python",
+    "multi_edit", "create_dir", "run_cmd", "send_input", "end_process", "run_python",
     "write_memory", "edit_memory", "delete_memory", "call_api",
     "write_note", "edit_note", "delete_note",
 }
+
+
+def _target_paths(function_name: str, arguments: dict) -> list:
+    """The files a call would write, from its arguments.
+
+    `_WRITES_FILES` names the argument for most tools; `multi_edit` carries its
+    paths inside the edits themselves.
+    """
+    if function_name == "multi_edit":
+        return edit_paths(arguments.get("edits", ""))
+    return [arguments[key] for key in _WRITES_FILES.get(function_name, ())
+            if isinstance(arguments.get(key), str) and arguments[key]]
+
+
+def _decide(function_name: str, arguments: dict) -> tuple:
+    """`permissions.decide`, with a multi_edit asked about as every edit_file in it.
+
+    So the rules that already cover editing a file - `/tdd`'s locks, a deny on
+    `edit_file(secrets/*)` - cover it in a batch too. Any deny refuses the
+    batch; it is allowed outright only if every file is.
+    """
+    if function_name != "multi_edit":
+        return permissions.decide(function_name, arguments)
+    paths = _target_paths(function_name, arguments)
+    verdicts = [permissions.decide("edit_file", {"filepath": path}) for path in paths]
+    for verdict, rule in verdicts:
+        if verdict == "deny":
+            return verdict, rule
+    if verdicts and all(verdict == "allow" for verdict, _ in verdicts):
+        return "allow", verdicts[0][1]
+    return "ask", ""
 
 
 def _claimed_by_another(function_name: str, arguments: dict) -> tuple:
@@ -2443,12 +2708,10 @@ def _claimed_by_another(function_name: str, arguments: dict) -> tuple:
     step. `run_cmd` is not covered and cannot be: what a shell command touches
     is not knowable from the call.
     """
-    for key in _WRITES_FILES.get(function_name, ()):
-        path = arguments.get(key)
-        if isinstance(path, str) and path:
-            conflict = channel.holder(path)
-            if conflict:
-                return path, conflict
+    for path in _target_paths(function_name, arguments):
+        conflict = channel.holder(path)
+        if conflict:
+            return path, conflict
     return "", {}
 
 
@@ -2460,11 +2723,9 @@ def _paths_written(function_name: str, arguments: dict, result) -> list:
     about. Both of the things that happen after a write read this, so they
     cannot disagree about what was written.
     """
-    keys = _WRITES_FILES.get(function_name)
-    if not keys or not isinstance(result, str) or not result.startswith("[Success"):
+    if not isinstance(result, str) or not result.startswith("[Success"):
         return []
-    return [arguments[key] for key in keys
-            if isinstance(arguments.get(key), str) and arguments[key]]
+    return _target_paths(function_name, arguments)
 
 
 def _commit_if_changed(function_name: str, arguments: dict, result) -> None:
@@ -2612,7 +2873,10 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
                 "change and why. You will be asked to make the change in a later "
                 "stage, and everything you write now carries over to it.")
 
-    guarded = _names_the_key_file(arguments)
+    guarded = _names_the_key_file(arguments) or (
+        function_name == "multi_edit"
+        and next((g for g in (_names_the_key_file({"path": p})
+                              for p in _target_paths(function_name, arguments)) if g), ""))
     if guarded:
         # Before the rules, so no allow rule and no /automode reaches it. The
         # output would be redacted anyway; a write is what redaction cannot
@@ -2634,7 +2898,7 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
               f"{conflict['path']}{S.R}  {S.GRAY}/agents to see who{S.R}")
         return channel.refusal(function_name, blocked, conflict)
 
-    verdict, rule = permissions.decide(function_name, arguments)
+    verdict, rule = _decide(function_name, arguments)
     if verdict == "deny":
         print(f"  {S.ERR}✗ Blocked by permission rule: {rule}{S.R}")
         return (f"[System] '{function_name}' is blocked by your permission rules "
@@ -2709,6 +2973,7 @@ def _handlers() -> dict:
             "send_input": handle_send_input,
             "end_process": handle_end_process,
             "run_python": handle_run_python,
+            "multi_edit": handle_multi_edit,
             "list_dir": handle_list_dir,
             "read_file": handle_read_file,
             "write_file": handle_write_file,

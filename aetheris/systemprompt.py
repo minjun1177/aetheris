@@ -50,7 +50,7 @@ _TEXT_PROTOCOL = """2. If you need to use a tool to get more information, you MU
    </content>
    </tool_call>
    Inside a raw block write the text EXACTLY as it must appear in the file: real line breaks, real quotes, real backslashes, no escaping of any kind. This is the reliable way to write a file - escaping a whole file into a JSON string goes wrong far too easily.
-   The block tags are <content> for write_file, run_python and update_todos, <old_content> / <new_content> for edit_file, and <stdin> for run_cmd, send_input and run_python. Everything else (the file path, the command, flags, short values) stays in the JSON.
+   The block tags are <content> for write_file, run_python and update_todos, <old_content> / <new_content> for edit_file, <edits> for multi_edit, and <stdin> for run_cmd, send_input and run_python. Everything else (the file path, the command, flags, short values) stays in the JSON.
    To try out a program you just wrote, run it and then answer its prompts one at a time. run_cmd returns what it printed plus a session id, you read the prompt, and send_input answers it:
    <tool_call>
    {"name": "run_cmd", "arguments": {"command": "python3 game.py"}}
@@ -193,6 +193,7 @@ When you use `read_file`, each line is returned in **hashline format**: `LINE_NU
 - If an anchor no longer matches the file, the edit is refused and nothing is written: the file changed under you, or you mistyped the hash. `read_file` again and use the new anchors. Never invent a hash - copy it.
 - A line that appears twice in the file is still unambiguous by anchor. Matching it as text is not, and is refused.
 - Anything in `old_content` that is not anchors is matched as literal text and must be reproduced exactly.
+- Changing several places at once - two parts of a file, or a function and its callers in other files - is one `multi_edit`, not several `edit_file` calls: each SEARCH holds what `old_content` would, and anchors stay the ones `read_file` gave even when an earlier block in the same call changes the line count.
 - When using `write_file`, you may include hashline prefixes — they will be auto-stripped before writing.
 - Do NOT include hashline prefixes in your final response to the user. They are only for internal tool use.
 
