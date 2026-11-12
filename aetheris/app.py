@@ -3058,9 +3058,12 @@ def _parse_args(argv: list) -> argparse.Namespace:
                           help="with -p: run every tool without asking, as /automode on "
                                "does. Without it a tool that needs approval is refused "
                                "unless there is a terminal to ask at")
+    headless.add_argument("--verbose", dest="verbose", action="store_true",
+                          help="with -p: draw the turn on stderr as it runs - the "
+                               "thinking, the tool calls, the token counts")
     args = parser.parse_args(argv)
-    if args.prompt is None and (args.json_out or args.auto_allow):
-        parser.error("--json and --auto-allow only mean something with -p")
+    if args.prompt is None and (args.json_out or args.auto_allow or args.verbose):
+        parser.error("--json, --auto-allow and --verbose only mean something with -p")
     return args
 
 
@@ -3070,9 +3073,11 @@ def _parse_args(argv: list) -> argparse.Namespace:
 #
 # One prompt in, one answer out, and nothing drawn for a person to look at - so
 # a script, a pipe or a CI job can use the harness, and a benchmark can run the
-# same request fifty times and count. Everything the turn would have drawn goes
-# to stderr, where a person running it by hand still sees the work happen;
-# stdout carries the answer alone, or the JSON, so it can be piped on.
+# same request fifty times and count. What the turn would have drawn - spinner,
+# thinking, the streamed reply, the token line - is dropped (`--verbose` sends it
+# to stderr); an approval or a warning still reaches stderr, since someone has
+# to answer it. stdout carries the answer alone, or the JSON, so it can be
+# piped on.
 
 def _stdin_was_given(stdin) -> bool:
     """Whether stdin is a pipe or a file - something somebody meant to send.
@@ -3167,8 +3172,10 @@ def _headless(args: argparse.Namespace, resume_id: str) -> int:
     out = sys.stdout
     report, error, status = {}, "", 0
     try:
-        # The turn draws for a person; the person is on stderr.
-        with contextlib.redirect_stdout(sys.stderr):
+        # The turn draws for a person. Under -p nobody is watching it draw,
+        # only waiting for the answer - see `config.HeadlessOutput`.
+        with contextlib.redirect_stdout(
+                config.HeadlessOutput(sys.stderr, verbose=args.verbose)):
             report = asyncio.run(run_headless(prompt, resume_id))
     except (KeyboardInterrupt, asyncio.CancelledError):
         error, status = "interrupted", 130

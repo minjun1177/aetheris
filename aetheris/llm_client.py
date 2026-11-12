@@ -276,8 +276,9 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
         def retrying(error, seconds, attempt):
             why = (str(error).strip().splitlines() or [type(error).__name__])[0]
             sys.stdout.write('\r\033[K')
-            print(f"  {S.WARN}⚠ {why[:120]} - trying again in {seconds:.0f}s "
-                  f"({attempt}/{config.PROVIDER_RETRIES}){S.R}")
+            with config.speaking():
+                print(f"  {S.WARN}⚠ {why[:120]} - trying again in {seconds:.0f}s "
+                      f"({attempt}/{config.PROVIDER_RETRIES}){S.R}")
 
         reply = providers.stream_with_retry(open_reply, retrying)
 

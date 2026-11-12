@@ -645,6 +645,93 @@ class S:
     CYAN      = "\033[38;2;131;165;152m"
 
 
+_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def _is_terminal(stream) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+class HeadlessOutput:
+    """`sys.stdout` while `-p` runs a turn: silent, unless someone must see it.
+
+    The turn draws for a person - the spinner, the thinking box, the streamed
+    answer, the TPS and token lines. Under `-p` the answer is printed once at
+    the end, so all of that is noise, and on a terminal it was printed twice.
+    It is dropped unless `verbose`, or unless the harness is asking something
+    (an approval, a question) or warning about something - see `speaking()`.
+
+    What does get through goes to `target` (stderr). When that is not a
+    terminal - a log file, a pipe - it is written as plain text: no colour
+    codes, and none of the lines that are only ever redrawn in place.
+    """
+
+    def __init__(self, target, verbose: bool = False):
+        self.target = target
+        self.verbose = verbose
+        self.loud = 0
+        self.plain = not _is_terminal(target)
+
+    def write(self, text) -> int:
+        text = str(text)
+        if not (self.verbose or self.loud):
+            return len(text)
+        out = text
+        if self.plain:
+            out = _ESCAPE.sub("", out)
+            if "\r" in out:
+                # A spinner frame or a TPS counter: rewritten with `\r` and
+                # never finished with a newline. In a file it is just litter.
+                out = out.rsplit("\r", 1)[1]
+                if not out.endswith("\n"):
+                    out = ""
+        if out:
+            self.target.write(out)
+        return len(text)
+
+    def flush(self) -> None:
+        try:
+            self.target.flush()
+        except (AttributeError, ValueError, OSError):
+            pass
+
+    def isatty(self) -> bool:
+        return False
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self.target, "encoding", None) or "utf-8"
+
+    def fileno(self) -> int:
+        return self.target.fileno()
+
+    def __getattr__(self, name):
+        return getattr(self.target, name)
+
+
+class speaking:
+    """Let what is printed inside this block through a `HeadlessOutput`.
+
+    For the few things a person running `-p` has to see: an approval box, a
+    question, a retry. Does nothing on an ordinary stdout.
+    """
+
+    def __enter__(self):
+        import sys
+        self.out = sys.stdout
+        if isinstance(self.out, HeadlessOutput):
+            self.out.loud += 1
+        return self
+
+    def __exit__(self, *_):
+        if isinstance(self.out, HeadlessOutput):
+            self.out.loud -= 1
+        return False
+
+
 def tw() -> int:
     try:
         return shutil.get_terminal_size().columns

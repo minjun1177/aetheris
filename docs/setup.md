@@ -115,7 +115,10 @@ is.
    git diff | aetheris -p "review this"            # piped input is appended to the prompt
    aetheris -p "fix the failing test" --auto-allow --json
    ```
-   The work is drawn on stderr; stdout carries the answer alone, or with
+   Nothing of the turn is drawn - no spinner, thinking or token line; only an
+   approval prompt or a warning reaches stderr (`--verbose` draws the whole
+   turn there, as plain text when stderr is not a terminal). stdout carries
+   the answer alone, or with
    `--json` one object: `text`, `tool_calls` (name, arguments, `ok` / `error` /
    `refused`, seconds), `tokens`, `seconds`, `model`, `session` and `error`.
    Without `--auto-allow` a tool that needs approval is refused unless there is

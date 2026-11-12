@@ -168,6 +168,61 @@ check("without --json stdout is the answer alone",
       captured.getvalue() == "Just the answer.\n" and status == 0, repr(captured.getvalue()))
 
 
+class Thinker(Scripted):
+    async def stream(self, messages, max_tokens=None, tools=None):
+        yield {"thinking": "SECRET-THOUGHT"}
+        async for chunk in Scripted.stream(self, messages, max_tokens, tools):
+            yield chunk
+
+
+for flags, label in ((["-p", "hi"], "plain"), (["-p", "hi", "--json"], "--json")):
+    providers._active = Thinker(["Just the answer."])
+    captured, drawn = io.StringIO(), io.StringIO()
+    saved_show = config.SHOW_THINKING
+    config.SHOW_THINKING = True
+    try:
+        sys.stdout = captured
+        with contextlib.redirect_stderr(drawn):
+            status = app._headless(app._parse_args(flags), "")
+    finally:
+        sys.stdout = real_out
+        providers._active = saved_active
+        config.SHOW_THINKING = saved_show
+    check(f"{label}: nothing of the turn is drawn on stderr - no thinking, "
+          f"no token line, no spinner",
+          status == 0 and "SECRET-THOUGHT" not in drawn.getvalue()
+          and "TPS" not in drawn.getvalue() and "tokens" not in drawn.getvalue(),
+          repr(drawn.getvalue()[:200]))
+
+providers._active = Thinker(["Just the answer."])
+captured, drawn = io.StringIO(), io.StringIO()
+saved_show = config.SHOW_THINKING
+config.SHOW_THINKING = True
+try:
+    sys.stdout = captured
+    with contextlib.redirect_stderr(drawn):
+        status = app._headless(app._parse_args(["-p", "hi", "--verbose"]), "")
+finally:
+    sys.stdout = real_out
+    providers._active = saved_active
+    config.SHOW_THINKING = saved_show
+check("--verbose draws it on stderr after all",
+      "SECRET-THOUGHT" in drawn.getvalue(), repr(drawn.getvalue()[:200]))
+check("and as plain text when stderr is not a terminal",
+      "\x1b[" not in drawn.getvalue() and "\r" not in drawn.getvalue(),
+      repr(drawn.getvalue()[:200]))
+check("stdout is still the answer alone",
+      captured.getvalue() == "Just the answer.\n", repr(captured.getvalue()))
+
+sink = config.HeadlessOutput(io.StringIO())
+with contextlib.redirect_stdout(sink):
+    print("dropped")
+    with config.speaking():
+        print("\x1b[33m⚠ Approval Required\x1b[0m")
+check("an approval still gets through, uncoloured",
+      sink.target.getvalue() == "⚠ Approval Required\n", repr(sink.target.getvalue()))
+
+
 class Broken(Scripted):
     def ready(self):
         return "no API key (TEST_KEY)"

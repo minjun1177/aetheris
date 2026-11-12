@@ -843,6 +843,12 @@ def hearing_ctrl_c():
 
 def ask_the_driver(title: str, details, choices, prompt: str,
                    free_text: bool = False) -> str | None:
+    with config.speaking():
+        return _ask_the_driver(title, details, choices, prompt, free_text)
+
+
+def _ask_the_driver(title: str, details, choices, prompt: str,
+                    free_text: bool = False) -> str | None:
     """One question, put to whoever is actually driving this turn.
 
     Every blocking question in the harness ends up here, which is the point:
@@ -886,12 +892,16 @@ def ask_the_driver(title: str, details, choices, prompt: str,
 
 
 def _approval_prompt(action_label: str, details: list[tuple[str, str]], rule: str = "") -> bool:
-    from aetheris.renderer import _disp_width
-    from aetheris import permissions
-
     # A permission rule already said yes, or /automode is on.
     if config.AUTO_ALLOW or config.POLICY_AUTO_ALLOW:
         return True
+    with config.speaking():          # under -p the box is all that is shown
+        return _ask_approval(action_label, details, rule)
+
+
+def _ask_approval(action_label: str, details: list[tuple[str, str]], rule: str = "") -> bool:
+    from aetheris.renderer import _disp_width
+    from aetheris import permissions
 
     print()
     print(f"  {S.WARN}⚠  {S.BOLD}Approval Required{S.R}")
