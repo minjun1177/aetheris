@@ -323,6 +323,11 @@ def _adopt_session(loaded) -> list[dict]:
     left behind.
     """
     rewind.forget()
+    # Its own record of the turns, thinking and tool output included, when the
+    # file has one - headless runs too, or the next save would write the
+    # record of this run alone over it.
+    transcript.reset()
+    transcript.restore(loaded.get("transcript") if isinstance(loaded, dict) else None)
     if isinstance(loaded, dict):
         messages = loaded.get("messages", [])
         config.token_history.clear()
@@ -382,6 +387,21 @@ def _as_typed(content: str) -> str:
     cut = min((at for at in (content.find(mark) for mark in _APPENDED) if at >= 0),
               default=len(content))
     return content[:cut]
+
+
+def _draw_loaded(messages: list[dict]) -> None:
+    """A conversation just loaded, drawn - from its own record where it has one.
+
+    The record (`transcript`) is the turns as they were drawn, tool output
+    and all; `messages` is what the model was sent, which compression may
+    have rewritten. A session saved before there was a record, or one whose
+    record lost its oldest turns, is drawn from `messages` - and then becomes
+    the record, if it had none.
+    """
+    if transcript.turns() and not transcript.dropped():
+        transcript.show(full=False)
+    else:
+        _replay_session(messages, record=not transcript.turns())
 
 
 def _replay_session(messages: list[dict], record: bool = False) -> None:
@@ -2323,8 +2343,7 @@ async def _cmd_load(chat, user_input: str, cmd: str):
         _clear_screen()
         _welcome()
         print(f"  {S.OK}✓ Loaded session: {label} (Model: {config.MODEL}){S.R}\n")
-        transcript.reset()
-        _replay_session(chat.messages, record=True)
+        _draw_loaded(chat.messages)
     else:
         print(f"  {S.ERR}✗ Session not found: {sid}{S.R}\n")
     return _HANDLED
@@ -2870,8 +2889,7 @@ async def main(resume_id: str = "") -> None:
         if resumed:
             print(f"  {S.OK}✓ Resumed session: {config.SESSION_TITLE or resume_id} "
                   f"(Model: {config.MODEL}){S.R}\n")
-            transcript.reset()
-            _replay_session(messages, record=True)
+            _draw_loaded(messages)
         else:
             print(f"  {S.ERR}✗ Session not found: {resume_id}{S.R}")
             print(f"  {S.GRAY}Starting a new one instead.{S.R}\n")

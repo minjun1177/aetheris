@@ -260,6 +260,13 @@ def save_session(messages: list[dict], session_id: str) -> str:
     }
     if config.TODOS:
         data["todos"] = config.TODOS
+    # The turns as they were drawn - thinking, every argument and result in
+    # full - which `messages` does not keep: thinking is never in it, and
+    # compression rewrites the rest. Ctrl+O on a loaded session shows these.
+    from aetheris import transcript
+    record = transcript.export()
+    if record["turns"]:
+        data["transcript"] = record
     if config.ATTACCA_SESSION:
         # Only when there is one, so a session that never went near Attacca is
         # written byte for byte as it always was.

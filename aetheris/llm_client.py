@@ -261,6 +261,23 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
         print(f"  {S.MUTED}╰─{S.R}")
         thought_open = False
 
+    # When the reasoning began, and how long it took once the reply moved on.
+    # Hidden reasoning still leaves a line behind - how long, and that Ctrl+O
+    # shows it - or nothing on screen says there was any.
+    think_began = None
+    think_seconds = 0.0
+    think_noted = False
+
+    def end_of_thought() -> None:
+        nonlocal think_seconds, think_noted
+        if think_began is None or think_noted:
+            return
+        think_noted = True
+        think_seconds = time.time() - think_began
+        if not config.SHOW_THINKING and thinking_text.strip():
+            sys.stdout.write('\r\033[K')
+            print(transcript.thought_note(think_seconds))
+
     prompt_tokens = 0
     completion_tokens = 0
     cached_tokens = 0
@@ -321,6 +338,8 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
             for kind, text in events:
                 if kind == "think":
                     thinking_text += text
+                    if think_began is None:
+                        think_began = time.time()
                     if not config.SHOW_THINKING:
                         continue
                     if not printing:
@@ -336,6 +355,7 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                     continue
 
                 close_thought()
+                end_of_thought()
                 if not printing:
                     printing = True
                     if not spin_task.done():
@@ -363,9 +383,11 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                     emit_thought(text)
             else:
                 close_thought()
+                end_of_thought()
                 said_text += text
                 in_code = emit(text, in_code)
         close_thought()
+        end_of_thought()
 
         if printing:
             sys.stdout.write('\r\033[K')
@@ -381,7 +403,9 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
             except asyncio.CancelledError: pass
         # Whole, and even for a reply that was stopped: what it got as far as
         # is what Ctrl+O is pressed to see.
-        transcript.thought(thinking_text)
+        if think_began is not None and not think_noted:
+            think_seconds = time.time() - think_began
+        transcript.thought(thinking_text, think_seconds)
         transcript.said(said_text)
 
     # A reply whose provider counted nothing records and prints nothing: a line

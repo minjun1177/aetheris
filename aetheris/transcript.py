@@ -14,8 +14,9 @@ screen back the way it was before (`app._toggle_transcript`, from the rows
 `screen` kept). The collapsed drawing here is only for when there is no such
 screen to put back.
 
-Every turn of this conversation, not only the last: `/clear` and loading
-another session start the record again (`reset`). It is held to `MAX_CHARS`,
+Every turn of this conversation, not only the last: `/clear` starts the
+record again (`reset`). It is saved with the session (`export`), so a session
+loaded later has its thinking and tool output to show (`restore`). It is held to `MAX_CHARS`,
 oldest turns first, so a long session that wrote large files is not holding
 all of them twice for ever.
 """
@@ -77,9 +78,27 @@ def _add(kind: str, name: str, body) -> None:
     _turns[-1]["entries"].append((kind, name, body))
 
 
-def thought(text: str) -> None:
+def thought(text: str, seconds: float = 0.0) -> None:
+    """Reasoning, whole. Its name is how long it took, in seconds, or ""."""
     if text.strip():
-        _add("thinking", "", text.strip("\n"))
+        _add("thinking", f"{seconds:.1f}" if seconds else "", text.strip("\n"))
+
+
+def _took(seconds: float) -> str:
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    return f"{int(seconds // 60)}m {int(seconds % 60)}s"
+
+
+def thought_note(seconds: float = 0.0, lines: int = 0) -> str:
+    """The line left where hidden reasoning was: how long, and how to see it."""
+    if seconds:
+        what = f"thought for {_took(seconds)}"
+    else:
+        what = f"thought - {lines} line{'s' if lines != 1 else ''}"
+    return f"  {S.MUTED}✻ {what} · Ctrl+O shows it{S.R}"
 
 
 def said(text: str) -> None:
@@ -122,8 +141,64 @@ def entries() -> list:
     return list(_turns[-1]["entries"]) if _turns else []
 
 
+def dropped() -> int:
+    """How many of the oldest turns the record no longer has."""
+    return _dropped
+
+
 def turns() -> list:
     return [{"prompt": t["prompt"], "entries": list(t["entries"])} for t in _turns]
+
+
+# What a session file keeps of the record, at most. The newest turns are kept;
+# a session that wrote whole large files is not rewritten at that size on
+# every save.
+SAVED_CHARS = 1_000_000
+
+
+def export() -> dict:
+    """The record, for the session file: {"turns": [...], "dropped": n}."""
+    import json
+    kept, total = [], 0
+    for turn in reversed(_turns):
+        total += _size(turn)
+        if kept and total > SAVED_CHARS:
+            break
+        kept.append(turn)
+    kept.reverse()
+    # Through JSON and back, so an argument that is not plain data is a string
+    # here rather than a session that cannot be written.
+    turns = json.loads(json.dumps(kept, default=str))
+    return {"turns": turns, "dropped": _dropped + len(_turns) - len(kept)}
+
+
+def restore(saved) -> bool:
+    """Make a session file's record this one. False if there was none to use."""
+    global _dropped, expanded
+    if not isinstance(saved, dict) or not isinstance(saved.get("turns"), list):
+        return False
+    turns = []
+    for turn in saved["turns"]:
+        if not isinstance(turn, dict):
+            continue
+        entries = []
+        for entry in turn.get("entries") or []:
+            if isinstance(entry, (list, tuple)) and len(entry) == 3 \
+                    and entry[0] in ("thinking", "answer", "call", "result", "shell"):
+                kind, name, body = entry
+                if kind == "call" and not isinstance(body, dict):
+                    continue
+                entries.append((kind, str(name or ""), body if kind == "call" else str(body)))
+        turns.append({"prompt": str(turn.get("prompt") or ""), "entries": entries})
+    if not turns:
+        return False
+    _turns[:] = turns
+    try:
+        _dropped = max(int(saved.get("dropped") or 0), 0)
+    except (TypeError, ValueError):
+        _dropped = 0
+    expanded = False
+    return True
 
 
 def toggle() -> bool:
@@ -170,9 +245,11 @@ def _draw(kind: str, name: str, body, full: bool) -> None:
     width = max(20, config.tw() - 6)
     if kind == "thinking":
         if not (full or config.SHOW_THINKING):
-            lines = body.count("\n") + 1
-            print(f"  {S.MUTED}✻ thought - {lines} line{'s' if lines != 1 else ''} "
-                  f"· Ctrl+O shows it{S.R}")
+            try:
+                seconds = float(name or 0)
+            except ValueError:
+                seconds = 0.0
+            print(thought_note(seconds, body.count("\n") + 1))
             return
         print(f"\n  {S.MUTED}╭─ thinking{S.R}")
         took: list = []

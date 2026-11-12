@@ -225,6 +225,62 @@ _, shown = printed(tui._fmt_tool_call, "read_file", {"filepath": "a" * 300})
 check("an argument cut to fit says so", "Ctrl+O" in shown, shown)
 transcript.reset()
 
+print("\n--- hidden thinking leaves a line saying how long ---")
+check("seconds when they are known",
+      "thought for 3.2s · Ctrl+O shows it" in re.sub(r"\033\[[0-9;]*m", "", transcript.thought_note(3.24)))
+check("longer ones in whole seconds, then minutes",
+      "thought for 42s" in transcript.thought_note(42.4)
+      and "thought for 1m 5s" in transcript.thought_note(65))
+transcript.reset()
+transcript.start("why")
+transcript.thought("because\nof this", 2.5)
+_, shown = printed(transcript.show, False)
+check("the collapsed drawing says it the same way", "thought for 2.5s" in shown, shown)
+transcript.reset()
+check("the live reply prints it where the hidden reasoning was",
+      "end_of_thought()" in inspect.getsource(llm_client.stream_reply)
+      and "transcript.thought_note(think_seconds)" in inspect.getsource(llm_client.stream_reply))
+
+print("\n--- saved with the session, and there again when it is loaded ---")
+from aetheris import session as session_mod     # noqa: E402
+config.SAVE_CHAT_HISTORY = True
+transcript.reset()
+transcript.start("read it")
+transcript.thought("I should read the file first", 1.5)
+transcript.call("read_file", {"filepath": "a.py"})
+transcript.result("read_file", "x" * 2000 + " THE TAIL")
+transcript.said("It is a file of x.")
+history = [{"role": "system", "content": "s"}, {"role": "user", "content": "read it"},
+           {"role": "assistant", "content": "It is a file of x."}]
+sid = session_mod.save_session(history, None)
+saved = session_mod.load_session(sid)
+check("the session file keeps the record, thinking and the whole result",
+      isinstance(saved, dict) and "THE TAIL" in str(saved.get("transcript"))
+      and "read the file first" in str(saved.get("transcript")))
+transcript.reset()
+messages = app._adopt_session(saved)
+check("loading it brings the record back",
+      [kind for kind, _, _ in transcript.entries()] == ["thinking", "call", "result", "answer"],
+      str(transcript.entries()))
+_, shown = printed(transcript.show, True)
+check("so Ctrl+O shows the thinking and the whole result again",
+      "read the file first" in shown and "THE TAIL" in shown)
+_, shown = printed(app._draw_loaded, messages)
+check("and the loaded session is drawn from it - the tool call too, and the "
+      "thought line", "read_file" in shown and "thought for 1.5s" in shown, shown[-400:])
+transcript.reset()
+old_style = {"messages": history, "title": ""}
+messages = app._adopt_session(old_style)
+printed(app._draw_loaded, messages)
+check("a session saved before there was a record still becomes one",
+      [t["prompt"] for t in transcript.turns()] == ["read it"])
+check("a record that is not one is ignored, not trusted",
+      transcript.restore({"turns": "nope"}) is False
+      and transcript.restore({"turns": [{"prompt": "p", "entries": [["bogus", "", "x"]]}]})
+      and transcript.entries() == [])
+transcript.reset()
+config.SAVE_CHAT_HISTORY = False
+
 print("\n--- from the key to the main loop ---")
 if config.PROMPT_TOOLKIT_AVAILABLE:
     binding = next(b for b in promptkeys.bindings().bindings if b.keys[0] == "c-o")
@@ -269,8 +325,9 @@ paired = len(re.findall(r"config\.next_turn\(\)\n\s*transcript\.start\(", whole)
 check("every turn starts a turn of the record",
       whole.count("config.next_turn()") == paired, f"{whole.count('config.next_turn()')} vs {paired}")
 check("/clear empties it", "transcript.reset()" in inspect.getsource(app._cmd_clear))
-check("loading a session seeds it", whole.count("_replay_session(") and "record=True" in inspect.getsource(app._cmd_load)
-      and "record=True" in source)
+check("loading a session draws it from its record, or seeds one",
+      "_draw_loaded(" in inspect.getsource(app._cmd_load) and "_draw_loaded(" in source
+      and "record=not transcript.turns()" in inspect.getsource(app._draw_loaded))
 check("Ctrl+O is in /help all", any(key == "Ctrl+O" for key, _ in tui.KEYS))
 
 
