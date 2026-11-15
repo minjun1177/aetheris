@@ -286,8 +286,12 @@ check("toolspec really imports nothing local",
       not re.search(r"^(?:import|from) (?:aetheris\b|"
                     r"(?:config|tools|providers|app|systemprompt)\b)",
                     read("toolspec.py"), re.M))
-check("config really imports systemprompt at module level",
-      "from aetheris.systemprompt import" in read("config.py"))
+# 5.2: importing `config` used to build the system prompt, which ran half the
+# package against a half-defined `config`.
+local = set(re.findall(r"^\s*from aetheris import (\w+)", read("config.py"), re.M)) | set(
+    re.findall(r"^\s*(?:from|import) aetheris\.(\w+)", read("config.py"), re.M))
+check("config really imports nothing local but atomic and paths",
+      local == {"atomic", "paths"}, str(sorted(local)))
 
 print("\n--- every test file the docs list exists ---")
 listed = set(re.findall(r"`(test_[a-z_]+\.py)`", ARCH)) | set(

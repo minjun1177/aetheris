@@ -64,9 +64,9 @@ check("the real settings are in it",
 # `startswith` (5.9); a session title is live state. Neither is a preference,
 # and offering to change them would be offering to break something.
 check("but live state and protocol anchors are not",
-      not ({"SYSTEM_PROMPT", "SESSION_TITLE", "MODEL", "TOOL_ERROR_PREFIX",
+      not ({"SESSION_TITLE", "MODEL", "TOOL_ERROR_PREFIX",
             "TOOL_REFUSAL_PREFIX", "SETTINGS_FILE", "CURRENT_OS"} & set(settable)),
-      str(sorted({"SYSTEM_PROMPT", "SESSION_TITLE", "MODEL", "TOOL_ERROR_PREFIX",
+      str(sorted({"SESSION_TITLE", "MODEL", "TOOL_ERROR_PREFIX",
                   "SETTINGS_FILE", "CURRENT_OS"} & set(settable))))
 check("and nothing unserialisable is",
       all(isinstance(v, (bool, int, float, str, list)) or v is None

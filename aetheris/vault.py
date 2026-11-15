@@ -37,9 +37,6 @@ placeholder written to a file stays a placeholder, which is also exactly what
 into the chat, invented by a command, pasted by the user - is not known here
 and is not redacted. This narrows the biggest hole; it is not a guarantee, and
 nothing here should be described to anybody as one.
-
-Stdlib plus `paths`, so it can be imported from `systemprompt` - which `config`
-imports at import time - without a cycle.
 """
 
 import os

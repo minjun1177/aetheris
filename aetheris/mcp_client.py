@@ -27,10 +27,9 @@ than a dependency on the official SDK - it keeps the harness installable with
 nothing but the stdlib, and keeps the call path synchronous like every other
 tool in `tools.py`.
 
-Stdlib only at module level on purpose: `systemprompt.py` imports this module,
-and `config.py` imports `systemprompt`, so importing `config` here at the top
-would create a cycle. Settings are read lazily through `_cfg()`, which also
-tolerates `config` being half-initialised during that first import.
+Stdlib only at module level on purpose: `aetheris.MCPServer` is this module
+used as a library, and it must load without the harness. Settings are read
+lazily through `_cfg()`.
 """
 
 import atexit

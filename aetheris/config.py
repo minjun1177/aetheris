@@ -2,8 +2,8 @@
 # needed it, and leaving the imports behind was not free: `bs4`, `requests`,
 # `psutil` and `duckduckgo_search` were imported here unguarded, so any one of
 # them missing stopped the whole program from starting - `config` is the base of
-# the import graph and builds SYSTEM_PROMPT at import time (ARCHITECTURE 5.2).
-# A machine with no `bs4` could not open a chat window, let alone search.
+# the import graph (ARCHITECTURE 5.2). A machine with no `bs4` could not open a
+# chat window, let alone search.
 import json
 import os
 import platform
@@ -226,12 +226,6 @@ try:
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
-# `smrp` and `ttlp` are read as `config.smrp` / `config.ttlp` by the summariser
-# and the session titler.
-from aetheris.systemprompt import systemprompt as syp
-from aetheris.systemprompt import summarizeprompt as smrp
-from aetheris.systemprompt import titleprompt as ttlp
-
 
 MODEL = "gemma4:e4b"
 
@@ -246,8 +240,6 @@ MODEL = "gemma4:e4b"
 OLLAMA_HOST = "http://localhost:11434"
 
 CURRENT_OS = platform.system()
-
-SYSTEM_PROMPT = syp()
 
 FILE_MAX_DISPLAY_LENGTH = 1000
 
@@ -926,8 +918,8 @@ SETTINGS_FILE = paths.state("settings.json")
 _NOT_A_SETTING = frozenset({
     # Facts about the machine, not choices.
     "CURRENT_OS", "PROMPT_TOOLKIT_AVAILABLE", "TREE_SITTER_AVAILABLE",
-    # Built, or owned by a command of their own.
-    "SYSTEM_PROMPT", "MODEL", "SESSION_TITLE", "CUSTOM_PERSONA",
+    # Owned by a command of their own.
+    "MODEL", "SESSION_TITLE", "CUSTOM_PERSONA",
     # Live state that happens to be spelled in capitals.
     "LOADED_SKILLS", "TODOS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
     "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION", "ATTACCA_CURSOR",

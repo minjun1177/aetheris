@@ -124,8 +124,8 @@ _NATIVE_IMPORTANT_LAST = """18. Pass every argument in the tool call itself, and
 def native_tools_active() -> bool:
     """Whether this turn's provider takes tool schemas over its own API.
 
-    Imported late: `providers` reads `config`, which builds a prompt at import
-    time, and asking at module level would close that circle.
+    For Ollama this asks the daemon about the model (cached per model), which
+    is why the prompt is built when a conversation starts and not at import.
     """
     from aetheris import config
     if not getattr(config, "NATIVE_TOOLS", True):

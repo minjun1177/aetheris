@@ -180,11 +180,14 @@ first dispatch if a tool has no handler, a handler is undescribed, or a
 handler's arity does not match its spec. Never hardcode a tool list anywhere
 else.
 
-**5.2 `config.py` builds the system prompt at import time** (`SYSTEM_PROMPT = syp()`).
-So everything `systemprompt.py` reaches at module level - `toolspec`,
-`mcp_client`, `skills` - **must not import `config` at module level.** They read
-it lazily inside functions instead. Add a module-level `import config` to any of
-them and the whole program stops importing.
+**5.2 `config.py` is the base of the import graph, and importing it runs
+nothing.** It imports `atomic` and `paths`, defines the settings and reads
+`settings.json` over them. The system prompt is built by
+`app._compose_system_prompt` when a conversation starts, never at import: built
+there it ran `systemprompt` - and through it `providers`, `mcp_client`,
+`skills` and `vault` - against a `config` that was half defined, and nothing
+read the result before `app` built it again. Keep `config` importing nothing
+above it.
 
 **5.3 History is plain text, always.** No structured tool blocks, no
 provider-specific shapes. Native tool calls are rendered back to `<tool_call>`
@@ -263,8 +266,8 @@ Writing the first group relative to the working directory is what this used to
 do, and it only looked harmless while the harness was run as `python app.py`
 from its own checkout: as an installed command it scattered files wherever you
 happened to start, and split one memory into one per directory. `paths.py` is
-stdlib-only and imports nothing local, so the modules below `config` can use it
-without breaking 5.2.
+stdlib-only and imports nothing local, so `config` and every module that must
+load without it can use it (5.2).
 
 Nothing is ever moved on the user's behalf. `sessions` and `memory.json` are
 ordinary enough names that acting on sight would eventually destroy real work,
@@ -426,9 +429,9 @@ rather than a table - so a rename there renames a key in somebody's saved
 text whatever protocol produced it (§2), so renaming one does not just change a
 prompt: it stops an old session from replaying. Nothing else inside
 `aetheris.*` is covered - the modules are an implementation. `__init__.py`
-exports the library lazily, through `__getattr__`, so it still imports nothing
-(5.2). The parts read their timeouts through `_cfg`, so their first call loads
-`config` after all - late, when nothing is half-imported, and writing nothing.
+exports the library lazily, through `__getattr__`, so it still imports
+nothing. The parts read their timeouts through `_cfg`, so their first call loads
+`config` after all - late, and writing nothing.
 
 While the major version is 0 this is a record rather than a guarantee, and
 `CHANGELOG.md` says so in as many words. It exists from 0.6.0 so that 1.0.0 can
@@ -466,11 +469,8 @@ Three things make it safe to put there:
   rebuild, the same as loading a skill - and the prompt is deliberately not
   rebuilt every turn, so it costs nothing until then.
 
-It is read in `_compose_system_prompt` rather than inside `systemprompt()` for
-an import reason and not a design one: `config` builds the system prompt at
-import time, and `session` imports `config`, so `systemprompt` cannot reach
-`session` without a cycle. Composing is where every other per-conversation
-piece already goes.
+It is read in `_compose_system_prompt` rather than inside `systemprompt()`
+because composing is where every other per-conversation piece already goes.
 
 **5.16 What is true about a project is kept per project, as markdown, and the
 file is the record.** 5.15 put what the model knows about the *person* in front
@@ -649,9 +649,9 @@ app.py            the loop, slash commands, session lifecycle
           └ sse.py    server-sent events, read as they arrive
           └ atomic.py crash-safe writes
   └ config.py     every setting and its default, the saved overrides read
-                  over them, plus SYSTEM_PROMPT built at import
-      └ systemprompt.py  the prompt text, both protocol variants
-          └ toolspec.py  the tool table (stdlib only, imports nothing local)
+                  over them (imports only atomic and paths)
+  └ systemprompt.py  the prompt text, both protocol variants
+      └ toolspec.py  the tool table (stdlib only, imports nothing local)
 ```
 
 | File | Owns | Do **not** put here |
@@ -998,10 +998,10 @@ drops `_asked_by` with them - a question nobody can read any more is not still
 outstanding.
 
 **The agent's own id is in the system prompt.** `channel.prompt_section()`,
-composed in `app._compose_system_prompt` alongside memory and notes - not in
-`systemprompt()`, because `config` builds that at import time and this session
-has not joined a board yet. `main` calls `_refresh_system_prompt` once, straight
-after `channel.join`, while nothing has been sent. Everything else about the
+composed in `app._compose_system_prompt` alongside memory and notes. `main`
+calls `_refresh_system_prompt` once, straight after `channel.join`, while
+nothing has been sent - the first prompt was built before this session had an
+id. Everything else about the
 board is a tool call away; an id is the one fact with no question that returns
 it, and without it `a1, are you done with parser.py?` is addressed to a name the
 model has never been given.
@@ -1494,7 +1494,8 @@ it.
 
 ## 11. Things that surprise people
 
-- **`config.py` imports `systemprompt`**, not the other way round. See 5.2.
+- **Importing `config` builds no prompt.** `app._compose_system_prompt` does,
+  each time a conversation starts or is refreshed. See 5.2.
 - **There is no `tool` message role.** Tool results are user messages.
 - **`toolspec.py` imports nothing local** and must stay that way.
 - **`git_ops._git` never raises.** No git installed is a "no", not a crash.

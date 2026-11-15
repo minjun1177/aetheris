@@ -228,9 +228,9 @@ check("and the seven are no longer called turns too",
 # The largest single thing in a short conversation's context, and the screen
 # never used to say so - it had to be worked out by hand.
 config.NATIVE_TOOLS = False
-config.SYSTEM_PROMPT = __import__(
+text_prompt = __import__(
     "aetheris.systemprompt", fromlist=["x"]).systemprompt()
-with_prompt = [{"role": "system", "content": config.SYSTEM_PROMPT},
+with_prompt = [{"role": "system", "content": text_prompt},
                {"role": "user", "content": "x" * 4000}]
 buf, real = io.StringIO(), sys.stdout
 sys.stdout = buf
@@ -249,9 +249,9 @@ overhead = tui._fixed_overhead(with_prompt)
 check("over the text protocol that is messages[0] and nothing else",
       overhead == tui._estimate_tokens(with_prompt[:1]), f"~{overhead:,}")
 check("and the tool list is most of what makes it big",
-      len(config.SYSTEM_PROMPT) > 20000
-      and "read_file" in config.SYSTEM_PROMPT,
-      f"{len(config.SYSTEM_PROMPT):,} chars")
+      len(text_prompt) > 20000
+      and "read_file" in text_prompt,
+      f"{len(text_prompt):,} chars")
 
 # Over a native interface the tool list is not in messages[0] at all - it goes
 # in the request's own `tools` field. Counting only messages[0] there would

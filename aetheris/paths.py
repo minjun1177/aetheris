@@ -26,9 +26,8 @@ wants the new name moves the directory themselves, once, and nothing else has
 to know. `LOCALCHAT_HOME` is read when `AETHERIS_HOME` is unset, so a shell
 profile or a CI job that sets the old one keeps pointing where it pointed.
 
-Stdlib only, and it imports nothing local. `config` builds the system prompt at
-import time (ARCHITECTURE 5.2), so the modules below it cannot import `config`;
-they can import this.
+Stdlib only, and it imports nothing local, so `config` - and anything that has
+to load without `config` - can import this (ARCHITECTURE 5.2).
 """
 
 import hashlib

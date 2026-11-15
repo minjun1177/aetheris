@@ -163,7 +163,6 @@ try:
     # persona itself came out in lower case.
     wipe()
     session.handle_write_memory("Rule", "never push to main", True)
-    config.SYSTEM_PROMPT = app._build_system_prompt()
     messages = [{"role": "system",
                  "content": app._compose_system_prompt("\n\n<SUMMARY>kept</SUMMARY>")}]
     persona = "You are a Korean tutor named Minji."

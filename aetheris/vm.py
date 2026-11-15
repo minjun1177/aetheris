@@ -64,7 +64,7 @@ RUNTIME_DIR = ".runtime"        # kernel source and capture files, out of the wa
 
 
 def _cfg(name, default):
-    """Read a setting late. `config` builds the system prompt at import time."""
+    """Read a setting late, as it is now rather than as it was at import."""
     from aetheris import config
     return getattr(config, name, default)
 

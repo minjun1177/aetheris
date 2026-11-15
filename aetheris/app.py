@@ -54,19 +54,13 @@ from aetheris.llm_client import chat_turn, parse_tool_calls, strip_thinking
 
 
 def _compose_system_prompt(summary: str = "") -> str:
-    base = config.SYSTEM_PROMPT
+    base = _build_system_prompt()
     if config.CUSTOM_PERSONA:
         base = config.CUSTOM_PERSONA + "\n\n" + base
-    # The memories marked important, and the titles of this project's notes,
-    # are read here rather than inside `systemprompt()` for one reason:
-    # `config` builds that at import time, and neither `session` nor `notes`
-    # can be imported from under it. Composing is where every other
-    # per-conversation piece already goes, so they go here too - and they land
-    # ahead of the summary, which must stay last for `_extract_summary`.
-    # `channel.prompt_section()` belongs here for the same reason, and one of
-    # its own: the id does not exist when `config` builds the prompt at import
-    # time - this session has not joined a board yet. `main` refreshes once it
-    # has, and every later rebuild picks it up from here.
+    # The memories marked important, the titles of this project's notes and
+    # `channel.prompt_section()` are per-conversation pieces, so they are added
+    # here rather than inside `systemprompt()` - and they land ahead of the
+    # summary, which must stay last for `_extract_summary`.
     return (base + memory_prompt_section() + channel.prompt_section()
             + notes.notes_prompt_section() + summary)
 
@@ -79,7 +73,6 @@ def _extract_summary(system_content: str) -> str:
 def _refresh_system_prompt(messages: list[dict]) -> None:
     """Rebuild the system message in place, keeping persona and summary intact."""
     summary = _extract_summary(messages[0]["content"])
-    config.SYSTEM_PROMPT = _build_system_prompt()
     messages[0]["content"] = _compose_system_prompt(summary)
 
 
@@ -356,7 +349,6 @@ def _adopt_session(loaded) -> list[dict]:
         # Every later turn addresses messages[0] as the system message. A file
         # saved with none - or with none left after a repair - must not make the
         # next turn raise.
-        config.SYSTEM_PROMPT = _build_system_prompt()
         messages.insert(0, {"role": "system", "content": _compose_system_prompt()})
     config.LOADED_SKILLS[:] = skills.loaded_skill_names(messages)
     config.LOADED_MCP_SERVERS[:] = mcp_client.loaded_in(messages)
@@ -2248,7 +2240,6 @@ async def _cmd_help(chat, user_input: str, cmd: str):
 
 async def _cmd_clear(chat, user_input: str, cmd: str):
     config.LOADED_MCP_SERVERS.clear()
-    config.SYSTEM_PROMPT = _build_system_prompt()
     chat.messages = [{"role": "system", "content": _compose_system_prompt()}]
     chat.session_id = None
     config.SESSION_TITLE = ""
@@ -2854,7 +2845,6 @@ async def main(resume_id: str = "") -> None:
         # After the MCP servers, so the first announcement already lists theirs.
         from aetheris import attacca
         attacca.connect_in_background()
-    config.SYSTEM_PROMPT = _build_system_prompt()
     messages: list[dict] = [{"role": "system", "content": _compose_system_prompt()}]
 
     current_session_id = None
@@ -2875,9 +2865,8 @@ async def main(resume_id: str = "") -> None:
     agent_id = channel.join(_agent_label())
     _report_agents(agent_id)
     if agent_id:
-        # The prompt above was built before this session had an id - `config`
-        # builds it at import time, and joining is a file the board has to be
-        # asked for. Rebuilt here, once, while nothing has been sent yet, so
+        # The prompt above was built before this session had an id. Rebuilt
+        # here, once, while nothing has been sent yet, so
         # the model knows which agent it is before its first turn rather than
         # having to infer it from a message addressed to a name it has never
         # been given.
@@ -3406,7 +3395,6 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
         raise RuntimeError(f"{provider.label} is not ready: {problem}. "
                            f"Run aetheris and /connect first.")
 
-    config.SYSTEM_PROMPT = _build_system_prompt()
     messages: list[dict] = [{"role": "system", "content": _compose_system_prompt()}]
     session_id = None
     if resume_id:

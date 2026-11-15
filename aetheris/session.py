@@ -7,7 +7,8 @@ from aetheris import atomic
 from aetheris import config
 from aetheris import paths
 from aetheris import providers
-from aetheris.config import S, ttlp
+from aetheris.config import S
+from aetheris.systemprompt import titleprompt
 
 
 def load_memory() -> dict:
@@ -326,7 +327,7 @@ async def generate_session_title(messages: list[dict]) -> str:
     if not convo:
         return ""
 
-    prompt = ttlp() + "\n\n".join(convo)
+    prompt = titleprompt() + "\n\n".join(convo)
     try:
         text = await providers.complete(
             [{"role": "user", "content": prompt}], max_tokens=40)

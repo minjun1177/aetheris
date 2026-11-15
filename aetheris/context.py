@@ -4,7 +4,8 @@ import asyncio
 import itertools
 from aetheris import config
 from aetheris import providers
-from aetheris.config import S, smrp
+from aetheris.config import S
+from aetheris.systemprompt import summarizeprompt
 
 
 # How many characters go into one token, by script. Measured against the model
@@ -253,7 +254,7 @@ async def _compress_context(messages: list[dict]) -> bool:
         return False
 
     predict_tokens = _get_summary_predict_tokens()
-    prompt = smrp()
+    prompt = summarizeprompt()
     for m in conv_msgs:
         role = "User" if m.get("role") == "user" else "Assistant"
         content = re.sub(r'<tool_call>.*?</tool_call>', '', _text(m), flags=re.DOTALL).strip()

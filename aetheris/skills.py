@@ -14,9 +14,8 @@ Only `name` + `description` reach the system prompt. The body is loaded on
 demand, when the model calls the `use_skill` tool, so a large library of skills
 costs almost nothing until one is actually needed.
 
-Stdlib only on purpose: `systemprompt.py` imports this module, so importing
-`config` here at module level would create an import cycle. The one place that
-needs runtime state imports `config` inside the function.
+Stdlib only at module level. The one place that needs runtime state imports
+`config` inside the function.
 """
 
 import os
