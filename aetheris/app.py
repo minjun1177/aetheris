@@ -847,12 +847,12 @@ _auto_asked_by: list = []
 
 def _auto_cap() -> int:
     """How many fruitless auto-turns are allowed. 0 is no ceiling."""
-    return max(0, int(getattr(config, "CHANNEL_AUTO_TURN_MAX", 3) or 0))
+    return max(0, int(config.CHANNEL_AUTO_TURN_MAX or 0))
 
 
 def _auto_turn_armed() -> bool:
     """Whether an arriving question may press Enter on this idle terminal."""
-    if not config.CHANNEL_ENABLED or not getattr(config, "CHANNEL_AUTO_TURN", True):
+    if not config.CHANNEL_ENABLED or not config.CHANNEL_AUTO_TURN:
         return False
     cap = _auto_cap()
     return cap == 0 or _auto_turns < cap
@@ -914,7 +914,7 @@ def _maybe_auto_turn(session_pt, arrived: list) -> bool:
     if not _auto_turn_armed():
         # Said once, not every time: an agent being talked at is exactly the
         # situation where the reminder would repeat until it was noise.
-        if getattr(config, "CHANNEL_AUTO_TURN", True) and not _auto_spent_said:
+        if config.CHANNEL_AUTO_TURN and not _auto_spent_said:
             _auto_spent_said = True
             print(f"  {S.MUTED}↪ {_auto_cap()} turns answered without you and "
                   f"nothing done in any of them; this one waits. Press Enter to "
@@ -959,7 +959,7 @@ async def _watch_channel(session_pt=None) -> None:
     open, so nothing here can print over a streaming answer.
     """
     while True:
-        await asyncio.sleep(max(0.5, float(getattr(config, "CHANNEL_POLL_SECONDS", 2))))
+        await asyncio.sleep(max(0.5, float(config.CHANNEL_POLL_SECONDS)))
         try:
             channel.heartbeat(_agent_label())
             arrived = _show_arrivals()
@@ -1723,7 +1723,7 @@ def _agents_command(rest: str) -> None:
         # already announced in every one of their system prompts. A second
         # answer to "what are we all doing" would be a second answer waiting to
         # disagree with the first.
-        note_id = str(getattr(config, "CHANNEL_PLAN_NOTE", "plan") or "plan")
+        note_id = str(config.CHANNEL_PLAN_NOTE or "plan")
         if argument:
             saved = notes.handle_write_note(note_id, argument)
             ok = not saved.startswith("[Error")

@@ -114,7 +114,7 @@ def show_status() -> None:
             print(f"  {S.MUTED}│{S.R}  {S.GRAY}model{S.R}  {provider.model}")
         how = ("run here, called by the agent over Zyris" if provider.drives_turns
                else "native tool calling" if provider.supports_native_tools
-               and getattr(config, "NATIVE_TOOLS", True)
+               and config.NATIVE_TOOLS
                else "text <tool_call> protocol")
         print(f"  {S.MUTED}│{S.R}  {S.GRAY}tools{S.R}  {S.MUTED}{how}{S.R}")
         if provider.key_env:

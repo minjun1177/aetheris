@@ -66,7 +66,7 @@ def switched_off() -> bool:
     if os.environ.get(ENV_VAR, "").strip().lower() in _OFF:
         return True
     from aetheris import config
-    return not getattr(config, "KEYRING_ENABLED", True)
+    return not config.KEYRING_ENABLED
 
 
 def _keyring():

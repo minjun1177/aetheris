@@ -63,10 +63,10 @@ from aetheris import shell_session
 RUNTIME_DIR = ".runtime"        # kernel source and capture files, out of the way
 
 
-def _cfg(name, default):
+def _cfg(name):
     """Read a setting late, as it is now rather than as it was at import."""
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 SESSION_PREFIX = "session-"     # one directory per running harness, by its pid
@@ -421,8 +421,8 @@ class Kernel:
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=(os.name != "nt"),
-                preexec_fn=_limiter(int(_cfg("VM_MEMORY_MB", 512)),
-                                    int(_cfg("VM_FILE_MB", 64))),
+                preexec_fn=_limiter(int(_cfg("VM_MEMORY_MB")),
+                                    int(_cfg("VM_FILE_MB"))),
             )
         except Exception as error:
             self.process = None
@@ -495,7 +495,7 @@ class Kernel:
         the model has to be told, or it will go on referring to a variable that
         no longer exists.
         """
-        timeout = float(_cfg("VM_TIMEOUT", 20))
+        timeout = float(_cfg("VM_TIMEOUT"))
 
         if not self.alive:
             failure = self.start()
@@ -527,7 +527,7 @@ class Kernel:
             self.close()
             return {"crashed": ("the code stopped the Python VM itself - a crash, "
                                 "an os._exit(), or more memory than "
-                                f"{_cfg('VM_MEMORY_MB', 512)}MB"),
+                                f"{_cfg('VM_MEMORY_MB')}MB"),
                     "output": printed,
                     "detail": detail[-1] if detail else ""}
 

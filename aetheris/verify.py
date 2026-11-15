@@ -137,7 +137,7 @@ _MAX_LEVELS = 8          # how far up from a file to look for a marker
 
 
 def enabled() -> bool:
-    return bool(getattr(config, "AUTO_VERIFY", True))
+    return bool(config.AUTO_VERIFY)
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ def _jobs(paths) -> list:
 def _trim(text: str) -> str:
     """The tail of the output, which is where the failure is written down."""
     text = _ANSI.sub("", text).replace("\r\n", "\n").strip()
-    limit = max(200, int(getattr(config, "VERIFY_OUTPUT_CHARS", 2000)))
+    limit = max(200, int(config.VERIFY_OUTPUT_CHARS))
     if len(text) <= limit:
         return text
     return "...[earlier output trimmed]\n" + text[-limit:]
@@ -332,7 +332,7 @@ def _environment() -> dict:
 def _run(check: Check, root: str, paths: list) -> Report:
     """Run one check. Never raises: a runner that will not start is something
     to stop trying, not something to crash a tool call over."""
-    timeout = max(5, int(getattr(config, "VERIFY_TIMEOUT", 90)))
+    timeout = max(5, int(config.VERIFY_TIMEOUT))
     started = time.time()
 
     def report(ok, output, problem=""):

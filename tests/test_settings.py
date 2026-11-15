@@ -320,6 +320,22 @@ check("a switch that is more than a switch keeps its own usage",
       "/set" not in said.getvalue() and "Usage: /remote" in re.sub(
           r"\x1b\[[0-9;]*m", "", said.getvalue()))
 
+print("\n--- every setting the code reads is one config.py defines ---")
+# A setting is read as `config.NAME`, or `_cfg("NAME")` where `config` is
+# imported late, and neither has a fallback: a second copy of each default is a
+# second value to drift. So a misspelt name raises where it is read - and is
+# caught here first, without having to reach that line.
+import glob                                                         # noqa: E402
+READ = re.compile(r"""\bconfig\.([A-Z][A-Z0-9_]{2,})\b|_cfg\(["']([A-Z][A-Z0-9_]+)["']\)""")
+unknown = sorted({f"{os.path.basename(path)}: {a or b}"
+                  for path in glob.glob(os.path.join(ROOT, "aetheris", "*.py"))
+                  for a, b in READ.findall(open(path, encoding="utf-8").read())
+                  if not hasattr(config, a or b)})
+check("none of them is a name config.py does not have", not unknown, str(unknown))
+check("and no read keeps a default of its own",
+      not [path for path in glob.glob(os.path.join(ROOT, "aetheris", "*.py"))
+           if re.search(r"""getattr\(config, *["'][A-Z_]+["'],|_cfg\(["'][A-Z_]+["'],""",
+                        open(path, encoding="utf-8").read())])
 
 print()
 if failures:

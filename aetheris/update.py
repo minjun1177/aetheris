@@ -136,7 +136,7 @@ def _check() -> None:
 
 def start_check() -> None:
     """Look in the background. Nothing waits on it; `announce` reads it."""
-    if not getattr(config, "UPDATE_CHECK", True):
+    if not config.UPDATE_CHECK:
         return
     threading.Thread(target=_check, name="update-check", daemon=True).start()
 

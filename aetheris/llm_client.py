@@ -132,7 +132,7 @@ def native_tools(exclude: tuple = ()) -> list:
 
 
 def native_enabled() -> bool:
-    if not getattr(config, "NATIVE_TOOLS", True):
+    if not config.NATIVE_TOOLS:
         return False
     return bool(providers.current().supports_native_tools)
 
@@ -1034,7 +1034,7 @@ async def chat_turn(messages: list[dict]) -> str:
         # `> 0` on the limit as well as on the count: `/set MAX_TOOL_CALLS 0` is
         # a number the settings accept, and dividing by it ended the turn in a
         # ZeroDivisionError rather than in an answer. Nought means no ceiling.
-        limit = int(getattr(config, "MAX_TOOL_CALLS", 10) or 0)
+        limit = int(config.MAX_TOOL_CALLS or 0)
         if limit > 0 and call_count > 0 and call_count % limit == 0:
             print(f"\n  {S.WARN}⚠  Tool call limit ({limit}) reached.{S.R}")
             # Through the one place every blocking question goes, or a turn

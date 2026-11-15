@@ -41,14 +41,10 @@ from aetheris.systemprompt import tool_rules
 DENIED = ("get_user_input", "submit_plan_for_approval", "spawn_agent")
 
 
-def _cfg(name, default):
-    return getattr(config, name, default)
-
-
 def withheld(depth: int) -> tuple:
     """The tools this sub-agent does not get. One definition, three users:
     the listing it is given, the schemas it is sent, and the refusal it meets."""
-    return tuple(DENIED if depth >= _cfg("SUBAGENT_MAX_DEPTH", 1) else DENIED[:2])
+    return tuple(DENIED if depth >= config.SUBAGENT_MAX_DEPTH else DENIED[:2])
 
 
 def prompt(depth: int, native: bool | None = None) -> str:
@@ -111,7 +107,7 @@ async def _work(task: str, context: str, depth: int) -> str:
 
     messages = [{"role": "system", "content": prompt(depth, native_enabled())},
                 {"role": "user", "content": brief(task, context)}]
-    budget = int(_cfg("SUBAGENT_MAX_TURNS", 12))
+    budget = int(config.SUBAGENT_MAX_TURNS)
     last = ""
     nudged = False
 
@@ -224,8 +220,8 @@ def run(task: str, context: str = "", model: str = "") -> str:
         return ("[Error] spawn_agent needs a 'task'. Write the brief as if for "
                 "someone who cannot see this conversation.")
 
-    depth = int(_cfg("SUBAGENT_DEPTH", 0))
-    limit = int(_cfg("SUBAGENT_MAX_DEPTH", 1))
+    depth = int(config.SUBAGENT_DEPTH)
+    limit = int(config.SUBAGENT_MAX_DEPTH)
     if depth >= limit:
         return (f"[System] Sub-agents may not hire sub-agents (depth limit {limit}). "
                 "Do this part of the work yourself.")

@@ -2610,7 +2610,7 @@ def handle_send_agent_message(kind: str = "", message: str = "", to: str = "") -
                 f"again with the path in the message, e.g. "
                 f"'{'taking' if kind == 'claim' else 'releasing'} src/parser.py'.")
 
-    limit = int(getattr(config, "CHANNEL_MAX_IDLE_REPLIES", 3) or 0)
+    limit = int(config.CHANNEL_MAX_IDLE_REPLIES or 0)
     if limit > 0 and channel.talk_streak(to) >= limit:
         who = to or "everyone"
         print(f"  {S.WARN}✗ {limit} messages to {who} with nothing done between "

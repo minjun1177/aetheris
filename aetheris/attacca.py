@@ -484,7 +484,7 @@ def serve_waiting() -> int:
 # ---------------------------------------------------------------------------
 
 def session_id() -> str:
-    return str(getattr(config, "ATTACCA_SESSION", "") or "")
+    return str(config.ATTACCA_SESSION or "")
 
 
 def forget_session() -> None:

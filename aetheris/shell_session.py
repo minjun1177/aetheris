@@ -32,9 +32,9 @@ _counter = itertools.count(1)
 _sessions: "dict[str, Session]" = {}
 
 
-def _cfg(name, default):
+def _cfg(name):
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 def _fallback_encodings() -> list:
@@ -274,8 +274,8 @@ class Session:
         Returns (text, ended, timed_out).
         """
         if patience is None:
-            patience = float(_cfg("CMD_WAIT_TIMEOUT", 8))
-        idle_grace = float(_cfg("CMD_IDLE_GRACE", 2.5))
+            patience = float(_cfg("CMD_WAIT_TIMEOUT"))
+        idle_grace = float(_cfg("CMD_IDLE_GRACE"))
         chunks = []
         closed = 0
         quiet_since = None
@@ -396,7 +396,7 @@ def register(session: Session) -> None:
     # At least one, whatever the setting says. `CMD_MAX_SESSIONS` is a number
     # somebody can set to nought, and nought here meant killing the command
     # that was registering - the one the model is about to send input to.
-    limit = max(1, int(_cfg("CMD_MAX_SESSIONS", 3)))
+    limit = max(1, int(_cfg("CMD_MAX_SESSIONS")))
     while len(_sessions) > limit:
         oldest = min(_sessions.values(), key=lambda s: s.started)
         oldest.close()
@@ -405,7 +405,7 @@ def register(session: Session) -> None:
 
 def prune() -> None:
     """Drop sessions that have exited or outstayed their welcome."""
-    lifetime = float(_cfg("CMD_SESSION_LIFETIME", 900))
+    lifetime = float(_cfg("CMD_SESSION_LIFETIME"))
     for session in list(_sessions.values()):
         if not session.alive or session.age > lifetime:
             session.close()

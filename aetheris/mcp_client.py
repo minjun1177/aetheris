@@ -71,10 +71,10 @@ class MCPError(Exception):
     """A server was unreachable, spoke badly, or answered with a JSON-RPC error."""
 
 
-def _cfg(name: str, default):
-    """Read a setting from `config`, tolerating a partially-initialised module."""
+def _cfg(name: str):
+    """Read a setting from `config`, imported late so this module loads without it."""
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 def _slug(text: str) -> str:
@@ -292,7 +292,7 @@ class HTTPTransport:
     def send(self, message: dict) -> None:
         if self._session is None:
             raise MCPError("transport is closed")
-        timeout = _cfg("MCP_HTTP_TIMEOUT", 60)
+        timeout = _cfg("MCP_HTTP_TIMEOUT")
         try:
             response = self._session.post(
                 self.url,
@@ -399,7 +399,7 @@ class SSETransport:
             raise MCPError(f"failed to open SSE stream: {e}")
 
         threading.Thread(target=self._read_stream, daemon=True).start()
-        if not self._endpoint_ready.wait(timeout=_cfg("MCP_STARTUP_TIMEOUT", 30)):
+        if not self._endpoint_ready.wait(timeout=_cfg("MCP_STARTUP_TIMEOUT")):
             raise MCPError(self._failure or "server never sent its 'endpoint' event")
 
     def _read_stream(self) -> None:
@@ -437,7 +437,7 @@ class SSETransport:
                 self.post_url,
                 data=json.dumps(message, ensure_ascii=False).encode("utf-8"),
                 headers=headers,
-                timeout=_cfg("MCP_HTTP_TIMEOUT", 60),
+                timeout=_cfg("MCP_HTTP_TIMEOUT"),
             )
         except Exception as e:
             raise MCPError(f"HTTP request failed: {e}")
@@ -512,9 +512,9 @@ class MCPServer:
     @property
     def timeout(self) -> float:
         try:
-            return float(self.spec.get("timeout") or _cfg("MCP_CALL_TIMEOUT", 120))
+            return float(self.spec.get("timeout") or _cfg("MCP_CALL_TIMEOUT"))
         except (TypeError, ValueError):
-            return float(_cfg("MCP_CALL_TIMEOUT", 120))
+            return float(_cfg("MCP_CALL_TIMEOUT"))
 
     def _dispatch(self, message) -> None:
         """Route one incoming message. Runs on the transport's reader thread."""
@@ -619,7 +619,7 @@ class MCPServer:
                     "capabilities": {},
                     "clientInfo": CLIENT_INFO,
                 },
-                timeout=float(_cfg("MCP_STARTUP_TIMEOUT", 30)),
+                timeout=float(_cfg("MCP_STARTUP_TIMEOUT")),
             )
             self.info = result.get("serverInfo") or {}
             self.capabilities = result.get("capabilities") or {}
@@ -804,7 +804,7 @@ def get_server(name: str) -> MCPServer | None:
 
 def connect_all(progress=None) -> list[MCPServer]:
     """Connect every enabled server in parallel. Returns the ones that came up."""
-    if not _cfg("MCP_ENABLED", True):
+    if not _cfg("MCP_ENABLED"):
         return []
 
     servers = [s for s in load_servers().values() if s.state in ("idle", "failed")]
@@ -1008,11 +1008,11 @@ def _loaded_names() -> list:
     """Servers this conversation has asked for. Not `_loaded`, which is this
     module's own "has the config file been read" flag."""
     from aetheris import config
-    return getattr(config, "LOADED_MCP_SERVERS", [])
+    return config.LOADED_MCP_SERVERS
 
 
 def lazy_enabled() -> bool:
-    return bool(_cfg("MCP_LAZY_TOOLS", True))
+    return bool(_cfg("MCP_LAZY_TOOLS"))
 
 
 def is_lazy(server) -> bool:
@@ -1022,7 +1022,7 @@ def is_lazy(server) -> bool:
         return False
     if server.name in _loaded_names():
         return False
-    return len(server.tools or []) >= int(_cfg("MCP_LAZY_MIN_TOOLS", 6))
+    return len(server.tools or []) >= int(_cfg("MCP_LAZY_MIN_TOOLS"))
 
 
 def shown_servers() -> list:
@@ -1070,7 +1070,7 @@ def loaded_in(messages: list) -> list:
 
 def use_server(name: str) -> str:
     """`use_mcp_server`: hand over one server's tools, in full."""
-    if not _cfg("MCP_ENABLED", True):
+    if not _cfg("MCP_ENABLED"):
         return "[Error] MCP is switched off, so no server has any tools to give."
     name = (name or "").strip()
     known = [s.name for s in connected_servers()]
@@ -1120,7 +1120,7 @@ def _tool_entries() -> list[dict]:
 
 
 def _entries_for(servers: list) -> list[dict]:
-    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER", 40))
+    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER"))
     entries = []
     for server in servers:
         for tool in server.tools[:limit]:
@@ -1178,7 +1178,7 @@ def native_tool_schemas() -> list:
     native tools would quietly take every MCP tool away from the model - they
     would no longer be in the prompt, and nothing would have replaced them.
     """
-    if not _cfg("MCP_ENABLED", True):
+    if not _cfg("MCP_ENABLED"):
         return []
     schemas = []
     for entry, schema in zip(_tool_entries(), _raw_input_schemas()):
@@ -1209,7 +1209,7 @@ def _raw_input_schemas() -> list:
     filter applied to one and not the other would pair a tool's name with
     another tool's parameters, which is worse than either extreme.
     """
-    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER", 40))
+    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER"))
     schemas = []
     for server in shown_servers():
         for tool in server.tools[:limit]:
@@ -1223,7 +1223,7 @@ def _raw_input_schemas() -> list:
 def mcp_tools_prompt(tools_json: bool = True) -> str:
 
     """The MCP section of the system prompt. Empty when nothing is connected."""
-    if not _cfg("MCP_ENABLED", True):
+    if not _cfg("MCP_ENABLED"):
         return ""
     entries = _tool_entries()
     index = _server_index()
@@ -1291,7 +1291,7 @@ def _server_index() -> str:
         "get the parameters for its tools; do that BEFORE using one of them.",
         "",
     ]
-    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER", 40))
+    limit = int(_cfg("MCP_MAX_TOOLS_PER_SERVER"))
     for server in servers:
         names = [str(tool.get("name") or "").strip()
                  for tool in server.tools[:limit]]
@@ -1343,7 +1343,7 @@ def format_tool_result(result: dict) -> str:
     if result.get("isError") is True:
         text = f"[Error] The MCP tool reported a failure:\n{text}"
 
-    limit = int(_cfg("MCP_RESULT_CHARS", 8000))
+    limit = int(_cfg("MCP_RESULT_CHARS"))
     if len(text) > limit:
         text = text[:limit] + f"\n...[MCP result truncated - {len(text) - limit} chars omitted]"
     return text
@@ -1351,13 +1351,13 @@ def format_tool_result(result: dict) -> str:
 
 def auto_approved(server: MCPServer, tool_name: str) -> bool:
     """Whether this call may skip the approval prompt."""
-    trusted = _cfg("MCP_TRUSTED_SERVERS", [])
+    trusted = _cfg("MCP_TRUSTED_SERVERS")
     if server.name in trusted or server.spec.get("trust") is True:
         return True
     allow = server.spec.get("autoApprove") or server.spec.get("auto_approve") or []
     if isinstance(allow, list) and tool_name in allow:
         return True
-    if _cfg("MCP_AUTO_APPROVE_READONLY", False):
+    if _cfg("MCP_AUTO_APPROVE_READONLY"):
         tool = server.get_tool(tool_name) or {}
         annotations = tool.get("annotations")
         if isinstance(annotations, dict) and annotations.get("readOnlyHint") is True:
@@ -1458,7 +1458,7 @@ def read_resource_text(uri: str, server_name: str = "") -> str:
                              f"{len(str(item['blob']))} base64 chars - not displayable here]")
         text = "\n".join(parts) if parts else "(the resource is empty)"
 
-        limit = int(_cfg("MCP_RESULT_CHARS", 8000))
+        limit = int(_cfg("MCP_RESULT_CHARS"))
         if len(text) > limit:
             text = text[:limit] + f"\n...[resource truncated - {len(text) - limit} chars omitted]"
         return f"[{server.name}] {uri}\n{text}"

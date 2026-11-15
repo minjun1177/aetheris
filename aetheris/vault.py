@@ -89,13 +89,13 @@ FILLED_IN = {
 _cache: dict = {}           # path -> (mtime, size, {name: value})
 
 
-def _cfg(name, default):
+def _cfg(name):
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 def enabled() -> bool:
-    return bool(_cfg("SECRET_REDACT", True))
+    return bool(_cfg("SECRET_REDACT"))
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def enabled() -> bool:
 def _worth_hiding(value: str) -> bool:
     """Whether a value is a secret rather than a word that happens to be here."""
     value = value.strip()
-    if len(value) < max(1, int(_cfg("SECRET_MIN_LENGTH", MIN_LENGTH))):
+    if len(value) < max(1, int(_cfg("SECRET_MIN_LENGTH"))):
         return False
     if value.lower() in _NOT_SECRET:
         return False
@@ -171,7 +171,7 @@ def files() -> list:
     except Exception:
         pass
 
-    names = list(FILENAMES) + [n for n in _cfg("SECRET_FILES", []) if isinstance(n, str)]
+    names = list(FILENAMES) + [n for n in _cfg("SECRET_FILES") if isinstance(n, str)]
     found = []
     for directory in roots:
         for name in names:

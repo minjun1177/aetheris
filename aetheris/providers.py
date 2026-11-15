@@ -958,7 +958,7 @@ class OllamaProvider(Provider):
         saved = str(self.settings.get("base_url") or "").strip()
         if saved:
             return saved.rstrip("/")
-        chosen = str(getattr(config, "OLLAMA_HOST", "") or "").strip()
+        chosen = str(config.OLLAMA_HOST or "").strip()
         default = config.defaults().get("OLLAMA_HOST", "")
         if chosen and chosen != default:
             return chosen.rstrip("/")
@@ -1859,7 +1859,7 @@ def _dropped_connection(error: BaseException) -> bool:
 def retry_delay(error: BaseException, attempt: int) -> float | None:
     """How long to wait before try `attempt + 2`, or None to give up now."""
     from aetheris import config
-    if attempt >= int(getattr(config, "PROVIDER_RETRIES", 0) or 0):
+    if attempt >= int(config.PROVIDER_RETRIES or 0):
         return None
     status = _status_of(error)
     if not (status == 429 or status >= 500 or (not status and _dropped_connection(error))):

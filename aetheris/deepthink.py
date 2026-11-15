@@ -216,7 +216,7 @@ with NO_PLAN_NEEDED."""
 
 
 def enabled() -> bool:
-    return bool(getattr(config, "DEEPTHINK", False))
+    return bool(config.DEEPTHINK)
 
 
 # ---------------------------------------------------------------------------

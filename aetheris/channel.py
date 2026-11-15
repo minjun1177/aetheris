@@ -109,13 +109,13 @@ except ImportError:                                  # pragma: no cover
     _PSUTIL = False
 
 
-def _cfg(name, default):
+def _cfg(name):
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 def enabled() -> bool:
-    return bool(_cfg("CHANNEL_ENABLED", True))
+    return bool(_cfg("CHANNEL_ENABLED"))
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ def _alive(record: dict) -> bool:
             return psutil.pid_exists(int(record.get("pid") or 0))
         except (ValueError, TypeError):
             pass
-    return age < float(_cfg("CHANNEL_STALE", 120))
+    return age < float(_cfg("CHANNEL_STALE"))
 
 
 def _prune(board: dict) -> None:
@@ -582,7 +582,7 @@ def set_job(text: str) -> None:
 
 def job() -> str:
     """The job, falling back to whatever this session got named after."""
-    return _job or str(_cfg("SESSION_TITLE", "") or "")
+    return _job or str(_cfg("SESSION_TITLE") or "")
 
 
 def plan_note() -> str:
@@ -598,7 +598,7 @@ def plan_note() -> str:
     Imported inside the function because `notes` imports *this* module for
     `workspace()`, and the dependency only goes one way at import time.
     """
-    wanted = str(_cfg("CHANNEL_PLAN_NOTE", "plan") or "").strip()
+    wanted = str(_cfg("CHANNEL_PLAN_NOTE") or "").strip()
     if not wanted or not enabled():
         return ""
     try:
@@ -948,7 +948,7 @@ def holder(path: str) -> dict:
     an agent that has since gone: `_prune` drops those, and the check here does
     not trust the file to have been pruned recently.
     """
-    if not enabled() or not _cfg("CHANNEL_CLAIMS", True):
+    if not enabled() or not _cfg("CHANNEL_CLAIMS"):
         return {}
     board = read_board()
     claim = board["claims"].get(_key(path))
@@ -971,7 +971,7 @@ def claim(paths, reason: str = "", seconds: float = 0) -> tuple:
     wanted = split_paths(paths)
     if not enabled() or not _id or not wanted:
         return [], []
-    seconds = float(seconds or _cfg("CHANNEL_CLAIM_TTL", 1800))
+    seconds = float(seconds or _cfg("CHANNEL_CLAIM_TTL"))
     refused = [conflict for conflict in (holder(path) for path in wanted) if conflict]
     if refused:
         return [], refused
@@ -1035,7 +1035,7 @@ def note_write(paths) -> None:
     wanted = [path for path in split_paths(paths) if not holder(path)]
     if not wanted:
         return
-    until = time.time() + float(_cfg("CHANNEL_WRITE_TTL", 300))
+    until = time.time() + float(_cfg("CHANNEL_WRITE_TTL"))
 
     def mutate(board):
         for path in wanted:

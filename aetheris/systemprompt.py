@@ -128,7 +128,7 @@ def native_tools_active() -> bool:
     is why the prompt is built when a conversation starts and not at import.
     """
     from aetheris import config
-    if not getattr(config, "NATIVE_TOOLS", True):
+    if not config.NATIVE_TOOLS:
         return False
     try:
         from aetheris import providers

@@ -30,9 +30,9 @@ MESSAGE_PREFIX = "ai("
 _repo_root_cache: dict = {}
 
 
-def _cfg(name, default):
+def _cfg(name):
     from aetheris import config
-    return getattr(config, name, default)
+    return getattr(config, name)
 
 
 def _git(*arguments, cwd: str = None) -> subprocess.CompletedProcess:
@@ -86,7 +86,7 @@ def repo_root(path: str = ".") -> str:
 
 
 def enabled() -> bool:
-    return bool(_cfg("GIT_AUTO_COMMIT", True))
+    return bool(_cfg("GIT_AUTO_COMMIT"))
 
 
 # ---------------------------------------------------------------------------

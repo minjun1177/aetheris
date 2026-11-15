@@ -271,7 +271,7 @@ def matches(rule: str, tool: str, target: str) -> bool:
 def decide(tool: str, arguments: dict) -> tuple[str, str]:
     """Return ("deny"|"allow"|"ask", the rule that decided it)."""
     from aetheris import config
-    if not getattr(config, "PERMISSIONS_ENABLED", True):
+    if not config.PERMISSIONS_ENABLED:
         return "ask", ""
 
     target, key = _target_and_key(arguments)

@@ -145,11 +145,6 @@ _last_seen = 0.0            # when a remote client last asked for state
 _tee = None                 # the stdout wrapper, while one is installed
 
 
-def _cfg(name, default):
-    """A setting, whatever the running config says it is right now."""
-    return getattr(config, name, default)
-
-
 def _same_secret(offered, expected: str) -> bool:
     """A constant-time comparison that cannot be made to raise instead.
 
@@ -421,8 +416,8 @@ def note_bad_token(who: str) -> None:
     it are not: a locked-out script knocking four times a second must not be
     able to fill the terminal with its own noise.
     """
-    limit = max(1, int(_cfg("REMOTE_MAX_BAD_TOKENS", 20)))
-    for_how_long = max(1.0, float(_cfg("REMOTE_LOCKOUT", 300)))
+    limit = max(1, int(config.REMOTE_MAX_BAD_TOKENS))
+    for_how_long = max(1.0, float(config.REMOTE_LOCKOUT))
     with _wake:
         record = _bad.setdefault(who, {"count": 0, "until": 0.0})
         record["count"] += 1
@@ -478,7 +473,7 @@ def pairing_required() -> bool:
     factor is a code that only appears *there*: holding the link gets you a
     box asking for six digits, and nothing else.
     """
-    mode = str(_cfg("REMOTE_PAIR", "lan")).strip().lower()
+    mode = str(config.REMOTE_PAIR).strip().lower()
     if mode in ("always", "on", "true", "yes"):
         return True
     if mode in ("never", "off", "false", "no"):
@@ -587,7 +582,7 @@ def ask(title: str, details, choices, free_text: bool = False,
     global _question
     if not running():
         return ""
-    deadline = time.time() + (timeout or float(_cfg("REMOTE_ASK_TIMEOUT", 300)))
+    deadline = time.time() + (timeout or float(config.REMOTE_ASK_TIMEOUT))
     ticket = secrets.token_urlsafe(8)
     with _wake:
         _question = {
@@ -703,10 +698,10 @@ def start(scope: str = "") -> dict:
     if running():
         return status()
 
-    host = "0.0.0.0" if scope == "lan" else str(_cfg("REMOTE_HOST", "127.0.0.1"))
-    first = int(_cfg("REMOTE_PORT", 8765))
+    host = "0.0.0.0" if scope == "lan" else str(config.REMOTE_HOST)
+    first = int(config.REMOTE_PORT)
     with _wake:
-        _lines = collections.deque(_lines, maxlen=max(1, int(_cfg("REMOTE_LINES", 500))))
+        _lines = collections.deque(_lines, maxlen=max(1, int(config.REMOTE_LINES)))
         _seq = _lines[-1][0] if _lines else 0
 
     server, problem = None, None
@@ -753,8 +748,8 @@ def reconfigure() -> dict:
     """
     if not running():
         return {}
-    wanted = ("0.0.0.0" if _scope == "lan" else str(_cfg("REMOTE_HOST", "127.0.0.1")),
-              int(_cfg("REMOTE_PORT", 8765)))
+    wanted = ("0.0.0.0" if _scope == "lan" else str(config.REMOTE_HOST),
+              int(config.REMOTE_PORT))
     # Port 0 means "any", and the OS already answered it: re-reading that as a
     # change would move the door on every unrelated `/set`.
     moved = wanted[0] != _bound[0] or (wanted[1] and wanted[1] != _bound[1])
@@ -764,7 +759,7 @@ def reconfigure() -> dict:
         start(scope)
         return {"rebound": _bound}
 
-    kept = max(1, int(_cfg("REMOTE_LINES", 500)))
+    kept = max(1, int(config.REMOTE_LINES))
     if kept != _lines.maxlen:
         _resize(kept)
         return {"resized": kept}
@@ -1090,8 +1085,8 @@ def _state(since: int) -> dict:
             "driver": _driver,
             "queued": len(_typed),
             "question": question,
-            "title": getattr(config, "SESSION_TITLE", "") or "",
-            "model": getattr(config, "MODEL", ""),
+            "title": config.SESSION_TITLE or "",
+            "model": config.MODEL,
             "cwd": os.getcwd(),
         }
 
