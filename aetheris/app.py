@@ -2864,10 +2864,9 @@ async def main(resume_id: str = "") -> None:
     _report_agents(agent_id)
     if agent_id:
         # The prompt above was built before this session had an id. Rebuilt
-        # here, once, while nothing has been sent yet, so
-        # the model knows which agent it is before its first turn rather than
-        # having to infer it from a message addressed to a name it has never
-        # been given.
+        # here, once, while nothing has been sent yet, so the model knows which
+        # agent it is before its first turn rather than having to infer it from
+        # a message addressed to a name it has never been given.
         _refresh_system_prompt(messages)
     _open_saved_remote()
     _report_usage(messages)
