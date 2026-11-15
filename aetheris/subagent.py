@@ -246,7 +246,3 @@ def _banner(state: str, model: str, task: str) -> None:
         first = task.splitlines()[0]
         print(f"  {S.PURPLE}│{S.R} {S.GRAY}{first[:88]}{'…' if len(first) > 88 else ''}{S.R}")
     print(f"  {_hr(width=60)}")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -292,12 +292,6 @@ def decide(tool: str, arguments: dict) -> tuple[str, str]:
     return "ask", ""
 
 
-def suggest_rule(tool: str, arguments: dict) -> str:
-    """The rule that would allow exactly this call - offered at the prompt."""
-    target = target_for(arguments)
-    return f"{tool}({target})" if target else tool
-
-
 # ---------------------------------------------------------------------------
 # editing
 # ---------------------------------------------------------------------------
@@ -339,7 +333,3 @@ def add_rule(rule: str, verdict: str = "allow") -> tuple[bool, str]:
 
     load_rules(force=True)
     return True, path
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

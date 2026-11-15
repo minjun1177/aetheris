@@ -1066,7 +1066,3 @@ def refusal(function_name: str, path: str, conflict: dict) -> str:
             f"hand: it is refused because it would destroy somebody's work, and "
             f"that is just as true typed. The user can override it with "
             f"/agents release {conflict.get('path', path)}.")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

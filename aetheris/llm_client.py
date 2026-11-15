@@ -15,7 +15,7 @@ from aetheris import config
 from aetheris.config import S
 from aetheris.tui import (_fmt_tool_call, _fmt_tool_result, _fmt_tokens,
                           ask_the_driver)
-from aetheris.renderer import _render_line, _format_table, _render_full, fit_rows
+from aetheris.renderer import _render_line, _format_table, fit_rows
 from aetheris.tools import dispatch_tool
 from aetheris import tools as _tools
 from aetheris import channel

@@ -566,7 +566,3 @@ def search_web(query, max_results=None):
               "Passages are page text ranked locally, not search-engine snippets. "
               "Answer only from what appears below and cite the URL you used.")
     return header + "\n\n" + "\n\n".join(blocks)
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

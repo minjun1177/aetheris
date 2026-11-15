@@ -635,7 +635,3 @@ def take_request(link: Link | None, timeout: float = 0.0) -> Request | None:
         return link.inbox.get(timeout=timeout)
     except queue.Empty:
         return None
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

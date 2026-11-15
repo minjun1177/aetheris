@@ -1037,7 +1037,6 @@ class OllamaProvider(Provider):
 
     async def stream(self, messages: list, max_tokens: int | None = None,
                      tools: list | None = None):
-        from aetheris import config
         request = ollama_request(self.model, _ollama_messages(messages), max_tokens)
         if tools:
             request["tools"] = self.encode_tools(tools)
@@ -1937,7 +1936,3 @@ def apply_startup() -> None:
         except OSError:
             pass        # still in the file, still owner-only; tried again next start
     _sync_config(current())
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

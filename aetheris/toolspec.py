@@ -25,7 +25,7 @@ Stdlib only, and imports nothing from the harness: both `tools.py` and
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -493,7 +493,3 @@ def native_schema(exclude: tuple = ()) -> list:
                              "required": required},
         })
     return schemas
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

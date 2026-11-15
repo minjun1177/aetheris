@@ -75,7 +75,3 @@ def _relax(temporary: str, target: str) -> None:
         os.chmod(temporary, mode)
     except OSError:
         pass
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

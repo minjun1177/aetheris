@@ -182,7 +182,3 @@ def delete(provider: str, where: str) -> bool:
         return True
     except Exception:
         return False        # nothing stored there is the usual reason
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -11,7 +11,6 @@ takes arguments for the times you already know what you want:
     /connect forget anthropic     delete the API key saved for a provider
 """
 
-import os
 import textwrap
 
 from aetheris import config
@@ -276,7 +275,3 @@ def run(argument: str) -> None:
         return
     where = f" {S.MUTED}(key {provider.key_source}){S.R}" if provider.key_source else ""
     print(f"  {S.OK}✓ Connected: {provider.label} · {provider.model}{S.R}{where}\n")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -634,7 +634,6 @@ class S:
     WHITE     = "\033[38;2;235;219;178m"
     MUTED     = "\033[38;2;102;92;84m"
     PURPLE    = "\033[38;2;211;134;155m"
-    CYAN      = "\033[38;2;131;165;152m"
 
 
 # CSI and OSC sequences, for `HeadlessOutput` writing to a file. Its own name:
@@ -740,10 +739,6 @@ def th() -> int:
         return shutil.get_terminal_size().lines
     except Exception:
         return 24
-
-
-def _visible_len(text: str) -> int:
-    return len(re.sub(r'\033\[[^m]*m', '', text))
 
 
 _ESCAPE = re.compile(r'(\033\[[0-9;?]*[A-Za-z])')

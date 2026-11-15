@@ -4,7 +4,7 @@ import sys
 import subprocess
 import textwrap
 from aetheris import config
-from aetheris.config import S, tw, th, _hr, _visible_len
+from aetheris.config import S, tw, th, _hr
 from aetheris.session import load_memory, list_sessions
 from aetheris.context import (_estimate_tokens, _get_ctx_budget, _get_conv_pairs,
                                     token_turns)

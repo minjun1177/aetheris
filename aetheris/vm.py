@@ -566,7 +566,3 @@ def shutdown() -> None:
 
 
 atexit.register(remove_scratch)
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

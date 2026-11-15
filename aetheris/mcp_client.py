@@ -913,10 +913,6 @@ def has_resources() -> bool:
     return any(s.resources or "resources" in s.capabilities for s in connected_servers())
 
 
-def has_prompts() -> bool:
-    return any(s.prompts for s in connected_servers())
-
-
 # ---------------------------------------------------------------------------
 # rendering the system prompt section
 # ---------------------------------------------------------------------------
@@ -1509,7 +1505,3 @@ def status_summary() -> str:
     if disabled:
         parts.append(f"{len(disabled)} disabled")
     return " · ".join(parts)
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

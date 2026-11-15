@@ -65,7 +65,3 @@ def iter_sse(response):
                 data.append(value)
     if data:
         yield event, "\n".join(data)
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

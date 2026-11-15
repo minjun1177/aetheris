@@ -1960,7 +1960,3 @@ def show_usage() -> None:
         print(f"  {S.GRAY}credits{S.R}  {S.WHITE}{usage['credits_used']}{S.R} {S.MUTED}used{S.R}")
     print(f"  {S.MUTED}Counted by Attacca: the conversation, its prompt and the tool "
           f"results live there, not here.{S.R}\n")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

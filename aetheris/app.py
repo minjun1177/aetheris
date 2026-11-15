@@ -3196,14 +3196,14 @@ async def main(resume_id: str = "") -> None:
                     print(f"  {S.MUTED}◆ /deepthink is for a model this harness "
                           f"drives; Attacca runs its own loop.{S.R}")
                 from aetheris import attacca
-                result = await attacca.run_turn(messages)
+                await attacca.run_turn(messages)
             elif config.DEEPTHINK:
                 # deepthink drives its own turns, and manages context between
                 # them - it is several passes over one request, not one.
-                result = await deepthink.run(messages)
+                await deepthink.run(messages)
             else:
                 await manage_context(messages)
-                result = await chat_turn(messages)
+                await chat_turn(messages)
 
             current_session_id = save_session(messages, current_session_id)
 

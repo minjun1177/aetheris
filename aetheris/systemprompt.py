@@ -229,7 +229,3 @@ Finally, You must reply in the language of the given text/sentence/question.
     return (base_prompt + mcp_tools_prompt(tools_json=not native)
             + skills_catalog_prompt() + vault.prompt_section()
             + load_context_file())
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -337,14 +337,6 @@ def _write_file(filepath: str, text: str, newline: str = "\n",
 def _line_hash(line: str) -> str:
     return hashlib.md5(line.encode("utf-8")).hexdigest()[:HASHLINE_DIGITS]
 
-def _encode_hashlines(content: str) -> str:
-    lines = content.split("\n")
-    result = []
-    for i, line in enumerate(lines, 1):
-        h = _line_hash(line)
-        result.append(f"{i}:{h}|{line}")
-    return "\n".join(result)
-
 def _strip_hashlines(content: str) -> str:
     lines = content.split("\n")
     if not lines:

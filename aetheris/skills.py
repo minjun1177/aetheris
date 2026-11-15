@@ -320,7 +320,3 @@ def handle_use_skill(name: str) -> str:
 
     config.LOADED_SKILLS.append(skill["name"])
     return render_skill(skill)
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -317,7 +317,3 @@ def recent_ai_commits(limit: int = 10) -> list:
         elif len(parts) == 3:
             break        # stop at the first commit that is not ours
     return commits
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

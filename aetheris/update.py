@@ -193,7 +193,3 @@ def run(ask) -> None:
         return
     print(f"  {S.OK}✓ Installed {found}. It takes effect the next time Aetheris "
           f"starts - this session goes on as {__version__}.{S.R}\n")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

@@ -454,7 +454,3 @@ def gave_up_message(limit: int) -> str:
             f"check is failing, what you changed, and what you think is wrong - "
             f"a fourth guess is worth less to them than an honest description. "
             f"They can take your changes back with /undo.")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

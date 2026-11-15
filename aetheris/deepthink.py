@@ -410,7 +410,3 @@ def _note(text: str) -> None:
 def _footer() -> None:
     print(f"  {_hr(width=60)}")
     print(f"  {S.PURPLE}◆ deepthink done{S.R}\n")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

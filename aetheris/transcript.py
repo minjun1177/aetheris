@@ -292,7 +292,3 @@ def _draw(kind: str, name: str, body, full: bool) -> None:
             for row in config.wrap_cells(line, width):
                 print(f"  {S.MUTED}│{S.R}  {row}")
         print(f"  {S.MUTED}╰─ {len(str(body)):,} chars{S.R}")
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")

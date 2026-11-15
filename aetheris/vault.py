@@ -42,7 +42,6 @@ nothing here should be described to anybody as one.
 import os
 import re
 
-from aetheris import paths
 
 # `{{env:NAME}}`. Braces because no shell, JSON encoder or markdown renderer
 # does anything surprising with them, and a doubled pair does not occur in
@@ -343,7 +342,3 @@ def prompt_section() -> str:
         "Never guess a value, never ask the user to paste one, and never try to "
         "read one out of a file another way.\n"
     )
-
-
-if __name__ == "__main__":
-    print("This file can not run directly.")
