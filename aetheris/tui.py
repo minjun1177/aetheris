@@ -3,7 +3,6 @@ import os
 import sys
 import subprocess
 import textwrap
-from datetime import datetime
 from aetheris import config
 from aetheris.config import S, tw, th, _hr, _visible_len
 from aetheris.session import load_memory, list_sessions
@@ -64,8 +63,6 @@ def _get_mcp_info() -> str:
         return "disabled"
     return mcp_client.status_summary()
 
-IS_APRIL_FOOL = True if str(datetime.now().strftime("%m %d")) == "04 01" else False
-
 # "AETHERIS" fits on one line in this face, at 64 columns. On a terminal too
 # narrow even for that, a three-row face carries the same name rather than
 # wrapping into nonsense.
@@ -82,25 +79,10 @@ _LOGO_NARROW = """\
     ╠═╣║╣  ║ ╠═╣║╣ ╠╦╝║╚═╗
     ╩ ╩╚═╝ ╩ ╩ ╩╚═╝╩╚═╩╚═╝"""
 
-_LOGO_WIDE_APRIL = """\
-     █████╗ ███████╗████████╗██╗  ██╗███████╗██████╗ 
-    ██╔══██╗██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔══██╗
-    ███████║█████╗     ██║   ███████║█████╗  ██████╔╝
-    ██╔══██║██╔══╝     ██║   ██╔══██║██╔══╝  ██╔══██╗
-    ██║  ██║███████╗   ██║   ██║  ██║███████╗██║  ██║
-    ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝"""
-
-_LOGO_NARROW_APRIL = """\
-    ╔═╗╔═╗╔╦╗╦ ╦╔═╗╦═╗
-    ╠═╣║╣  ║ ╠═╣║╣ ╠╦╝
-    ╩ ╩╚═╝ ╩ ╩ ╩╚═╝╩╚═"""
-
 # Derived rather than written down. It was a literal 66 until the rename
 # narrowed the face to 64, and a threshold that outlives the art it measures
 # shows the narrow face on a terminal with room to spare for the wide one.
-_LOGO_WIDTH = max(len(row) for row in _LOGO_WIDE_APRIL.splitlines()) if IS_APRIL_FOOL else max(len(row) for row in _LOGO_WIDE.splitlines())
-
-
+_LOGO_WIDTH = max(len(row) for row in _LOGO_WIDE.splitlines())
 
 # What `_welcome` prints besides the logo: the eleven fact lines, the hint, the
 # rule under it, one blank line, and the prompt the person then types at.
@@ -115,10 +97,6 @@ def _logo() -> str:
     read it - the art went first, being at the top, so the one thing they
     were meant to see was the one thing they never did.
     """
-    if IS_APRIL_FOOL:
-        rows = len(_LOGO_WIDE_APRIL.splitlines()) + 2
-        fits = config.tw() >= _LOGO_WIDTH + 2 and th() >= rows + _WELCOME_CHROME
-        return f"{S.ACCENT}{S.BOLD}\n{_LOGO_WIDE_APRIL if fits else _LOGO_NARROW_APRIL}\n{S.R}"
     rows = len(_LOGO_WIDE.splitlines()) + 2        # a blank line above and below
     fits = config.tw() >= _LOGO_WIDTH + 2 and th() >= rows + _WELCOME_CHROME
     return f"{S.ACCENT}{S.BOLD}\n{_LOGO_WIDE if fits else _LOGO_NARROW}\n{S.R}"
@@ -260,8 +238,6 @@ COMMANDS = (
     ("/vm reset", "Throw away every variable the model left in it"),
     ("/vm stop", "End the process; the next run_python starts a new one"),
 )
-
-if IS_APRIL_FOOL: COMMANDS += ("/aether", "What is Aether?"),
 
 # Not slash commands: these two act on the line being typed, so they are listed
 # apart from the table rather than pretending to belong to it.

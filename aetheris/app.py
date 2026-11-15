@@ -373,8 +373,6 @@ _NOT_TYPED = ("[System]", "[System Note", "[Tool Error]", "[Channel]", "[Deepthi
 # attached and the `/tdd` note. Cut off, the line is what the prompt showed.
 _APPENDED = ("\n\n[Attached ", "\n\n[System Note:")
 
-IS_APRIL_FOOL = True if str(datetime.now().strftime("%m %d")) == "04 01" else False
-
 def _as_typed(content: str) -> str:
     cut = min((at for at in (content.find(mark) for mark in _APPENDED) if at >= 0),
               default=len(content))
@@ -3093,15 +3091,6 @@ async def main(resume_id: str = "") -> None:
             continue
         user_input, cmd = outcome
 
-        if (cmd == "/aether" or cmd.startswith("/aether ")) and IS_APRIL_FOOL:
-            import webbrowser
-            try:
-                # With its scheme: a bare host is opened as a file in this
-                # directory, which is not there.
-                webbrowser.open("https://namu.wiki/w/%EC%97%AC%ED%96%89%EC%9E%90(%EC%9B%90%EC%8B%A0)")
-            except Exception:
-                pass
-            continue
         # Every slash command has had its turn and continued; what is left is a
         # message for the model, so this is where an `@path` becomes context.
         # Before the plan-mode note, so the attachment stays under the sentence
