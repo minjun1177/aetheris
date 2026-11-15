@@ -3,7 +3,7 @@
 # come too. `.github/check_dist.py` fails the build when a tracked file is left
 # out, so a new one at the top level needs a line here.
 include CHANGELOG.md ARCHITECTURE.md TODO.md
-include requirements.txt requirements-lock.txt
+include requirements.txt
 include .mcp.json.example .permissions.json.example .gitignore
 graft tests
 graft docs

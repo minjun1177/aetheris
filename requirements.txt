@@ -1,8 +1,6 @@
 # Floors are the versions this harness is actually tested against - not a guess.
 # Ceilings stop the next breaking release from arriving unannounced: the next
 # major, or for a 0.x package the next minor, which is where those break.
-#
-# `pip install -r requirements-lock.txt` instead for the exact set that was tested.
 
 # Only `list()` and the streaming chat client are used, and both have been
 # stable across every 0.x release, so this one gets the wider ceiling.

@@ -23,7 +23,7 @@
 * [x] Waiting-for-input detection per platform (/proc on Linux, CPU elsewhere) + tests/test_platform.py
 * [x] Decode command output by what it actually is (UTF-8, else the console code page)
 * [x] /connect: Anthropic, OpenAI (+compatible), Gemini alongside Ollama
-* [x] Pin dependencies to the versions that were actually tested (+ requirements-lock.txt)
+* [x] Pin dependencies to the versions that were actually tested
 * [x] Atomic file writes, so a crash cannot empty a session, the memory or the saved API keys
 * [x] Token estimate that knows Korean from English, and calibrates against what providers report
 * [x] One tool table (toolspec.py): the prompt is rendered from it, dispatch binds through it, drift is a startup error
