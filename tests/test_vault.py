@@ -205,6 +205,27 @@ try:
     check("and text is handed back unchanged",
           vault.redact("nothing to do here") == "nothing to do here")
 
+    # The person's shell holds credentials of its own - GH_TOKEN, AWS keys -
+    # and `env` used to print every one of them into the conversation.
+    os.environ["GH_TOKEN"] = "ghp_testtoken1234567890abcdef"
+    os.environ["SSH_AUTH_SOCK"] = "/tmp/ssh-agent-socket-path"
+    os.environ["MY_SERVICE_PASSWORD"] = "hunter2hunter2"
+    try:
+        printed = quietly(tools.dispatch_tool, "run_cmd",
+                          {"command": "set" if WINDOWS else "env"})
+        check("a credential in the environment is not printed to the model",
+              "ghp_testtoken1234567890abcdef" not in printed
+              and "hunter2hunter2" not in printed, printed[:80])
+        check("it is named as the variable instead", "[hidden: $GH_TOKEN]" in printed)
+        check("a name that only looks like one is left alone",
+              "/tmp/ssh-agent-socket-path" in printed)
+        used = quietly(tools.dispatch_tool, "run_cmd",
+                       {"command": "echo %GH_TOKEN%" if WINDOWS else 'echo "$GH_TOKEN" | cut -c1-4'})
+        check("and the command itself still has it", "ghp_" in used, used[:60])
+    finally:
+        for name in ("GH_TOKEN", "SSH_AUTH_SOCK", "MY_SERVICE_PASSWORD"):
+            os.environ.pop(name, None)
+
 finally:
     os.chdir(origin)
     shutil.rmtree(WORK, ignore_errors=True)

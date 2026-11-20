@@ -226,11 +226,39 @@ def own() -> dict:
     return {label: value for label, value in found.items() if len(value) >= MIN_LENGTH}
 
 
+# Names in the person's environment that hold a credential. `run_cmd` keeps
+# them - `gh` needs GH_TOKEN, `aws` its keys - but its output does not: `env`
+# printed every one of them into the conversation, and from there to the
+# provider. The suffixes are the names that only look like one: a socket path,
+# a session id, a display type.
+_SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW(OR)?D|PASSPHRASE|API_?KEY|ACCESS_?KEY|"
+                          r"PRIVATE_?KEY|CREDENTIAL|AUTH|COOKIE|SESSION_?KEY", re.I)
+_NOT_SECRET_SUFFIX = ("_SOCK", "_PATH", "_DIR", "_FILE", "_TYPE", "_ID", "_ADDRESS",
+                      "_MODE", "_CLASS", "_DESKTOP")
+
+
+def environment_secrets() -> dict:
+    """{"$NAME": value} for the credentials in this process's environment."""
+    found = {}
+    for name, value in os.environ.items():
+        if not _SECRET_NAME.search(name) or name.upper().endswith(_NOT_SECRET_SUFFIX):
+            continue
+        if _worth_hiding(value):
+            found[f"${name}"] = value
+    return found
+
+
 def hide_own(text):
-    """Replace the harness's own keys in `text`. Never put back by `restore`."""
+    """Replace the harness's own keys, and the environment's, in `text`.
+
+    Never put back by `restore`. An environment credential is named as the
+    variable, so a command that needs it says `$GH_TOKEN` and the shell, not
+    the model, supplies the value.
+    """
     if not isinstance(text, str) or not text:
         return text
-    for label, value in sorted(own().items(), key=lambda item: -len(item[1])):
+    hidden = {**environment_secrets(), **own()}
+    for label, value in sorted(hidden.items(), key=lambda item: -len(item[1])):
         if value in text:
             text = text.replace(value, OWN % label)
     return text

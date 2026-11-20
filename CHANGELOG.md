@@ -105,6 +105,10 @@ from the working directory, but now only once they have been trusted.
   home decide what may run, and a tool allowed to write files could rewrite
   them - `AUTO_ALLOW` on, `run_cmd` allowed. They are now refused to every file
   tool, through a symlink too and under `/automode`, as `providers.json` was.
+- **Credentials in your environment stay out of the conversation.** `run_cmd`
+  keeps them (so `gh` and `aws` work), but `env` printed every `GH_TOKEN` and
+  AWS key to the model and the provider. A variable whose name says it holds a
+  credential is now `[hidden: $NAME]` in every tool result.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

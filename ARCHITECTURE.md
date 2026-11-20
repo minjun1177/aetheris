@@ -1499,7 +1499,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_images.py` | That an image is recognised by extension and by its bytes, that a large one is resized and relabelled as what it became, that all four wire shapes are right with the cache breakpoint still on the text, and that a model which cannot see is found out before the request (5.17) |
 | `test_notes.py` | That a note is one markdown file whose name is its id, that projects do not share notes while a subdirectory shares one, that a model-chosen id cannot write outside the notes directory, and that the prompt gets sorted titles only (5.16) |
 | `test_keys.py` | The harness's own keys: hidden in every tool result and never filled back in, `providers.json` refused to every tool by any path, absent from the model's environment, moved into a (fake) keyring with the file as fallback, and the home closed to other accounts |
-| `test_vault.py` | That a `.env` value never reaches the model by any route, that a placeholder reaches the shell as the real key, and that a file is neither how it gets out nor how it is lost (§8b) |
+| `test_vault.py` | That a `.env` value never reaches the model by any route, nor a credential in the environment, that a placeholder reaches the shell as the real key, and that a file is neither how it gets out nor how it is lost (§8b) |
 | `test_docs.py` | That this file, `README.md` and `docs/` still describe the program that exists, and that README stays a short page |
 | `test_compat.py` | That the commands, settings, tool names and files people build habits on are still there under the same names (5.14) |
 

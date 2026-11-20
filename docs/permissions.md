@@ -174,3 +174,14 @@ typed into the chat, printed by a command that generates it, pasted by you - is
 not known and is not redacted. This closes the biggest and most routine hole;
 it is not a sandbox and should not be described to anyone as one. `/set
 SECRET_REDACT off` turns it off.
+
+### Credentials in your environment
+
+`run_cmd` runs with your environment, minus the provider keys, so `gh`, `aws`
+and the rest keep working. Their credentials stay **in the environment and out
+of the conversation**: a variable whose name says it holds one (`*TOKEN*`,
+`*SECRET*`, `*PASSWORD*`, `*API_KEY*`, `*ACCESS_KEY*`, `*AUTH*`, ...) has its
+value replaced in every tool result by `[hidden: $NAME]`. `env` no longer hands
+the model your `GH_TOKEN`, and a command that needs it writes `$GH_TOKEN` and
+lets the shell fill it in. Names that only look like one, such as
+`SSH_AUTH_SOCK` or a `*_SESSION_ID`, are left alone.
