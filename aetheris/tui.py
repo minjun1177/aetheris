@@ -844,6 +844,107 @@ def _set_aside_type_ahead() -> bool:
         return False          # no terminal to flush is not a failure
 
 
+# ---------------------------------------------------------------------------
+# /btw - an answer in a panel of its own
+# ---------------------------------------------------------------------------
+
+BTW_DISMISS = "Esc, Enter or Space to dismiss"
+_DISMISS_KEYS = ("\x1b", "\r", "\n", " ", "q", "\x03")
+
+
+def _pad(row: str, width: int) -> str:
+    """`row` padded with spaces to `width` cells, colour codes counted as none."""
+    used = sum(config.cell_width(c) for c in config._ESCAPE.sub("", row))
+    return row + " " * max(0, width - used)
+
+
+def btw_panel(question: str, answer: str, reached=(), dismiss: bool = True) -> list[str]:
+    """The rows of a `/btw` answer, drawn as a panel apart from the conversation.
+
+    An aside printed like any other answer reads like any other answer: it
+    sits in the scrollback between two turns as though it were one. Boxed,
+    titled and dismissed, it reads as what it is - a question asked on the
+    side, which the conversation never saw.
+    """
+    from aetheris.renderer import _render_line, fit_rows
+
+    inner = max(20, tw() - 6)
+    edge = S.ACCENT
+    rows = [f"  {edge}╭─ {S.BOLD}/btw{S.R}{edge} {'─' * max(1, inner - 5)}╮{S.R}"]
+
+    def boxed(text: str) -> str:
+        return f"  {edge}│{S.R} {_pad(text, inner)}{S.R} {edge}│{S.R}"
+
+    for line in config.wrap_cells(question.strip() or " ", inner, by_word=True):
+        rows.append(boxed(f"{S.USER_CLR}{line}{S.R}"))
+    rows.append(f"  {edge}├{'─' * (inner + 2)}┤{S.R}")
+
+    body = answer.strip("\n") or f"{S.GRAY}(no answer){S.R}"
+    in_code = in_latex = False
+    # Rendered against the inside of the box: the renderer draws a code
+    # block's border out to `tw`, and the two-cell margin it adds is the box's.
+    with config.narrowed(inner + 2):
+        for line in body.split("\n"):
+            rendered, out_code, in_latex = _render_line(line, in_code, in_latex)
+            for piece in rendered.split("\n"):
+                piece = piece[2:] if piece.startswith("  ") else piece
+                cut = ([piece] if in_code or out_code
+                       else [row for row, _ in fit_rows(piece, inner)])
+                for row in cut:
+                    rows.append(boxed(row))
+            in_code = out_code
+    if reached:
+        rows.append(boxed(f"{S.MUTED}◆ It reached for {', '.join(reached)} - "
+                          f"/btw runs no tools.{S.R}"))
+    foot = f" {BTW_DISMISS} " if dismiss else " not kept in the conversation "
+    rows.append(f"  {edge}╰─{S.MUTED}{foot}{S.R}{edge}"
+                f"{'─' * max(1, inner + 1 - len(foot))}╯{S.R}")
+    return rows
+
+
+def wait_to_dismiss() -> bool:
+    """Wait for Esc, Enter or Space. False when there is no keyboard to wait on.
+
+    Read a key at a time, with the terminal's echo and its Ctrl+C turned off
+    for as long as it waits: a dismissed panel must not leave the key that
+    dismissed it on the next prompt, and Ctrl+C here means "close it", not
+    "stop the program".
+    """
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return False
+    except Exception:
+        return False
+    try:
+        if config.CURRENT_OS == "Windows":
+            import msvcrt
+            while True:
+                key = msvcrt.getwch()
+                if key in ("\x00", "\xe0"):
+                    msvcrt.getwch()          # the second half of an arrow key
+                    continue
+                if key in _DISMISS_KEYS:
+                    break
+        else:
+            import termios
+            fd = sys.stdin.fileno()
+            before = termios.tcgetattr(fd)
+            quiet = termios.tcgetattr(fd)
+            quiet[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG)
+            quiet[6][termios.VMIN], quiet[6][termios.VTIME] = 1, 0
+            termios.tcsetattr(fd, termios.TCSANOW, quiet)
+            try:
+                while os.read(fd, 1).decode("utf-8", "ignore") not in _DISMISS_KEYS:
+                    pass
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, before)
+    except Exception:
+        return False          # a terminal that cannot be read is not waited on
+    # An arrow key arrives as Esc and two more bytes; only the Esc was read.
+    _set_aside_type_ahead()
+    return True
+
+
 # True while code that catches its own Ctrl+C is holding the thread: a question
 # waiting on an answer, a pairing code waiting to be approved. `app`'s Ctrl+C
 # handler reads it - that is somewhere a Ctrl+C is listened for, whatever

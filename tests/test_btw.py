@@ -108,6 +108,74 @@ check("the tools a turn would offer are offered, so the request matches the cach
       native.tools == llm_client.native_tools() and native.tools)
 check("and the conversation is still untouched", history == before)
 
+print("\n--- a caller that shows the tools itself is handed them ---")
+fake = Fake([{"text": "Let me look.\n<tool_call>\n"
+                      '{"name": "read_file", "arguments": {"path": "a.py"}}\n'
+                      "</tool_call>"}])
+saved, providers._active = providers._active, fake
+out, real = io.StringIO(), sys.stdout
+sys.stdout, reached = out, []
+try:
+    answer = asyncio.run(llm_client.side_question(history, "what is in a.py?",
+                                                  reached_out=reached))
+finally:
+    sys.stdout, providers._active = real, saved
+check("the names land in the list", reached == ["read_file"], str(reached))
+check("and are not printed as well", "/btw runs no tools" not in out.getvalue(),
+      out.getvalue())
+
+
+print("\n--- the panel ---")
+from aetheris import app, tui   # noqa: E402
+
+
+def cells(row):
+    plain = config._ESCAPE.sub("", row)
+    return sum(config.cell_width(c) for c in plain), plain
+
+
+with config.narrowed(60):
+    rows = tui.btw_panel("어디서 compaction을 하나요? " * 3,
+                         "**context.py** has it.\n```py\nx = 1\n```\n" + "긴 문장 " * 30,
+                         ["read_file"])
+widths = {cells(row)[0] for row in rows}
+plain = [cells(row)[1] for row in rows]
+check("every row of the panel is the same width", widths == {60}, str(widths))
+check("it is boxed and titled",
+      plain[0].strip().startswith("╭─ /btw") and plain[-1].strip().startswith("╰─"))
+check("the question is inside it, above a divider",
+      "compaction" in plain[1] and any(p.strip().startswith("├") for p in plain))
+check("so is the answer, code block included",
+      any("context.py" in p for p in plain) and any("x = 1" in p for p in plain))
+check("a tool it reached for is named inside the panel",
+      any("read_file" in p and "/btw runs no tools" in p for p in plain))
+check("and it says how to dismiss it", tui.BTW_DISMISS in plain[-1])
+check("the width override ends with the block", config._WIDTH_OVERRIDE == 0)
+with config.narrowed(60):
+    left = tui.btw_panel("q", "a", dismiss=False)
+check("a panel that will not be waited on does not offer to be dismissed",
+      tui.BTW_DISMISS not in left[-1] and "not kept" in left[-1])
+
+print("\n--- /btw draws the panel, and with no keyboard leaves it ---")
+real_stdin = sys.stdin
+sys.stdin = io.StringIO("")
+check("no keyboard means nothing to wait on", tui.wait_to_dismiss() is False)
+fake = Fake([{"text": "<think>hmm</think>It is in context.py."}])
+saved, providers._active = providers._active, fake
+out, real = io.StringIO(), sys.stdout
+sys.stdout = out
+try:
+    asyncio.run(app._btw_panel(history, "where is compaction done?"))
+finally:
+    sys.stdout, providers._active, sys.stdin = real, saved, real_stdin
+shown = out.getvalue()
+check("the answer is shown inside the panel",
+      "╭─" in shown and "/btw" in shown and "It is in context.py." in shown)
+check("its reasoning is not", "hmm" not in shown)
+check("it is shown once - not streamed above the panel as well",
+      shown.count("It is in context.py.") == 1)
+check("and the conversation is still untouched", history == before)
+
 
 print()
 if failures:

@@ -737,11 +737,38 @@ class speaking:
         return False
 
 
+_WIDTH_OVERRIDE = 0          # set by `narrowed`; 0 means the terminal's own
+
+
 def tw() -> int:
+    if _WIDTH_OVERRIDE > 0:
+        return _WIDTH_OVERRIDE
     try:
         return shutil.get_terminal_size().columns
     except Exception:
         return 80
+
+
+class narrowed:
+    """Make `tw` answer `width` inside this block, for text drawn in a box.
+
+    The renderer lays everything out against `tw` - a code block's border runs
+    to it - so text rendered for a panel narrower than the terminal has to be
+    rendered against the panel, not cut down afterwards.
+    """
+
+    def __init__(self, width: int):
+        self.width = max(1, int(width))
+
+    def __enter__(self):
+        global _WIDTH_OVERRIDE
+        self.before, _WIDTH_OVERRIDE = _WIDTH_OVERRIDE, self.width
+        return self
+
+    def __exit__(self, *_):
+        global _WIDTH_OVERRIDE
+        _WIDTH_OVERRIDE = self.before
+        return False
 
 
 def th() -> int:

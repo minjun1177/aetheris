@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import io
 import json
 import signal
 import stat
@@ -2528,6 +2529,45 @@ async def _cmd_copy(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+async def _btw_panel(messages: list, question: str) -> None:
+    """Answer `question` in a panel of its own, then put the screen back.
+
+    The answer is not streamed into the scrollback like a turn's: it is
+    gathered quietly and drawn boxed, and once dismissed the rows from before
+    it are drawn again, so what stays on screen is the conversation and a
+    one-line trace that an aside was asked. From a remote, or with no keyboard
+    to wait on, the panel is left where it is.
+    """
+    rows_before = screen.snapshot()
+    reached: list = []
+    sys.stdout.write(f"  {S.ACCENT}✻{S.R} {S.GRAY}/btw - answering on the side…{S.R}")
+    sys.stdout.flush()
+    try:
+        # Quietly: the reply, its reasoning and its token line go nowhere.
+        # The panel is what shows it.
+        with contextlib.redirect_stdout(io.StringIO()):
+            answer = await llm_client.side_question(messages, question,
+                                                    reached_out=reached)
+    finally:
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+    waits = not remote.driven() and sys.stdin is not None and sys.stdin.isatty()
+    for row in tui.btw_panel(question, llm_client.strip_thinking(answer), reached,
+                             dismiss=waits):
+        print(row)
+    print()
+    if not waits or not await asyncio.to_thread(tui.wait_to_dismiss):
+        return
+    mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
+    try:
+        screen.restore(rows_before, screen.beneath(sys.stdout))
+        sys.stdout.flush()
+    finally:
+        sys.stdout = mirrored
+    print(f"  {S.MUTED}↳ /btw answered on the side - not kept in the "
+          f"conversation{S.R}\n")
+
+
 async def _cmd_btw(chat, user_input: str, cmd: str):
     global _stoppable
     question = user_input[len("/btw"):].strip()
@@ -2545,8 +2585,7 @@ async def _cmd_btw(chat, user_input: str, cmd: str):
     leaving = False
     _stoppable = True
     try:
-        await llm_client.side_question(chat.messages, question)
-        print(f"  {S.MUTED}↳ /btw - not kept in the conversation{S.R}\n")
+        await _btw_panel(chat.messages, question)
     except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
         leaving = _interrupted(pressed)
         await _absorb_cancel()

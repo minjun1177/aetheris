@@ -974,7 +974,8 @@ SIDE_NOTE = ("[A side question, asked while the work waits. Answer it briefly fr
              "- and do not carry on with the task. This exchange is not kept.]")
 
 
-async def side_question(messages: list[dict], question: str) -> str:
+async def side_question(messages: list[dict], question: str,
+                        reached_out: list | None = None) -> str:
     """Answer `question` from the conversation without becoming part of it.
 
     The request is the history plus the question, with the same tools a turn
@@ -982,6 +983,9 @@ async def side_question(messages: list[dict], question: str) -> str:
     cache and Ollama's loaded context are reused rather than paid for again.
     A tool the model calls anyway is reported and not run. Nothing is appended
     to `messages`.
+
+    `reached_out`, when given, is handed the names of the tools it reached for
+    instead of their being printed - for a caller that shows them itself.
     """
     ask = messages + [{"role": "user", "content": f"{question}\n\n{SIDE_NOTE}"}]
     use_native = native_enabled()
@@ -989,7 +993,9 @@ async def side_question(messages: list[dict], question: str) -> str:
     text = await stream_reply(ask, tools=native_tools() if use_native else None,
                               calls_out=calls if use_native else None)
     reached = [name for name, _ in _from_native(calls) + parse_tool_calls(text, quiet=True)]
-    if reached:
+    if reached and reached_out is not None:
+        reached_out.extend(reached)
+    elif reached:
         print(f"  {S.MUTED}◆ It reached for {', '.join(reached)} - /btw runs no "
               f"tools. Ask in the conversation for that.{S.R}")
     return re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.DOTALL).strip()
