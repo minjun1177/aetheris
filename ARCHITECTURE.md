@@ -141,6 +141,8 @@ to *all* tools belongs here and nowhere else.
    a different harness in this project is in the middle of changing (§8).
 5. **Permission rules** — `deny` returns without reaching the handler; `allow`
    sets `config.POLICY_AUTO_ALLOW` so the handler's approval prompt passes.
+   Then the person's `pre_tool` hooks (`hooks.py`): one that exits non-zero
+   refuses the call with `[System]` before any approval prompt is drawn.
 6. **Run** — `_run_tool` looks the name up in `toolspec`, binds the arguments
    through it, calls the handler. MCP tools and the two MCP resource tools are
    handled after that lookup fails.
@@ -151,7 +153,8 @@ to *all* tools belongs here and nowhere else.
    ask. Both this and the commit read `_paths_written`, so they cannot disagree
    about what a call actually wrote.
 9. **Note it for auto-verify** — `verify.note_written`, reading the same
-   `_paths_written`. Noted, not run: the project's check belongs after the
+   `_paths_written`. Then the `post_tool` hooks: a failing one cannot undo the
+   call, so what it printed is appended to the result as `[Hook] ...`. Noted, not run: the project's check belongs after the
    whole reply's tool calls, not between two of them, so `chat_turn` runs it
    (§7a).
 10. **Name the failure** — `_name_the_failure` puts the call in front of an
@@ -678,6 +681,7 @@ app.py            the loop, slash commands, session lifecycle
 | `images.py` | Recognising an image, resizing one too big for an API, and the base64 a provider sends (5.17) | The four wire shapes - `providers` builds those |
 | `mentions.py` | `@path` in a typed message: what it names, and what it attaches | Printing - the caller does that |
 | `permissions.py` | Rule loading and the allow/deny/ask decision | |
+| `hooks.py` | `hooks.json` and a trusted `.hooks.json`: which hook matches a call (by permission rule), running it with the call on stdin and no provider keys, and `turn_end` | Where in a call they run - that is `dispatch_tool` |
 | `trust.py` | Which project `.mcp.json` / `.permissions.json` the person trusted: a yes kept in the home against the file's sha256, a no for the session | Asking - `app._settle_trust` does, before either file is read |
 | `shell_session.py` | Live commands, waiting-vs-busy detection | |
 | `vm.py` | The scratch Python process: its wire protocol, its ceilings, and restarting it after it dies | How the result is worded - that is `tools.handle_run_python` |
@@ -1442,6 +1446,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
 | `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said; that a path rule is about the file however it is spelled - `./`, `..`, absolute, a symlink - and that `copy_file` needs its `dst` allowed too |
+| `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |

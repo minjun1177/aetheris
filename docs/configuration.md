@@ -60,6 +60,9 @@ The settings worth knowing:
 | `AUTO_VERIFY` | `True` | Run the project's own check after a turn changes a file |
 | `VERIFY_TIMEOUT` | 90 | Seconds one check gets before it is killed and turned off |
 | `VERIFY_OUTPUT_CHARS` | 2000 | Of a failing check, how much of the tail the model is shown |
+| `HOOKS_ENABLED` | `True` | Run the hooks in `~/.aetheris/hooks.json` and a trusted `.hooks.json` |
+| `HOOK_TIMEOUT` | 30 | Seconds one hook gets before it counts as failed |
+| `HOOK_OUTPUT_CHARS` | 2000 | How much of what a hook printed is kept |
 | `DEEPTHINK` | `False` | Start with the six-stage chain on |
 | `DEEPTHINK_MAX_PASSES` | 3 | Times the chain may start over when the final check says it is not done |
 | `SUBAGENT_MAX_TURNS` | 12 | Turns a sub-agent gets before it must report |

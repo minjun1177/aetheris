@@ -17,6 +17,7 @@ from aetheris import mcp_client
 from aetheris import channel
 from aetheris import images
 from aetheris import git_ops
+from aetheris import hooks
 from aetheris import permissions
 from aetheris import shell_session
 from aetheris import todos
@@ -2979,6 +2980,13 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
         return (f"[System] '{function_name}' is blocked by your permission rules "
                 f"(rule: {rule}). Do not retry it; tell the user it is blocked.")
 
+    # The person's own check of the call, after their rules and before any
+    # approval prompt: a hook that refuses saves them being asked at all.
+    stopped = hooks.before_tool(function_name, arguments)
+    if stopped:
+        print(f"  {S.ERR}✗ stopped by a pre_tool hook{S.R}")
+        return vault.redact(stopped)
+
     config.POLICY_AUTO_ALLOW = verdict == "allow"
     # Counted here, past every refusal above, so that a tool which was blocked
     # does not read as work done. This is what tells the board the difference
@@ -3024,6 +3032,12 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
     # pay for one run of the suite against the finished state, not three
     # against states it was halfway through. `llm_client` runs what is noted.
     verify.note_written(written)
+    # After the run, so a formatter sees the file as written; what a failing
+    # hook printed travels with the result, since the call cannot be undone.
+    said = hooks.after_tool(function_name, arguments, result)
+    if said and isinstance(result, str):
+        print(f"  {S.WARN}⚠ a post_tool hook failed{S.R}")
+        result = f"{result}\n{said}"
     # Last, so nothing downstream of here can carry a value back: whatever the
     # tool read, ran or printed, what reaches the model - and through it the
     # provider, and the session file on disk - names the secret instead of

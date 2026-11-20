@@ -34,6 +34,13 @@ own, and out to a package of its own only when someone needs it there.
 
 ## Unreleased
 
+- **Hooks.** `~/.aetheris/hooks.json` and a trusted `.hooks.json` run the
+  person's own commands before a tool call (`pre_tool`, which can refuse it),
+  after one (`post_tool`, whose complaint is added to the result) and when a
+  turn ends (`turn_end`). `match` is a permission rule. The call arrives as
+  JSON on stdin, with no provider keys in the environment. A project's file is
+  asked about like `.mcp.json`. `/hooks` lists them - see `docs/hooks.md`.
+
 Security and data-safety fixes. One of them changes how a project file in the
 Compatibility table is used: `.mcp.json` and `.permissions.json` are still read
 from the working directory, but now only once they have been trusted.

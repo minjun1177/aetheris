@@ -18,6 +18,7 @@ from aetheris import images
 from aetheris import notes
 from aetheris import deepthink
 from aetheris import git_ops
+from aetheris import hooks
 from aetheris import skills
 from aetheris import mcp_client
 from aetheris import permissions
@@ -595,6 +596,20 @@ def _images_this_model_can_see(pictures: list) -> list:
     return []
 
 
+def _run_turn_end_hooks(outcome: str) -> None:
+    """The person's `turn_end` hooks, and a line for any that failed."""
+    try:
+        reports = hooks.turn_ended(outcome)
+    except Exception as error:
+        print(f"  {S.ERR}✗ turn_end hooks: {error}{S.R}")
+        return
+    for command, status, printed in reports:
+        if status != 0:
+            print(f"  {S.WARN}⚠ turn_end hook {command} exited {status}{S.R}")
+            for line in (printed or "").splitlines()[:5]:
+                print(f"  {S.GRAY}{line}{S.R}")
+
+
 def _project_config_files() -> list:
     """(kind, path) for each project config file that is here and would be read.
 
@@ -607,6 +622,9 @@ def _project_config_files() -> list:
         if source == "project" and os.path.isfile(path):
             found.append(("permission rules", path))
             break
+    for source, path in hooks.config_paths():
+        if source == "project" and os.path.isfile(path):
+            found.append(("hooks", path))
     return found
 
 
@@ -617,6 +635,8 @@ def _trust_summary(kind: str, path: str) -> list:
             data = json.load(handle)
     except Exception as error:
         return [("file", path), ("problem", f"cannot be read ({error})")]
+    if kind == "hooks":
+        return hooks.summary(path)
     rows = [("file", path)]
     if not isinstance(data, dict):
         return rows
@@ -661,6 +681,8 @@ def _settle_trust(ask: bool = True) -> None:
             print(f"  {S.GRAY}{label}:{S.R} {value}")
         if kind == "MCP servers":
             note = "Trusting it starts these commands now and every time it is unchanged."
+        elif kind == "hooks":
+            note = "Trusting it runs these commands around the model's tool calls, as you."
         else:
             note = "Trusting it lets these calls run without asking. Its deny rules apply either way."
         print(f"  {S.MUTED}{note}{S.R}")
@@ -685,6 +707,7 @@ def _settle_trust(ask: bool = True) -> None:
     # Read again, now that the answers are in.
     mcp_client.load_servers(force=True)
     permissions.load_rules(force=True)
+    hooks.load(force=True)
 
 
 def _connect_mcp_servers() -> list:
@@ -2742,6 +2765,44 @@ async def _cmd_perms(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+def _show_hooks() -> None:
+    """`/hooks`: every hook that will run, by event, and what could not be used."""
+    loaded = hooks.load()
+    print()
+    print(f"  {S.BOLD}{S.ACCENT}Hooks{S.R}"
+          f"{'' if config.HOOKS_ENABLED else f'  {S.WARN}(off: /set HOOKS_ENABLED on){S.R}'}")
+    if not loaded:
+        print(f"  {S.GRAY}None. Put them in {hooks.user_config_file()} or a "
+              f"project's {hooks.PROJECT_CONFIG_FILE} - see docs/hooks.md.{S.R}")
+    for event in hooks.EVENTS:
+        chosen = [hook for hook in loaded if hook.event == event]
+        if not chosen:
+            continue
+        print(f"  {S.WHITE}{event}{S.R}")
+        for hook in chosen:
+            match = "" if event == "turn_end" else f"{S.ACCENT}{hook.match}{S.R}  "
+            print(f"    {match}{S.GRAY}{hook.command}{S.R}  {S.MUTED}({hook.source}){S.R}")
+    for path in hooks.untrusted:
+        print(f"  {S.WARN}⚠ {path} is not trusted, so none of its hooks run.{S.R}")
+    for problem in hooks.errors:
+        print(f"  {S.ERR}✗ {problem}{S.R}")
+    print()
+
+
+async def _cmd_hooks(chat, user_input: str, cmd: str):
+    sub = user_input[len("/hooks"):].strip().lower()
+    if sub in ("reload", "refresh"):
+        _settle_trust()
+        hooks.load(force=True)
+        print(f"  {S.OK}✓ Hooks reloaded: {len(hooks.load())}.{S.R}")
+        _show_hooks()
+    elif not sub:
+        _show_hooks()
+    else:
+        print(f"  {S.ERR}✗ Usage: /hooks [reload]{S.R}\n")
+    return _HANDLED
+
+
 async def _cmd_think(chat, user_input: str, cmd: str):
     chosen = _switch(
         "/think", user_input[len("/think"):], config.SHOW_THINKING,
@@ -2898,6 +2959,7 @@ _COMMANDS = (
     (lambda cmd: cmd.startswith("/skill"), _cmd_skill),
     (lambda cmd: cmd == "/mcp" or cmd.startswith("/mcp "), _cmd_mcp),
     (lambda cmd: cmd == "/perms" or cmd.startswith("/perms "), _cmd_perms),
+    (lambda cmd: cmd == "/hooks" or cmd.startswith("/hooks "), _cmd_hooks),
     (lambda cmd: cmd == "/think" or cmd.startswith("/think "), _cmd_think),
     (lambda cmd: cmd == "/undo", _cmd_undo),
     (lambda cmd: cmd == "/autocommit" or cmd.startswith("/autocommit "), _cmd_autocommit),
@@ -3279,6 +3341,7 @@ async def main(resume_id: str = "") -> None:
         driven_elsewhere = providers.current().drives_turns
         leaving = False
         stopped = False
+        outcome_of_turn = "done"
         started = time.monotonic()
         _stoppable = True
         try:
@@ -3322,6 +3385,7 @@ async def main(resume_id: str = "") -> None:
             # reply that was cut off was never appended, so the next message
             # follows the question it would have answered.
             leaving = _interrupted(pressed)
+            outcome_of_turn = "stopped"
             await _absorb_cancel()
             current_session_id = save_session(messages, current_session_id)
             if not leaving:
@@ -3330,12 +3394,14 @@ async def main(resume_id: str = "") -> None:
             # Wrapped rather than run off the edge: this catches a provider
             # refusing the request, and that message names the key, the quota
             # or the model id that has to change.
+            outcome_of_turn = "error"
             print()
             connect._print_problem("Error", e)
         finally:
             _stoppable = False
             remote.set_busy(False)
             _report_usage(messages)
+            _run_turn_end_hooks(outcome_of_turn)
             # Not after Ctrl+C: whoever pressed it is already looking.
             if not stopped:
                 _ring_if_long(time.monotonic() - started)
@@ -3492,15 +3558,18 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
     session_id = save_session(messages, session_id)
     tools.call_log = []
     started = time.time()
+    outcome = "error"
     try:
         if config.DEEPTHINK:
             text = await deepthink.run(messages)
         else:
             await manage_context(messages)
             text = await chat_turn(messages)
+        outcome = "done"
     finally:
         calls, tools.call_log = tools.call_log, None
         session_id = save_session(messages, session_id)
+        _run_turn_end_hooks(outcome)
         mcp_client.shutdown()
     used = config.token_history[first_request:]
     prompt_tokens = sum(entry.get("prompt", 0) or 0 for entry in used)

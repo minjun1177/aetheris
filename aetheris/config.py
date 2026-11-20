@@ -432,6 +432,12 @@ AUTO_VERIFY = True
 VERIFY_TIMEOUT = 90         # seconds one check gets before it is killed and disabled
 VERIFY_OUTPUT_CHARS = 2000  # of a failure, the tail - which is where it is written down
 
+# Hooks: the person's own commands, run before a tool call, after one, and when
+# a turn ends - from ~/.aetheris/hooks.json and a trusted .hooks.json. See hooks.py.
+HOOKS_ENABLED = True
+HOOK_TIMEOUT = 30           # seconds one hook gets before it counts as failed
+HOOK_OUTPUT_CHARS = 2000    # of what a hook printed, what is kept
+
 # /tdd locks this project's test files for one request, so "make this test
 # pass" cannot be answered by editing the test. It lifts itself when the turn
 # ends. The whole point is to stay in the loop longer than usual, so it gets a

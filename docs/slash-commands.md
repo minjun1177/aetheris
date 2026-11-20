@@ -51,6 +51,8 @@ Two prefixes act on the message itself rather than being commands:
 | `/perms reload` | Re-read the permission rule files |
 | `/perms allow <rule>` | Add an allow rule, e.g. `/perms allow run_cmd(git *)` |
 | `/perms deny <rule>` | Add a deny rule |
+| `/hooks` | Show every hook that will run, by event, and any file that is not trusted or cannot be read. See [Hooks](hooks.md) |
+| `/hooks reload` | Re-read `~/.aetheris/hooks.json` and the project's `.hooks.json` |
 | `/agents` | Show the other harnesses running in this project, what they hold, and what has been said |
 | `/agents say <text>` | Say something to all of them yourself |
 | `/agents release <path>` | Take a file back from the agent holding it |

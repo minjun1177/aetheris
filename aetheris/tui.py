@@ -199,6 +199,8 @@ COMMANDS = (
     ("/perms", "The rules that decide what runs without asking"),
     ("/perms reload", "Re-read the permission rule files"),
     ("/perms allow|deny <rule>", "Add a rule, e.g. /perms allow run_cmd(git *)"),
+    ("/hooks", "Your own commands run before a tool, after one, and when a turn ends"),
+    ("/hooks reload", "Re-read hooks.json and the project's .hooks.json"),
     ("/artifacts [open] [n]", "What an Attacca agent made in this session - shown "
                               "here, or opened in the browser"),
     ("/tdd [request]", "Run one request with this project's test files locked, so "
