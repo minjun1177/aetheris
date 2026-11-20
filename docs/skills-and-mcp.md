@@ -53,6 +53,40 @@ cp -r aetheris/skills/* ~/.aetheris/skills/
 
 ---
 
+## Your Own Commands
+
+A request you type often becomes a slash command once it is saved as a file.
+**The file name is the command**: a file named `review` with the markdown extension is `/review`.
+
+| Directory | Scope |
+| :--- | :--- |
+| `~/.aetheris/commands/` | Yours, in every project |
+| `.aetheris/commands/` in the project | The project's. It wins over one of yours with the same name |
+
+```markdown
+---
+description: Review the staged diff against our checklist
+---
+Review `git diff --cached`. Focus on $ARGUMENTS. Report problems as a list,
+most serious first, and change nothing.
+```
+
+| In the file | Becomes |
+| :--- | :--- |
+| `$ARGUMENTS` | Everything typed after the name: `/review error handling` |
+| `$1` ... `$9` | One word of it each |
+| Neither | What was typed is added at the end |
+
+- The body is sent as your message, so the model's tool calls go through the
+  usual approval prompts and rules. **Nothing in a command file runs by itself**,
+  which is why a project's commands need no trust prompt.
+- A file named after a built-in command, such as `help`, is ignored.
+  `/commands` lists your commands and any file that was skipped.
+- Typing `/` offers them in the menu with their description, and
+  `aetheris -p "/review"` works too.
+
+---
+
 ## MCP Servers
 
 [MCP](https://modelcontextprotocol.io) is the standard way to hand an assistant

@@ -689,6 +689,7 @@ app.py            the loop, slash commands, session lifecycle
 | `symbols.py` | `find_symbol`'s project-wide table: definitions per file, cached on mtime and size, and identifier references | Parsing or what a definition is - that is `tools._walk_skeleton`, shared with `get_code_skeleton` |
 | `websearch.py` | Retrieval, extraction, BM25 reranking | |
 | `skills.py` | Skill discovery and loading | |
+| `commands.py` | The person's own slash commands: which files are commands, and the message one expands to | Which names are built in - `tui.reserved_names` says |
 | `tui.py` / `renderer.py` | Terminal chrome and markdown | Decisions |
 | `screen.py` | The ledger of printed rows, selection by block, the clipboard (5.19) | Reading the terminal - it is told what was printed, never asks |
 | `promptkeys.py` | The prompt's paste placeholder, mouse reports, and Ctrl+O | What a row *is* - `screen` knows that |
@@ -1451,6 +1452,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_instructions.py` | That the instructions files are the person's own, then one per directory from the repository root down to the current one, nearest last; that outside a repository only the current directory's is read; and that a huge file is cut |
 | `test_pull.py` | That `/connect ollama <model>` offers to pull a model the daemon lacks and only that, streams the progress, drops the cached answers so the model is ready at once, and that no means nothing is downloaded |
 | `test_symbols.py` | That `find_symbol` finds definitions and not mentions, names a method's class and signature, honours `.gitignore`, lists references without comments or strings, and re-reads a file that changed |
+| `test_commands.py` | That a file in a commands directory is `/<name>`, that `$ARGUMENTS` and `$1`..`$9` take what was typed, that a project's file wins, that no file takes over a built-in, and that the menu offers them |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |

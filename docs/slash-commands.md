@@ -30,6 +30,7 @@ The interactive terminal supports special slash commands to control options and 
 | `/skills` | List discovered skills with their descriptions and paths |
 | `/skills reload` | Rescan the skill directories and refresh the system prompt |
 | `/skill <name>` | Load a skill into the current conversation by hand |
+| `/commands` | Your own commands: a prompt saved as `~/.aetheris/commands/<name>.md` or `.aetheris/commands/<name>.md` is `/<name>`. See [Your Own Commands](skills-and-mcp.md#your-own-commands) |
 | `/mcp` | Show every configured MCP server, its state, and what it exposes |
 | `/mcp tools [server]` | Expand the tool list of one or every connected server |
 | `/mcp resources [server]` | List the resources the servers expose |

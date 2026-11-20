@@ -56,6 +56,10 @@ own, and out to a package of its own only when someone needs it there.
   defined anywhere in the project, with its signature and class, from a
   Tree-sitter symbol table cached per file. `references=true` adds where the
   name is used as an identifier, leaving out comments and strings.
+- **Your own slash commands.** A prompt saved as
+  `~/.aetheris/commands/<name>.md`, or in a project's `.aetheris/commands/`,
+  is `/<name>`, with `$ARGUMENTS` and `$1`..`$9` filled in from what follows
+  it. A file cannot replace a built-in. `/commands` lists them.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.

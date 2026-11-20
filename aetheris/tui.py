@@ -226,6 +226,8 @@ COMMANDS = (
     ("/skills", "The skills on disk, and which are loaded"),
     ("/skills reload", "Rescan the skill directories"),
     ("/skill <name>", "Load one into this conversation yourself"),
+    ("/commands", "Your own slash commands - a prompt in ~/.aetheris/commands/<name>.md "
+                  "or .aetheris/commands/<name>.md is /<name>"),
     ("/mcp", "The attached MCP servers, and what each one exposes"),
     ("/mcp tools|prompts|all [name]", "List what a server exposes, in full"),
     ("/mcp resources [name]", "List the resources the servers expose"),
@@ -400,6 +402,23 @@ def _dynamic(command: str, typed: str) -> list:
     return rows
 
 
+def reserved_names() -> set:
+    """Every built-in command, without its slash - what a command file may not be named."""
+    names = set(command_names()) | set(ALIASES) | set(SWITCHES) | {"/exit", "/quit"}
+    return {name.lstrip("/") for name in names}
+
+
+def _custom_commands() -> list:
+    """(insert, show, describe) for the person's own commands. Never raises."""
+    try:
+        from aetheris import commands
+        found, _ = commands.discover(reserved_names())
+    except Exception:
+        return []
+    return [(f"/{name}", f"/{name}", entry["description"] or entry["path"])
+            for name, entry in sorted(found.items())]
+
+
 def complete_command(text: str) -> list:
     """What could follow `text`, as (insert, show, describe) rows.
 
@@ -420,6 +439,9 @@ def complete_command(text: str) -> list:
         for alias, target in ALIASES.items():
             if alias.startswith(text):
                 rows.append((alias, alias, _describe(target)))
+        for insert, shown, meta in _custom_commands():
+            if insert.startswith(text):
+                rows.append((insert, shown, meta))
         return rows
 
     command = text.split()[0]

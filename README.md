@@ -102,7 +102,7 @@ It is also a typed library: `aetheris.MCPServer` (MCP without an SDK) and `aethe
 | [Undo and verify](docs/undo-and-verify.md) | A commit per edit, `/undo`, auto-verify, `/tdd` |
 | [Permissions and secrets](docs/permissions.md) · [Hooks](docs/hooks.md) | Allow/deny rules, approvals, `.env` redaction; your own commands around a tool call |
 | [Deepthink](docs/deepthink.md) | Plan, check, build, review, verify |
-| [Skills and MCP](docs/skills-and-mcp.md) | `SKILL.md` packs and MCP servers |
+| [Skills and MCP](docs/skills-and-mcp.md) | `SKILL.md` packs, your own `/commands`, MCP servers |
 | [Web search](docs/web-search.md) | How results are found and ranked |
 | [Agent channel](docs/agents.md) · [Remote control](docs/remote.md) | Several agents in one project; driving a session from a phone |
 | [Configuration](docs/configuration.md) · [Slash commands](docs/slash-commands.md) | Every setting and every command |

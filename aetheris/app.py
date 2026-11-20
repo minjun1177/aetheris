@@ -14,6 +14,7 @@ from aetheris import config
 from aetheris import paths
 from aetheris import terms
 from aetheris import channel
+from aetheris import commands
 from aetheris import images
 from aetheris import notes
 from aetheris import deepthink
@@ -2830,6 +2831,29 @@ def _show_hooks() -> None:
     print()
 
 
+def _show_commands() -> None:
+    """`/commands`: the person's own commands, where each comes from, and any problem."""
+    found, problems = commands.discover(tui.reserved_names())
+    print()
+    print(f"  {S.BOLD}{S.ACCENT}Your commands{S.R}")
+    if not found:
+        print(f"  {S.GRAY}None yet. A prompt saved as {commands.directories()[1][1]}"
+              f"{os.sep}<name>.md, or in a project's {commands.PROJECT_DIR}, is "
+              f"/<name>; $ARGUMENTS in it is what you type after the name.{S.R}")
+    width = max([len(name) for name in found] or [0]) + 1
+    for name, entry in sorted(found.items()):
+        print(f"  {S.ACCENT}{'/' + name:<{width}}{S.R}  {S.GRAY}{entry['description']}{S.R}"
+              f"  {S.MUTED}({entry['source']}){S.R}")
+    for problem in problems:
+        print(f"  {S.WARN}⚠ {problem}{S.R}")
+    print()
+
+
+async def _cmd_commands(chat, user_input: str, cmd: str):
+    _show_commands()
+    return _HANDLED
+
+
 async def _cmd_hooks(chat, user_input: str, cmd: str):
     sub = user_input[len("/hooks"):].strip().lower()
     if sub in ("reload", "refresh"):
@@ -2998,6 +3022,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/planmode" or cmd.startswith("/planmode "), _cmd_planmode),
     (lambda cmd: cmd == "/artifacts" or cmd.startswith("/artifacts "), _cmd_artifacts),
     (lambda cmd: cmd == "/skills" or cmd.startswith("/skills "), _cmd_skills),
+    (lambda cmd: cmd == "/commands", _cmd_commands),
     (lambda cmd: cmd.startswith("/skill"), _cmd_skill),
     (lambda cmd: cmd == "/mcp" or cmd.startswith("/mcp "), _cmd_mcp),
     (lambda cmd: cmd == "/perms" or cmd.startswith("/perms "), _cmd_perms),
@@ -3288,6 +3313,13 @@ async def main(resume_id: str = "") -> None:
         if outcome is _HANDLED:
             continue
         user_input, cmd = outcome
+
+        # Not a built-in, so perhaps one of the person's own: a saved prompt
+        # under a name, sent as though it had been typed out.
+        expanded, custom = commands.expand(user_input, tui.reserved_names())
+        if custom is not None:
+            print(f"  {S.MUTED}◆ /{custom['name']} {S.GRAY}{custom['path']}{S.R}")
+            user_input = expanded
 
         # Every slash command has had its turn and continued; what is left is a
         # message for the model, so this is where an `@path` becomes context.
@@ -3593,6 +3625,12 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
         messages = _adopt_session(load_session(resume_id))
         session_id = resume_id
 
+    # `aetheris -p "/review staged"`: one of the person's own commands works
+    # here as it does at the prompt. A built-in does not - there is no session
+    # to run it in.
+    expanded, custom = commands.expand(prompt, tui.reserved_names())
+    if custom is not None:
+        prompt = expanded
     config.next_turn()
     transcript.start(prompt)
     first_request = len(config.token_history)
