@@ -3625,6 +3625,11 @@ def _parse_args(argv: list) -> argparse.Namespace:
     headless.add_argument("--json", dest="json_out", action="store_true",
                           help="with -p: print the answer as JSON - its text, the tool "
                                "calls, tokens and seconds")
+    headless.add_argument("--output-format", dest="output_format",
+                          choices=("text", "json", "stream-json"), default=None,
+                          help="with -p: text (the default), json (as --json), or "
+                               "stream-json - one JSON object per line as the turn "
+                               "runs: text, tool_use, tool_result, then result")
     headless.add_argument("--auto-allow", dest="auto_allow", action="store_true",
                           help="with -p: run every tool without asking, as /automode on "
                                "does. Without it a tool that needs approval is refused "
@@ -3633,8 +3638,14 @@ def _parse_args(argv: list) -> argparse.Namespace:
                           help="with -p: draw the turn on stderr as it runs - the "
                                "thinking, the tool calls, the token counts")
     args = parser.parse_args(argv)
-    if args.prompt is None and (args.json_out or args.auto_allow or args.verbose):
-        parser.error("--json, --auto-allow and --verbose only mean something with -p")
+    if args.prompt is None and (args.json_out or args.auto_allow or args.verbose
+                                or args.output_format):
+        parser.error("--json, --output-format, --auto-allow and --verbose only mean "
+                     "something with -p")
+    if args.json_out and args.output_format not in (None, "json"):
+        parser.error("--json is --output-format json; give one or the other")
+    if args.output_format == "json":
+        args.json_out = True
     return args
 
 
@@ -3710,6 +3721,9 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
     first_request = len(config.token_history)
     messages.append({"role": "user", "content": config.safe_text(prompt)})
     session_id = save_session(messages, session_id)
+    from aetheris import events
+    events.emit("start", session=session_id or "", provider=provider.name,
+                model=provider.model or config.MODEL)
     tools.call_log = []
     started = time.time()
     outcome = "error"
@@ -3750,6 +3764,16 @@ def _headless(args: argparse.Namespace, resume_id: str) -> int:
     if args.auto_allow:
         config.AUTO_ALLOW = True
     out = sys.stdout
+    streaming = getattr(args, "output_format", None) == "stream-json"
+    if streaming:
+        from aetheris import events
+
+        def send(event: dict) -> None:
+            # Written past the redirect below, and flushed per line: a reader
+            # that waits for a buffer to fill sees nothing until the end.
+            out.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+            out.flush()
+        events.listen(send)
     report, error, status = {}, "", 0
     try:
         # The turn draws for a person. Under -p nobody is watching it draw,
@@ -3761,7 +3785,12 @@ def _headless(args: argparse.Namespace, resume_id: str) -> int:
         error, status = "interrupted", 130
     except Exception as e:
         error, status = str(e) or type(e).__name__, 1
-    if args.json_out:
+    if streaming:
+        events.listen(None)
+        report = report or {"text": "", "tool_calls": [], "tokens": {}, "seconds": 0}
+        report["error"] = error
+        send({"type": "result", **report})
+    elif args.json_out:
         report = report or {"text": "", "tool_calls": [], "tokens": {}, "seconds": 0}
         report["error"] = error
         print(json.dumps(report, ensure_ascii=False, default=str), file=out)

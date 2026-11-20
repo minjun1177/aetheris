@@ -255,6 +255,61 @@ check("nothing to answer is a usage error (2), said on stderr",
       empty.returncode == 2 and not empty.stdout and "nothing to answer" in empty.stderr,
       f"{empty.returncode} {empty.stderr.strip()[:120]}")
 
+print("\n--- --output-format stream-json: one event per line, as it happens ---")
+args = app._parse_args(["-p", "x", "--output-format", "json"])
+check("--output-format json is --json", args.json_out)
+with contextlib.redirect_stderr(io.StringIO()):
+    try:
+        app._parse_args(["-p", "x", "--json", "--output-format", "stream-json"])
+        refused = False
+    except SystemExit as stop:
+        refused = stop.code == 2
+check("--json with another format is a usage error", refused)
+
+saved_startup = providers.apply_startup
+providers.apply_startup = lambda: None
+providers._active = Scripted([
+    '<tool_call>{"name": "list_dir", "arguments": {"dirpath": "%s"}}</tool_call>'
+    % here.replace("\\", "/"),
+    "All done here.",
+])
+captured = io.StringIO()
+os.chdir(here)
+try:
+    sys.stdout = captured
+    with contextlib.redirect_stderr(io.StringIO()):
+        status = app._headless(app._parse_args(
+            ["-p", "look", "--output-format", "stream-json"]), "")
+finally:
+    sys.stdout = real_out
+    providers._active = saved_active
+    providers.apply_startup = saved_startup
+    os.chdir(was_in)
+try:
+    stream = [json.loads(line) for line in captured.getvalue().splitlines()]
+except ValueError:
+    stream = []
+kinds = [event.get("type") for event in stream]
+check("every line is a JSON object", bool(stream) and status == 0, captured.getvalue()[:300])
+check("start first, result last", kinds[:1] == ["start"] and kinds[-1:] == ["result"],
+      str(kinds))
+check("the tool call is announced before its result",
+      "tool_use" in kinds and kinds.index("tool_use") < kinds.index("tool_result"), str(kinds))
+used = next((e for e in stream if e.get("type") == "tool_use"), {})
+done = next((e for e in stream if e.get("type") == "tool_result"), {})
+check("with its name and arguments", used.get("name") == "list_dir"
+      and used.get("arguments", {}).get("dirpath"), str(used))
+check("and how it ended, with what it returned",
+      done.get("outcome") == "ok" and isinstance(done.get("result"), str), str(done)[:200])
+said = "".join(e.get("text", "") for e in stream if e.get("type") == "text")
+check("the answer arrives as text events, without the tool-call tag",
+      "All done here." in said and "<tool_call>" not in said, repr(said))
+check("the result is the --json report", stream[-1].get("text") == "All done here."
+      and stream[-1].get("error") == "" and len(stream[-1].get("tool_calls", [])) == 1,
+      str(stream[-1])[:200])
+from aetheris import events   # noqa: E402
+check("and nothing is listening afterwards", not events.listening())
+
 
 print()
 if failures:

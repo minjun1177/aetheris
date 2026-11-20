@@ -124,6 +124,17 @@ is.
    the answer alone, or with
    `--json` one object: `text`, `tool_calls` (name, arguments, `ok` / `error` /
    `refused`, seconds), `tokens`, `seconds`, `model`, `session` and `error`.
+   `--output-format stream-json` writes one JSON object per line **as the turn
+   runs**, for an editor or script that shows progress:
+   ```text
+   {"type": "start", "session": "...", "provider": "ollama", "model": "gemma4:e4b"}
+   {"type": "text", "text": "Let me look"}
+   {"type": "tool_use", "name": "read_file", "arguments": {"filepath": "app.py"}}
+   {"type": "tool_result", "name": "read_file", "outcome": "ok", "seconds": 0.01, "result": "..."}
+   {"type": "result", "text": "...", "tool_calls": [...], "tokens": {...}, "error": ""}
+   ```
+   The last line is the same object `--json` prints. A sub-agent's own calls
+   are not streamed, only its report. `--output-format json` is `--json`.
    Without `--auto-allow` a tool that needs approval is refused unless there is
    a terminal to ask at. The session is saved, so `aetheris -c` carries it on;
    `-c` and `--resume` combine with `-p` too. Exit status 1 is a failure, 2 a

@@ -21,6 +21,7 @@ from aetheris import tools as _tools
 from aetheris import channel
 from aetheris import images
 from aetheris import context
+from aetheris import events as turn_events
 from aetheris import mcp_client
 from aetheris import providers
 from aetheris import screen
@@ -363,6 +364,10 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                         sys.stdout.write('\r\033[K')
                         sys.stdout.flush()
                 said_text += text
+                if not config.SUBAGENT_DEPTH:
+                    # The answer as the person would see it - tool-call tags and
+                    # thinking already filtered out by `stream.feed`.
+                    turn_events.emit("text", text=text)
                 in_code = emit(text, in_code)
 
             if stream.saw_tool_call and not line_buffer.strip():
@@ -385,6 +390,8 @@ async def stream_reply(messages: list[dict], tools: list | None = None,
                 close_thought()
                 end_of_thought()
                 said_text += text
+                if not config.SUBAGENT_DEPTH:
+                    turn_events.emit("text", text=text)
                 in_code = emit(text, in_code)
         close_thought()
         end_of_thought()

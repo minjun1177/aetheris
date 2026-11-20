@@ -63,6 +63,9 @@ own, and out to a package of its own only when someone needs it there.
 - **`/diff`** shows what the AI committed since the harness started: each
   commit with lines added and removed per file, `/diff <n>` for one patch,
   `/diff all` for the net change. The person's own commits are left out.
+- **`-p --output-format stream-json`** writes the turn as it runs, one JSON
+  object per line: `start`, `text`, `tool_use`, `tool_result`, and a final
+  `result` that is the `--json` report. `--output-format json` is `--json`.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.

@@ -16,6 +16,7 @@ from aetheris.skills import handle_use_skill
 from aetheris import mcp_client
 from aetheris import channel
 from aetheris import images
+from aetheris import events
 from aetheris import git_ops
 from aetheris import hooks
 from aetheris import permissions
@@ -2960,6 +2961,10 @@ def _outcome(result) -> str:
 def dispatch_tool(function_name: str, arguments: dict) -> str | None:
     """Run one tool call, and note it in `call_log` when somebody is keeping one."""
     started = time.time()
+    # A sub-agent's calls are its own business: only its report crosses back.
+    streaming = events.listening() and not config.SUBAGENT_DEPTH
+    if streaming:
+        events.emit("tool_use", name=function_name, arguments=arguments)
     result = _dispatch(function_name, arguments)
     if call_log is not None:
         if isinstance(arguments, str):
@@ -2970,6 +2975,12 @@ def dispatch_tool(function_name: str, arguments: dict) -> str | None:
         call_log.append({"name": function_name, "arguments": arguments,
                          "outcome": _outcome(result),
                          "seconds": round(time.time() - started, 3)})
+    if streaming:
+        text = result if isinstance(result, str) else ""
+        if len(text) > events.RESULT_CHARS:
+            text = text[:events.RESULT_CHARS] + "\n...[cut for the stream]"
+        events.emit("tool_result", name=function_name, outcome=_outcome(result),
+                    seconds=round(time.time() - started, 3), result=text)
     return result
 
 

@@ -694,6 +694,7 @@ app.py            the loop, slash commands, session lifecycle
 | `screen.py` | The ledger of printed rows, selection by block, the clipboard (5.19) | Reading the terminal - it is told what was printed, never asks |
 | `promptkeys.py` | The prompt's paste placeholder, mouse reports, and Ctrl+O | What a row *is* - `screen` knows that |
 | `transcript.py` | The last turn recorded whole - thinking, arguments, results - and printing it for Ctrl+O | The conversation history - thinking never goes there |
+| `events.py` | The `stream-json` event sink: who is listening, and sending one event | Writing it out - `app._headless` does |
 | `update.py` | Asking PyPI for the newest version, once a day, and `/update` | Installing without a yes |
 | `atomic.py`, `sse.py`, `paths.py` | One job each. Stdlib only, importing nothing local. `paths` also owns the two names derived from something that was not chosen to be a filename: `safe_name` and `workspace_slug` | |
 | `terms.py` | What the harness does to this machine, asked once before it does it | |
@@ -1461,7 +1462,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |
 | `test_retry.py` | That a 429, a 5xx or a dropped connection is retried with backoff or `Retry-After`, a 4xx is not, and a reply that has started is never started over |
 | `test_sse.py` | That an event stream is read whether or not it came gzipped, still event by event, and that a gzipped Anthropic reply comes through as text |
-| `test_headless.py` | That `-p` writes only the answer or one JSON object to stdout, with every tool call and its outcome, and fails with an exit status |
+| `test_headless.py` | That `-p` writes only the answer or one JSON object to stdout, with every tool call and its outcome, and fails with an exit status; that `stream-json` is one event per line, start to result, with each tool call announced before its result |
 | `test_bench.py` | That the benchmark graders pass a right answer and fail the wrong ones small models give, and that the edit fixture still carries its bug |
 | `test_search.py` | That `search_in_file` honours `.gitignore`, skips binaries, narrows by glob, shows context, and says the same with or without ripgrep |
 | `test_loops.py` | That the same call a third time is warned and a fourth refused, that a write resets the count, and that refusals in a row still end the turn |
