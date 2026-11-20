@@ -214,12 +214,18 @@ def describe(job: Job, tail: int = 2000) -> str:
 
 
 def note(jobs_ended: list) -> str:
-    """The message that passes ended jobs on, or "" for none."""
+    """The message that passes ended jobs on, or "" for none.
+
+    Redacted here, not by the caller: this reaches the model as a message of
+    its own, not as a tool result, so the redaction `tools._dispatch` gives
+    `run_cmd` and `read_background` never sees it.
+    """
     if not jobs_ended:
         return ""
+    from aetheris import vault
     parts = [describe(job) for job in jobs_ended]
     parts.append("Read more of a job's output with read_background if you need it.")
-    return "\n\n".join(parts)
+    return vault.redact("\n\n".join(parts))
 
 
 def shutdown() -> None:

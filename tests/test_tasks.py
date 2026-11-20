@@ -315,6 +315,23 @@ for n in range(25):
 check("25 instant jobs, no output lost", not lost, str(lost))
 background.take_finished()
 
+print("\n--- a job's ending is redacted like a tool result ---")
+# The notice is a message of its own, not a tool result, so the redaction that
+# `run_cmd` and `read_background` get on the way out never saw it. The command
+# reads the variable by name, so only the output can carry the value.
+SECRET = "ghp_" + "notice0secret0value0123456789"
+os.environ["GH_TOKEN"] = SECRET
+try:
+    tools.safe_run_cmd(py("import os; print(os.environ['GH_TOKEN'])"), "", "true")
+    job = background.jobs()[-1]
+    job.wait(10)
+    check("the job did print the value", SECRET in job.output(), job.output()[:80])
+    told = background.note(background.take_finished())
+    check("the notice the model is given does not", SECRET not in told
+          and "[hidden: $GH_TOKEN]" in told, told)
+finally:
+    del os.environ["GH_TOKEN"]
+
 background.shutdown()
 print()
 if failures:
