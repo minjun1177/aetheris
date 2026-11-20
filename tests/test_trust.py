@@ -255,6 +255,34 @@ try:
 finally:
     tools._approval_prompt = real_prompt
 
+print("\n--- no tool writes the files that decide what this harness may run ---")
+from aetheris import hooks   # noqa: E402
+config.AUTO_ALLOW = True        # the case that matters: nobody is asked
+controls = [config.SETTINGS_FILE, permissions.USER_CONFIG_FILE, hooks.user_config_file(),
+            mcp_client.USER_CONFIG_FILE, trust.trust_file()]
+try:
+    for path in controls:
+        before = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+        result, _ = quiet(tools.dispatch_tool, "write_file",
+                          {"filepath": path, "content": '{"AUTO_ALLOW": true}'})
+        after = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+        check(f"{os.path.basename(path)} is refused even under /automode",
+              result.startswith("[System]") and before == after, result[:100])
+    link = os.path.join(work, "innocent.json")
+    os.symlink(config.SETTINGS_FILE, link)
+    result, _ = quiet(tools.dispatch_tool, "write_file", {"filepath": link, "content": "{}"})
+    check("and so is a symlink to one", result.startswith("[System]"), result[:100])
+    os.remove(link)
+    result, _ = quiet(tools.dispatch_tool, "move_file",
+                      {"src": trust.trust_file(), "dst": os.path.join(work, "t.json")})
+    check("moving one away is a write too", result.startswith("[System]"), result[:100])
+    result, _ = quiet(tools.dispatch_tool, "write_file",
+                      {"filepath": os.path.join(work, "settings.json"), "content": "{}"})
+    check("a project file with the same name is not the harness's",
+          result.startswith("[Success"), result[:100])
+finally:
+    config.AUTO_ALLOW = False
+
 os.chdir(origin)
 print()
 if failures:

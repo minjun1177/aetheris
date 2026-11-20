@@ -138,6 +138,9 @@ to *all* tools belongs here and nowhere else.
 3. **Deepthink read-only gate** — refuses a world-changing tool during a
    planning stage (§7). `_changes_things` decides: `_CHANGES_THINGS` for the
    built-ins, and every MCP tool not marked `readOnlyHint`.
+   Then `_writes_harness_control`: a write to a home file that decides what the
+   harness may run (`settings.json`, `permissions.json`, `hooks.json`,
+   `mcp.json`, `trusted-configs.json`) is refused before any rule is read.
 4. **Another agent's claim** — `_claimed_by_another` refuses a write to a file
    a different harness in this project is in the middle of changing (§8).
 5. **Permission rules** — `deny` returns without reaching the handler; `allow`
@@ -1459,7 +1462,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_diff.py` | That `/diff` lists only the AI's commits this session with their line counts, shows one commit's patch and the net change to the files it touched, and drops a commit `/undo` took back |
 | `test_fork.py` | That `/fork` moves the conversation to a new file and title, that what follows goes to the copy while the original keeps exactly what it had, and that both can be loaded |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
-| `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret, never reaches this machine or its network (checked at each redirect), and asks before a long URL; that a read outside the project is asked about |
+| `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret, never reaches this machine or its network (checked at each redirect), and asks before a long URL; that a read outside the project is asked about; that no file tool writes the home's control files, even under `/automode` or through a symlink |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |

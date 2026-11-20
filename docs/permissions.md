@@ -80,6 +80,15 @@ prompt, so the prompt is still between the model and the command - but with
 spelling the model happened to use. Deny is for the mistakes you expect, not for
 an adversary.
 
+**No rule reaches the harness's own controls.** The files in `~/.aetheris/` that
+decide what may run - `settings.json`, `permissions.json`, `hooks.json`,
+`mcp.json`, `trusted-configs.json` (and `providers.json`, which holds the keys) -
+are refused to every file tool, through a symlink too, whatever the rules say
+and even under `/automode`. Otherwise an allow on `write_file(*)` would be an
+allow on `AUTO_ALLOW`. `/set`, `/perms` and `/hooks` change them; so can you, by
+hand. A `run_cmd` that writes one is not recognised, since a command's effects
+cannot be read off its text, but it still goes through the approval prompt.
+
 **A pattern is never empty.** `write_file()` reads as "calls with no arguments"
 and would have meant the opposite, so it is refused at load time and named in
 `/perms`. Write the bare tool name, `write_file`, when you mean every call.

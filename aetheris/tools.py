@@ -3027,6 +3027,45 @@ def _names_the_key_file(arguments: dict) -> str:
     return check(arguments, 0)
 
 
+def _harness_controls() -> dict:
+    """The files in the home that decide what this harness lets run, by real path.
+
+    Each is a privilege, not a document: `settings.json` can turn AUTO_ALLOW
+    on, `permissions.json` can allow `run_cmd`, `hooks.json` and `mcp.json`
+    start commands, and `trusted-configs.json` says which project files were
+    vouched for. A tool writing one of them turns "may write a file" into "may
+    run anything", and the approval prompt for a write said nothing of that.
+    """
+    from aetheris import hooks as _hooks, trust
+    found = {}
+    for label, path in (("settings", config.SETTINGS_FILE),
+                        ("permission rules", permissions.USER_CONFIG_FILE),
+                        ("hooks", _hooks.user_config_file()),
+                        ("MCP servers", mcp_client.USER_CONFIG_FILE),
+                        ("trusted project files", trust.trust_file())):
+        try:
+            found[os.path.normcase(os.path.realpath(path))] = label
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def _writes_harness_control(function_name: str, arguments: dict) -> tuple:
+    """(path, what it controls) when this call would write one of them, else ("", "")."""
+    targets = _target_paths(function_name, arguments)
+    if not targets:
+        return "", ""
+    controls = _harness_controls()
+    for path in targets:
+        try:
+            real = os.path.normcase(os.path.realpath(os.path.expanduser(path)))
+        except (OSError, ValueError):
+            continue
+        if real in controls:
+            return path, controls[real]
+    return "", ""
+
+
 # Every call dispatched while this is a list, for a caller that has to report
 # them afterwards - `aetheris -p --json`. None, the normal case, records nothing.
 call_log: list | None = None
@@ -3107,6 +3146,16 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
                 "or changes it. Nothing in it is needed for the task. Do not try "
                 "another way to reach it; if the user wants a key changed, they "
                 "use /connect.")
+
+    control, controls = _writes_harness_control(function_name, arguments)
+    if control:
+        # Before the rules too: an allow on `write_file(*)` is not meant as an
+        # allow on the person's own settings, and /automode even less so.
+        print(f"  {S.ERR}✗ refused: {control} holds this harness's {controls}{S.R}")
+        return (f"[System] '{function_name}' was refused: {control} holds this harness's "
+                f"{controls}, which decide what it may run. No tool changes it. If the "
+                "user wants it changed, they use /set, /perms or /hooks, or edit it "
+                "themselves.")
 
     blocked, conflict = _claimed_by_another(function_name, arguments)
     if conflict:
