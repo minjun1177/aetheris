@@ -134,6 +134,24 @@ check("with auto-commit off the edit is still committed to its branch",
       branch is not None and git("show", f"{branch.group(1)}:made.txt", cwd=repo).returncode == 0,
       report)
 
+print("\n--- work that cannot be committed is left where it is ---")
+# A machine with no git identity: every commit fails. An empty author name does
+# that even where CI has set a global identity, which is why this was never seen.
+os.environ["GIT_AUTHOR_NAME"] = ""
+try:
+    report, scripted, _ = hire([WRITE, "Wrote it."], isolation="worktree")
+finally:
+    del os.environ["GIT_AUTHOR_NAME"]
+kept = re.search(r"left as they are in (\S+) on branch", report)
+check("the report says the changes could not be committed and were kept",
+      "could not be committed" in report and kept is not None, report)
+check("and they are still on disk, not reported as nothing",
+      kept is not None and "changed no files" not in report
+      and os.path.exists(os.path.join(kept.group(1), "made.txt")), report)
+if kept:
+    git("worktree", "remove", "--force", kept.group(1), cwd=repo)
+git("worktree", "prune", cwd=repo)
+
 print("\n--- no worktree, no sub-agent ---")
 plain = tempfile.mkdtemp(prefix="isolation-plain-")
 os.chdir(plain)

@@ -97,8 +97,19 @@ def finish(tree: Worktree) -> str:
         git("add", "-A")
         # As `git_ops.auto_commit` commits: unsigned and past the hooks, since
         # this is a checkpoint on a branch nobody has looked at yet.
-        git("-c", "commit.gpgsign=false", "commit", "--no-verify", "-q",
-            "-m", COMMIT_MESSAGE)
+        committed = git("-c", "commit.gpgsign=false", "commit", "--no-verify", "-q",
+                        "-m", COMMIT_MESSAGE)
+        # Checked by what is still there, not only by the exit code: the
+        # removal below is `--force`, so anything left uncommitted - no git
+        # identity on this machine is enough - would go with the checkout.
+        after = git("status", "--porcelain")
+        if after.returncode != 0 or after.stdout.strip():
+            why = (committed.stderr or committed.stdout).strip().splitlines()
+            return (f"[Worktree] The sub-agent's changes could not be committed"
+                    f"{': ' + why[0] if why else ''}. They were left as they are in "
+                    f"{tree.path} on branch {tree.branch}, uncommitted - nothing was "
+                    f"deleted. Commit them there, or remove it with: "
+                    f"git worktree remove --force {tree.path}")
     counted = git_ops._git("rev-list", "--count", f"{tree.base}..{tree.branch}", cwd=tree.root)
     commits = int(counted.stdout.strip() or 0) if counted.returncode == 0 else 0
     stat = ""
