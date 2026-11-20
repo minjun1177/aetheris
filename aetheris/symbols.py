@@ -15,6 +15,7 @@ the two tools agree about what a definition is.
 
 import fnmatch
 import os
+import time
 
 from aetheris import config
 
@@ -22,6 +23,10 @@ MAX_FILES = 5000            # beyond this the project is indexed only partly, an
 MAX_FILE_BYTES = 1_000_000  # a generated or vendored file this big is not where code is read
 MAX_DEFINITIONS = 40
 MAX_REFERENCES = 40
+# A first question in a large repository parses every source file. Past this,
+# what was parsed is answered and the rest waits for the next question - the
+# cache keeps what was done, so each question gets further.
+INDEX_SECONDS = 20.0
 
 # (root, relative path) -> (mtime_ns, size, [definition, ...])
 _cache: dict = {}
@@ -111,7 +116,7 @@ def _matches(wanted: str, name: str) -> bool:
 
 
 def find(name: str, root: str = "") -> tuple:
-    """(definitions named `name`, whether the index was cut short).
+    """(definitions named `name`, a note when the index was incomplete - "" if not).
 
     Exact first. A glob (`load_*`) matches by pattern. When nothing is exactly
     called that, a case-insensitive part of the name is tried, so `loadrules`
@@ -119,13 +124,21 @@ def find(name: str, root: str = "") -> tuple:
     """
     root = os.path.realpath(root or os.getcwd())
     files, cut = _source_files(root)
-    every = [d for path in files for d in _definitions_in(root, path)]
+    note = f"only the first {MAX_FILES} source files were indexed" if cut else ""
+    deadline = time.monotonic() + INDEX_SECONDS
+    every = []
+    for done, path in enumerate(files):
+        if time.monotonic() > deadline:
+            note = (f"{len(files) - done} of {len(files)} source files were not indexed "
+                    f"in {INDEX_SECONDS:.0f}s; ask again and the index carries on")
+            break
+        every.extend(_definitions_in(root, path))
     exact = [d for d in every if _matches(name, d["name"])]
     if exact:
-        return exact, cut
+        return exact, note
     folded = name.lower().replace("_", "")
     loose = [d for d in every if folded and folded in d["name"].lower().replace("_", "")]
-    return loose, cut
+    return loose, note
 
 
 def references(name: str, root: str = "", skip: tuple = ()) -> list:
@@ -140,7 +153,10 @@ def references(name: str, root: str = "", skip: tuple = ()) -> list:
     wanted = name.encode("utf-8")
     found = []
     files, _ = _source_files(root)
+    deadline = time.monotonic() + INDEX_SECONDS
     for path in files:
+        if time.monotonic() > deadline:
+            break
         full = os.path.join(root, path)
         try:
             if os.path.getsize(full) > MAX_FILE_BYTES:

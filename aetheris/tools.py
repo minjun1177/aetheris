@@ -2426,11 +2426,10 @@ def handle_find_symbol(name: str, references=False) -> str:
         return "[Error] A name is required, e.g. \"load_rules\" or \"load_*\"."
     wants_references = str(references).strip().lower() in ("true", "1", "yes", "on")
     try:
-        found, cut = symbols.find(name)
+        found, incomplete = symbols.find(name)
     except Exception as e:
         return f"[Error] Could not index the project: {e}"
-    note = (f"\n(Only the first {symbols.MAX_FILES} source files were indexed.)"
-            if cut else "")
+    note = f"\n(Incomplete: {incomplete}.)" if incomplete else ""
     exact = [d for d in found if symbols._matches(name, d["name"])]
     if not found:
         return (f"[Found] No definition named '{name}' in this project's source files. "

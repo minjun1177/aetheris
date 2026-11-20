@@ -328,7 +328,7 @@ Present whenever more than one harness is running in the same project (see The A
 - `use_skill`: Load the full instructions of a skill listed in the system prompt.
 - `submit_plan_for_approval`: Present a task plan and diff blueprint for approval before executing (plan mode).
 - `get_code_skeleton`: Return a JSON outline of a source file's structure via Tree-sitter.
-- `find_symbol`: Find where a function, class or method is defined anywhere in the project, with its signature and the class it is in, from a Tree-sitter symbol table kept per file and refreshed only when a file changes. `references=true` also lists where the name is used as an identifier, leaving out comments and strings. Needs `aetheris[ast]`.
+- `find_symbol`: Find where a function, class or method is defined anywhere in the project, with its signature and the class it is in, from a Tree-sitter symbol table kept per file and refreshed only when a file changes. `references=true` also lists where the name is used as an identifier, leaving out comments and strings. A first question in a very large repository answers from what it indexed in 20 seconds and says so; the next carries on from there. Symlinks out of the project are skipped. Needs `aetheris[ast]`.
 - `query_ast_node`: Search a source file for Tree-sitter S-expression patterns.
 - `spawn_agent`: Hire a second model for one self-contained job. See below.
 

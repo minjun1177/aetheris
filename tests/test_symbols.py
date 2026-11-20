@@ -106,6 +106,17 @@ else:
     except (OSError, NotImplementedError):
         pass
 
+    print("\n--- a large project is answered in time, and the next question goes further ---")
+    symbols.forget()
+    saved_budget = symbols.INDEX_SECONDS
+    symbols.INDEX_SECONDS = 0.0
+    found, note = symbols.find("load_rules")
+    check("past the budget it stops and says so", "not indexed" in note, note)
+    check("the tool passes that on", "Incomplete" in tools.handle_find_symbol("load_rules"))
+    symbols.INDEX_SECONDS = saved_budget
+    found, note = symbols.find("load_rules")
+    check("with time to spare it finishes", note == "" and found, note)
+
     print("\n--- the table follows the files ---")
     time.sleep(0.01)
     write("pkg/rules.py", "def renamed():\n    pass\n")
