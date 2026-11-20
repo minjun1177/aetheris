@@ -72,7 +72,8 @@ On **stdin**, one JSON object:
 
 **Important:** the hook's environment has no provider API keys in it, the same
 as `run_cmd`'s. Arguments are passed as the model wrote them, so a
-`{{env:NAME}}` placeholder arrives as the placeholder, not as the secret.
+`{{env:NAME}}` placeholder arrives as the placeholder, not as the secret, and
+`post_tool`'s `result` is redacted exactly as the model's copy is.
 
 A hook that runs longer than `HOOK_TIMEOUT` seconds (30 by default) counts as
 failed. At most `HOOK_OUTPUT_CHARS` characters of its output are kept.

@@ -196,9 +196,13 @@ def after_tool(tool: str, arguments: dict, result) -> str:
     hooks = hooks_for("post_tool", tool, arguments)
     if not hooks:
         return ""
+    from aetheris import vault
     files = _files_named(tool, arguments)
+    # Redacted as the model's copy is: a hook is the person's program, but a
+    # trusted project's `.hooks.json` is still the project's, and a `.env`
+    # value or a credential in the environment has no business reaching it.
     payload = {"event": "post_tool", "tool": tool, "arguments": arguments,
-               "files": files, "result": result if isinstance(result, str) else "",
+               "files": files, "result": vault.redact(result) if isinstance(result, str) else "",
                "cwd": os.getcwd()}
     said = []
     for hook in hooks:

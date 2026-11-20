@@ -115,6 +115,20 @@ check("the call still succeeded", str(result).startswith("[Success"), str(result
 check("and the hook's complaint travels with it",
       "[Hook]" in result and "exited 3" in result and "line 1 is wrong" in result, result)
 
+os.environ["GH_TOKEN"] = "ghp_hookshouldnotsee12345"
+write_json(hooks.user_config_file(), {"post_tool": [
+    {"match": "write_file", "command": f"{PY} -c \"import sys; d=sys.stdin.read(); "
+                                       f"sys.exit(3 if 'ghp_hook' in d else 0)\""}]})
+hooks.load(force=True)
+said = hooks.after_tool("write_file", {"filepath": "x"}, "[Success] token ghp_hookshouldnotsee12345")
+check("a post_tool hook gets the result redacted, as the model does", said == "", said)
+os.environ.pop("GH_TOKEN", None)
+write_json(hooks.user_config_file(), {
+    "pre_tool": [{"match": "write_file", "command": f"{PY} pre.py"}],
+    "post_tool": [{"match": "write_file", "command": f"{PY} post.py"}],
+})
+hooks.load(force=True)
+
 print("\n--- match is a permission rule ---")
 result, _ = quiet(tools.dispatch_tool, "list_dir", {"dirpath": "."})
 check("a tool the hooks do not match is left alone", "[Hook]" not in str(result)
