@@ -79,6 +79,9 @@ due, rest = scheduler.split_when("2026-12-01 08:15 release", now)
 check("a date and a time",
       datetime.datetime.fromtimestamp(due) == datetime.datetime(2026, 12, 1, 8, 15)
       and rest == "release")
+due, why = scheduler.split_when("2026-11-19 08:15 release", now)
+check("a date and a time already past are refused, not run at once",
+      due == 0 and "already passed" in why, why)
 due, why = scheduler.split_when("tomorrow go", now)
 check("anything else is refused, with what to type instead",
       due == 0 and "in 20m" in why, why)

@@ -125,6 +125,10 @@ def split_when(text: str, now: float = None) -> tuple:
                                               "%Y-%m-%d %H:%M")
         except ValueError:
             return 0.0, f"'{words[0]} {words[1]}' is not a real date and time"
+        if when.timestamp() <= now:
+            # A clock time rolls on to tomorrow; a date cannot, and run at once
+            # is not what anybody who wrote a date meant.
+            return 0.0, f"{words[0]} {words[1]} has already passed"
         return when.timestamp(), " ".join(words[2:])
     clock = _CLOCK.match(words[0])
     if clock:
