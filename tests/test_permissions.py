@@ -192,7 +192,10 @@ check("and ./src/app.py, the same file",
 # directory as spelled and as resolved differ. A symlinked working directory is
 # the same shape on any system; until it was allowed for, both checks above
 # failed on Windows CI.
-if hasattr(os, "symlink"):
+# POSIX only: Windows' abspath asks the OS for the working directory rather than
+# os.getcwd, so the shape cannot be faked there - and there the real 8.3 temp
+# directory is what the two checks above already run in.
+if hasattr(os, "symlink") and os.name != "nt":
     alias = os.path.join(tempfile.mkdtemp(prefix="perms-alias-"), "short")
     try:
         os.symlink(work, alias)

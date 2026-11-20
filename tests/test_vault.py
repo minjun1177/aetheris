@@ -211,8 +211,12 @@ try:
     os.environ["SSH_AUTH_SOCK"] = "/tmp/ssh-agent-socket-path"
     os.environ["MY_SERVICE_PASSWORD"] = "hunter2hunter2"
     try:
-        printed = quietly(tools.dispatch_tool, "run_cmd",
-                          {"command": "set" if WINDOWS else "env"})
+        # Only these three: a CI runner's whole environment is longer than a
+        # tool result keeps, and a line cut off proves nothing either way.
+        printed = quietly(tools.dispatch_tool, "run_cmd", {"command":
+                          "set GH_TOKEN & set SSH_AUTH_SOCK & set MY_SERVICE_PASSWORD"
+                          if WINDOWS else
+                          "env | grep -E '^(GH_TOKEN|SSH_AUTH_SOCK|MY_SERVICE_PASSWORD)='"})
         check("a credential in the environment is not printed to the model",
               "ghp_testtoken1234567890abcdef" not in printed
               and "hunter2hunter2" not in printed, printed[:80])
