@@ -118,10 +118,6 @@ from the working directory, but now only once they have been trusted.
   asked for a passphrase in the middle of a tool call, and no git call had a
   time limit. AI commits are now unsigned, and every git call has a 60-second
   ceiling and `GIT_TERMINAL_PROMPT=0`.
-- **`AUTO_ALLOW` is never saved.** `/set AUTO_ALLOW on` was written to
-  `settings.json`, so the next repository anybody opened ran every tool with no
-  question. It now lasts for the session, and a value an older version saved is
-  ignored. `--auto-allow` still turns it on for one `-p` run.
 - **`/tdd` refuses the shell detour.** The test files were locked to the file
   tools only, so `sed -i`, a redirect or `git checkout` through `run_cmd`
   edited the test anyway. A command that names a locked test file and writes

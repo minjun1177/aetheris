@@ -1020,13 +1020,6 @@ def parse_setting(name: str, raw) -> tuple:
 _saved: dict = {}           # what settings.json holds: only what was changed
 
 
-# Settings `/set` changes for the session and never writes down. AUTO_ALLOW is
-# the one that cannot be allowed to outlive the moment it was chosen for: saved,
-# the next repository anybody cloned and opened ran every tool its README talked
-# the model into, with nobody asked.
-SESSION_ONLY = frozenset({"AUTO_ALLOW"})
-
-
 def saved_settings() -> dict:
     """Only what was changed - which is all `settings.json` ever holds."""
     return dict(_saved)
@@ -1052,7 +1045,7 @@ def set_setting(name: str, raw) -> tuple:
             return False, problem
 
     globals()[name] = value
-    if value == _DEFAULTS.get(name) or name in SESSION_ONLY:
+    if value == _DEFAULTS.get(name):
         _saved.pop(name, None)      # back to the default: stop recording it
     else:
         _saved[name] = value
@@ -1063,8 +1056,6 @@ def set_setting(name: str, raw) -> tuple:
     except Exception as error:
         return True, (f"changed for this session only - {SETTINGS_FILE} could "
                       f"not be written ({error})")
-    if name in SESSION_ONLY:
-        return True, f"for this session only - {name} is never saved"
     return True, SETTINGS_FILE
 
 
@@ -1088,8 +1079,8 @@ def load_saved_settings() -> list:
     allowed = settable()
     for name, value in data.items():
         name = str(name).strip().upper()
-        if name not in allowed or name in SESSION_ONLY:
-            continue        # one an older version wrote down is not obeyed either
+        if name not in allowed:
+            continue
         parsed, problem = parse_setting(name, value)
         if problem:
             continue
