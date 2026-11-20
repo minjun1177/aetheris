@@ -12,7 +12,7 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~27,800 lines of Python, no framework. It talks to
+A terminal AI assistant, ~30,300 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
 model 45 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
@@ -1455,6 +1455,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_symbols.py` | That `find_symbol` finds definitions and not mentions, names a method's class and signature, honours `.gitignore`, lists references without comments or strings, and re-reads a file that changed |
 | `test_commands.py` | That a file in a commands directory is `/<name>`, that `$ARGUMENTS` and `$1`..`$9` take what was typed, that a project's file wins, that no file takes over a built-in, and that the menu offers them |
 | `test_diff.py` | That `/diff` lists only the AI's commits this session with their line counts, shows one commit's patch and the net change to the files it touched, and drops a commit `/undo` took back |
+| `test_fork.py` | That `/fork` moves the conversation to a new file and title, that what follows goes to the copy while the original keeps exactly what it had, and that both can be loaded |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |

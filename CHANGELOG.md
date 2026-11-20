@@ -66,6 +66,8 @@ own, and out to a package of its own only when someone needs it there.
 - **`-p --output-format stream-json`** writes the turn as it runs, one JSON
   object per line: `start`, `text`, `tool_use`, `tool_result`, and a final
   `result` that is the `--json` report. `--output-format json` is `--json`.
+- **`/fork [title]`** carries on in a copy of the conversation under a new id;
+  the original stays saved as it was, for `/load`.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.

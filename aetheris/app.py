@@ -2471,6 +2471,36 @@ async def _cmd_title(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+async def _cmd_fork(chat, user_input: str, cmd: str):
+    """`/fork [title]`: carry on in a copy, and leave the conversation so far saved as it is.
+
+    For trying a different approach without losing the one that was working:
+    the original keeps its file and its title, and `/load` goes back to it.
+    The files on disk are not copied - a fork is of the conversation only.
+    """
+    if not config.SAVE_CHAT_HISTORY:
+        print(f"  {S.WARN}⚠ Sessions are not being saved (/set SAVE_CHAT_HISTORY on), "
+              f"so there is nothing to fork from.{S.R}\n")
+        return _HANDLED
+    if config.ATTACCA_SESSION:
+        print(f"  {S.WARN}⚠ This conversation lives in an Attacca session, which "
+              f"cannot be copied from here.{S.R}\n")
+        return _HANDLED
+    if not any(m.get("role") != "system" for m in chat.messages):
+        print(f"  {S.GRAY}Nothing has been said yet - there is nothing to fork.{S.R}\n")
+        return _HANDLED
+    wanted = clean_title(user_input[len("/fork"):].strip())
+    original_id = save_session(chat.messages, chat.session_id)
+    original_title = config.SESSION_TITLE
+    config.SESSION_TITLE = wanted or (f"{original_title} (fork)" if original_title else "")
+    chat.session_id = save_session(chat.messages, None)
+    shown = config.SESSION_TITLE or chat.session_id
+    print(f"  {S.OK}✓ Forked:{S.R} {S.WHITE}now in {shown}{S.R} {S.MUTED}({chat.session_id}){S.R}")
+    print(f"  {S.MUTED}The original is saved as it was - {S.GRAY}/load {original_id}"
+          f"{S.MUTED} goes back to it. Files on disk are shared, not copied.{S.R}\n")
+    return _HANDLED
+
+
 async def _cmd_update(chat, user_input: str, cmd: str):
     update.run(connect._ask)
     return _HANDLED
@@ -3077,6 +3107,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/sessions" or cmd.startswith("/sessions ") or cmd == "/load", _cmd_sessions),
     (lambda cmd: cmd.startswith("/load"), _cmd_load),
     (lambda cmd: cmd == "/title" or cmd.startswith("/title "), _cmd_title),
+    (lambda cmd: cmd == "/fork" or cmd.startswith("/fork "), _cmd_fork),
     (lambda cmd: cmd == "/update", _cmd_update),
     (lambda cmd: cmd == "/context" or cmd.startswith("/context "), _cmd_context),
     (lambda cmd: cmd == "/effort" or cmd.startswith("/effort "), _cmd_effort),

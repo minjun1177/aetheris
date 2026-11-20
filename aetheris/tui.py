@@ -187,6 +187,8 @@ COMMANDS = (
     ("/sessions [title]", "Saved conversations, newest first - pick one to open it"),
     ("/load <id|title>", "Open a saved conversation directly, by id or by title"),
     ("/title [name]", "Show this session's title, or set it"),
+    ("/fork [title]", "Carry on in a copy of this conversation; the original stays "
+                      "saved as it is, for /load"),
     ("/export [filename]", "Write the conversation out as markdown"),
     ("/rewind [n]", "Take back the last prompt and everything after it - or the last n - "
                     "and put it back in the box to edit. Files stay; /undo is for those"),
