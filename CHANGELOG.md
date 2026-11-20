@@ -32,7 +32,21 @@ own, and out to a package of its own only when someone needs it there.
 
 ---
 
-## Unreleased
+## 1.3.0 - 2026-11-20
+
+Aetheris that works while nobody is typing, and that asks less while somebody
+is. `/loop` and `/schedule` send prompts on a timer, `run_cmd` runs a command
+in the background and tells the model when it ends, and a sub-agent can work
+on another provider's model or in a git worktree of its own. Shift+Tab cycles
+the permission modes, with a new `accept-edits`; hooks run the person's own
+commands around tool calls; `/compact`, `/diff`, `/fork`, `/init`, `/add-dir`
+and user-defined slash commands join the prompt, and `multi_edit` and
+`find_symbol` the tools. Most of the rest is the security pass: a cloned
+project's `.mcp.json` and `.permissions.json` are asked about before they are
+used, `get_url` stays on public addresses, credentials stay out of the
+conversation, and `/undo` puts back exactly what was there. One promised
+surface changed in how it is used - those two project files are read only once
+trusted - and nothing in the Compatibility table was removed or renamed.
 
 - **Permission modes, on Shift+Tab.** `manual`, `plan`, `accept-edits`,
   `deepthink` and `auto` are one cycle at the prompt, and the mode in force is
