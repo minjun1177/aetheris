@@ -132,6 +132,13 @@ _pending: set = set()
 # past the timeout. Probing costs a subprocess, and the answer does not change.
 _off: dict = {}
 
+# (check name, root) the person has agreed may run after an edit, this session.
+# A check runs code the model may just have written - a `conftest.py`, a test,
+# a `package.json` script - so writing a file must not be the same thing as
+# running one. Asked once per project and command, through the same rules and
+# prompt as `run_cmd`, because that is what it is.
+_approved: set = set()
+
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _MAX_LEVELS = 8          # how far up from a file to look for a marker
 
@@ -323,7 +330,10 @@ def _environment() -> dict:
     reads to mean "run once and exit". Without it `npm test` on a project using
     a watch-mode runner would sit there until the timeout killed it.
     """
-    environment = dict(os.environ)
+    # Without the provider keys, as `run_cmd` has: the suite runs whatever the
+    # model wrote into it, and nothing it runs needs this harness's keys.
+    from aetheris import providers
+    environment = providers.child_environment()
     environment.update({"CI": "1", "NO_COLOR": "1", "FORCE_COLOR": "0",
                         "PYTHONUNBUFFERED": "1"})
     return environment
@@ -392,6 +402,13 @@ def run_pending() -> list:
             _off[key] = reason
             continue
 
+        refused = _not_agreed(check, root, key)
+        if refused:
+            _off[key] = refused
+            print(f"  {S.MUTED}✗ auto-verify will not run {_spelled(check)} here: "
+                  f"{refused}{S.R}  {S.GRAY}/autoverify on to be asked again{S.R}")
+            continue
+
         print(f"  {S.MUTED}⟳ auto-verify: {_spelled(check)}{S.R}"
               f"  {S.GRAY}in {os.path.basename(root) or root}{S.R}")
         report = _run(check, root, changed)
@@ -414,9 +431,44 @@ def run_pending() -> list:
     return reports
 
 
+def _not_agreed(check: Check, root: str, key) -> str:
+    """"" when this check may run here, otherwise why not.
+
+    A `deny` rule on the command refuses it, an `allow` rule or `/automode`
+    lets it through, and anything else is the approval prompt - once, after
+    which the answer holds for the session.
+    """
+    if key in _approved:
+        return ""
+    from aetheris import permissions
+    from aetheris.tui import _approval_prompt
+    command = _spelled(check)
+    verdict, rule = permissions.decide("run_cmd", {"command": command})
+    if verdict == "deny":
+        return f"blocked by permission rule {rule}"
+    config.POLICY_AUTO_ALLOW = verdict == "allow"
+    try:
+        agreed = _approval_prompt(
+            "Auto-verify",
+            [("command", command), ("in", root),
+             ("why", "runs the project's tests after each turn that writes a "
+                     "file - including test code the model wrote. Asked once "
+                     "per session.")],
+            rule=f"run_cmd({command})")
+    except Exception:
+        agreed = False
+    finally:
+        config.POLICY_AUTO_ALLOW = False
+    if not agreed:
+        return "not approved"
+    _approved.add(key)
+    return ""
+
+
 def reset() -> None:
     """Try every check again - what `/autoverify on` means after one was off."""
     _off.clear()
+    _approved.clear()
     _pending.clear()
 
 

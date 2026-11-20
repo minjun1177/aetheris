@@ -5,7 +5,7 @@ Two things arrive at the prompt that are not typing.
 **A paste.** Forty lines of a log pasted into the box used to be forty lines
 of box: the prompt grew past the screen, and the question typed after them was
 somewhere under it. A paste of more than a line is shown as what it is -
-`[Copied text Line:40 Chars:2113]` - and sent as what it was.
+`[Pasted text Line:40 Chars:2113]` - and sent as what it was.
 
 **The mouse.** With `MOUSE_SELECT` on, a drag over what is printed above the
 prompt selects it the way `screen` understands it: inside the thought or the
@@ -43,11 +43,11 @@ class Expand(str):
 def paste_label(text: str) -> str:
     """The placeholder for `text`, remembered so it can be put back."""
     lines = text.count("\n") + 1
-    label, number = f"[Copied text Line:{lines} Chars:{len(text)}]", 1
+    label, number = f"[Pasted text Line:{lines} Chars:{len(text)}]", 1
     # Two pastes of the same shape are still two pastes.
     while _pastes.get(label, text) != text:
         number += 1
-        label = f"[Copied text #{number} Line:{lines} Chars:{len(text)}]"
+        label = f"[Pasted text #{number} Line:{lines} Chars:{len(text)}]"
     _pastes[label] = text
     return label
 
@@ -275,7 +275,7 @@ def view_scroll(app, rows: int) -> None:
     view.scroll = wanted
     _view = view if wanted else None
     _draw(view)
-    _note = ((f"{S.MUTED}⇡ {wanted} rows up - drag to copy, any key goes back{S.R}",
+    _note = ((f"{S.MUTED}⇡ {wanted} rows up{S.R}",
               time.monotonic() + NOTE_SECONDS) if wanted else ("", 0.0))
     try:
         app.invalidate()
@@ -391,7 +391,7 @@ def scroll(app, rows: int) -> None:
 def _say_scrolled(drag) -> None:
     global _note
     if drag.scroll:
-        _note = (f"{S.MUTED}⇡ {drag.scroll} rows up - let go to copy{S.R}",
+        _note = (f"{S.MUTED}⇡ {drag.scroll} rows up{S.R}",
                  time.monotonic() + NOTE_SECONDS)
     else:
         _note = ("", 0.0)

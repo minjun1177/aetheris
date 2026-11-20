@@ -32,6 +32,53 @@ own, and out to a package of its own only when someone needs it there.
 
 ---
 
+## Unreleased
+
+Security and data-safety fixes. One of them changes how a project file in the
+Compatibility table is used: `.mcp.json` and `.permissions.json` are still read
+from the working directory, but now only once they have been trusted.
+
+- **A project's `.mcp.json` and `.permissions.json` are asked about first.**
+  A cloned repository's `.mcp.json` started its commands at launch with the
+  person's environment filled in, and its `.permissions.json` could allow
+  `run_cmd` outright. Each is now shown and asked about (`Trust this file?
+  [y/N]`). A yes is kept in `~/.aetheris/trusted-configs.json` against the
+  file's sha256, so a changed file is asked about again; a no lasts the
+  session. An untrusted permission file keeps its `deny` rules. Under `-p`
+  nothing is asked and an untrusted file is not used.
+- **`get_url` is never handed a secret.** It runs without an approval prompt,
+  yet `{{env:NAME}}` in its URL was filled in from `.env` - so one line of
+  prompt injection could send a key anywhere. It now refuses a placeholder and
+  points at `call_api`, which asks.
+- **Auto-verify is approved like `run_cmd`.** It runs the project's tests,
+  including test code the model just wrote, so it is asked about once per
+  project and session, honours `deny` rules, and no longer gets the provider
+  keys in its environment.
+- **`/undo` restores what was there.** The AI commit swept up the person's
+  uncommitted changes to the same file and `/undo` took them with it; an
+  untracked file the AI overwrote was deleted by `/undo`. The content before
+  each write is now kept as a git object and put back exactly. A file name
+  that is not ASCII came back from git quoted, so `/undo` of a Korean file
+  name did nothing and said it had.
+- **Permission rules match the file, not the spelling.** `write_file(*/.env)`
+  missed `.env`; `edit_file(src/*)` allowed `src/../../etc/passwd`; an allow
+  on `copy_file`'s source let it write `dst` anywhere; a symlink led out of an
+  allowed directory. Paths are normalised, resolved, and every path a call
+  names must be allowed.
+- **Reading outside the project asks.** `read_file`, `list_dir`, `view_image`
+  and the code-structure tools ask before reading outside the working
+  directory.
+- **Writing through a symlink keeps the link.** An atomic write replaced the
+  link with a separate file and left the target unchanged.
+- **Remote control.** The `Host` check took any hex-letter name such as
+  `deadbeef.cafe` for an IP address; it parses addresses now. Three wrong
+  pairing codes also shut that address out for `REMOTE_LOCKOUT` seconds, so
+  codes cannot be cycled through three guesses at a time.
+- **The welcome banner fits a 20-row terminal** with the prompt_toolkit tip.
+- **A paste reads `[Pasted text ...]`** rather than `[Copied text ...]`.
+
+---
+
 ## 1.2.0 - 2026-11-11
 
 Aetheris without a person at the keyboard, and a small model that loses its

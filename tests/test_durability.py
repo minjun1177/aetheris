@@ -99,6 +99,21 @@ proc.wait()
 check("a killed writer leaves the old file whole",
       json.loads(mid_write).get("kept") == "original", repr(mid_write[:40]))
 
+if hasattr(os, "symlink"):
+    real_file = os.path.join(work, "real.txt")
+    link = os.path.join(work, "link.txt")
+    atomic.write_text(real_file, "before\n")
+    try:
+        os.symlink(real_file, link)
+    except OSError:              # Windows without the privilege to make one
+        link = ""
+    if link:
+        atomic.write_text(link, "after\n")
+        check("writing through a symlink keeps the link",
+              os.path.islink(link), str(os.path.islink(link)))
+        check("and changes the file it points at",
+              open(real_file, encoding="utf-8").read() == "after\n")
+
 print("\n--- the context estimate ---")
 korean = [{"role": "user", "content": "안녕하세요. 이 하네스는 로컬 모델을 위한 도구 실행 환경입니다." * 8}]
 english = [{"role": "user", "content": "This harness is a tool execution environment." * 12}]

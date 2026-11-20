@@ -128,6 +128,10 @@ code, _ = request("/", token=TOKEN, host="evil.example.com")
 check("a Host this machine was never called is refused", code == 403, str(code))
 check("...before the token is even looked at",
       request("/", token="", host="evil.example.com")[0] == 403)
+check("a name made only of hex letters is a name, not an address",
+      request("/", token=TOKEN, host="deadbeef.cafe")[0] == 403)
+check("a bare IP literal is still how a phone gets in",
+      request("/", token=TOKEN, host="192.168.1.5:8765")[0] == 200)
 code, _ = request("/nothing/here", token=TOKEN)
 check("an unknown path is a 404, not a file", code == 404, str(code))
 
@@ -587,11 +591,16 @@ check("a wrong code is refused", code == 403, str(code))
 for _ in range(2):
     request("/pair", TOKEN, "POST", {"code": wrong})
 code, _ = request("/pair", TOKEN, "POST", {"code": secret})
+# 429 rather than 403: the third wrong one also shut the address out for a while.
 check("and three wrong ones kill the code, right answer or not",
-      code == 403, str(code))
+      code in (403, 429) and remote._pairing is None, str(code))
 notices = remote.take_notices()
 check("which is said at the prompt too",
       any("wrong" in text for text in notices), str(notices))
+code, _ = request("/pair", TOKEN, "POST", {})
+check("and that address waits before it may ask for another code",
+      code == 429, str(code))
+remote._bad.clear()                                    # the wait, skipped
 
 request("/pair", TOKEN, "POST", {})                    # a fresh code
 secret = "".join(ch for ch in remote.take_notices()[-1].split("Code:")[1]

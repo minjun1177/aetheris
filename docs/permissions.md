@@ -13,6 +13,22 @@ the middle ground.
 Rules are read from `./.permissions.json` and `~/.aetheris/permissions.json`;
 rules from both files apply. Copy `.permissions.json.example` to start.
 
+**A project file is trusted before it is used.** `./.mcp.json` and
+`./.permissions.json` come with the repository, and a repository you just
+cloned is somebody else's instructions: its `.mcp.json` starts commands with
+your environment variables filled in, and its `.permissions.json` can allow
+`run_cmd` outright. So at startup (and on `/mcp reload` or `/perms reload`)
+each one is shown - the commands it would start, the calls it would allow - and
+you are asked `Trust this file? [y/N]`.
+
+| Answer | What happens |
+|:---|:---|
+| **y** | Used. Remembered in `~/.aetheris/trusted-configs.json` (or `~/.localchat/`) against the file's sha256, so a `git pull` that changes it is asked about again |
+| **n** | Not used this session - no MCP server from it starts, and of its permission rules only the `deny` ones apply. Not saved: you are asked again next time |
+| `-p` | Nothing can be asked, so an untrusted file is not used; run `aetheris` there once interactively to trust it |
+
+The files in `~/.aetheris/` are yours and are always used.
+
 ```json
 {
   "allow": ["run_cmd(git status)", "mcp__filesystem__*"],
@@ -25,6 +41,18 @@ against the call's main argument - the command for `run_cmd`, the path for a
 file tool, the URL for a network tool. Both halves accept `*` and `?`. A pattern
 with no wildcard also covers `<pattern> <anything>`, so `run_cmd(git status)`
 already allows `git status --short`.
+
+A path is matched as the file it names, not as the text the model typed:
+relative to the working directory when it is inside it, absolute either way,
+with `..` resolved and a symlink followed. So `write_file(*/.env)` denies
+`.env`, `./.env` and `docs/../.env` alike, and `edit_file(src/*)` does not
+allow `src/../../etc/passwd`. A call that names two paths - `copy_file`,
+`move_file` - is allowed only when both are.
+
+**Reading outside the project asks.** `read_file`, `list_dir`, `view_image` and
+the code-structure tools read anything in the working directory without a
+question; a path outside it (`~/.ssh`, another project) gets an approval prompt
+first. `a` there, or a rule such as `read_file(/home/me/notes/*)`, allows it.
 
 - **deny** does not run and does not ask. The tool's handler is never reached,
   and the model is told it is blocked so it stops retrying.
@@ -85,9 +113,11 @@ DATABASE_URL="{{env:DATABASE_URL}}"
 APP_ENV=development
 ```
 
-and when it writes that placeholder back - in a `run_cmd`, a `get_url`, a
-`call_api` header, a `run_python` snippet - the harness puts the real value in
-on the way to the tool. `curl -H "Authorization: Bearer {{env:STRIPE_KEY}}"`
+and when it writes that placeholder back - in a `run_cmd`, a `call_api`
+header, a `run_python` snippet - the harness puts the real value in on the way
+to the tool. Never in a `get_url`: that tool runs without asking, so a URL
+carrying a key would leave the machine with nobody having approved it; it
+refuses a placeholder and points the model at `call_api`, which asks. `curl -H "Authorization: Bearer {{env:STRIPE_KEY}}"`
 works, and the model has still never seen the key. The approval prompt shows
 the placeholder too, with a line saying which secret is filled in, so approving
 is not a way to find out either.

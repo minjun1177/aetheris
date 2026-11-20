@@ -20,12 +20,16 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# A home of its own: the trust this file records must not land in the real one,
+# and the real one's permissions.json must not change what is tested here.
+os.environ["AETHERIS_HOME"] = tempfile.mkdtemp(prefix="perms-home-")
 from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
 config.PERMISSIONS_ENABLED = True
 
 from aetheris import permissions
+from aetheris import trust
 
 failures = []
 
@@ -42,6 +46,8 @@ def load(rules):
     with open(os.path.join(work, ".permissions.json"), "w", encoding="utf-8") as f:
         json.dump(rules, f)
     os.chdir(work)
+    # Its allow rules count only once it is trusted - see test_trust.py.
+    trust.remember(os.path.join(work, ".permissions.json"), True)
     permissions.load_rules(force=True)
     return work
 
@@ -149,6 +155,37 @@ check("deny wins over the bare allow",
 load({})
 check("an empty rule set changes nothing",
       verdict("run_cmd", command="rm -rf /") == "ask")
+
+print("\n--- a rule about a path is about the file, however it is spelled ---")
+work = load({"deny": ["write_file(*/.env)"], "allow": ["edit_file(src/*)", "copy_file(docs/*)"]})
+for spelling in (".env", "./.env", "src/../.env", os.path.join(work, ".env")):
+    check(f"deny */.env catches {spelling!r}",
+          verdict("write_file", filepath=spelling) == "deny")
+check("an allow on src/* still covers a file in src",
+      verdict("edit_file", filepath="src/app.py") == "allow")
+check("and ./src/app.py, the same file",
+      verdict("edit_file", filepath="./src/app.py") == "allow")
+check("but not a path that only starts with src/ and climbs out",
+      verdict("edit_file", filepath="src/../../etc/passwd") == "ask")
+check("copy_file allowed by its source no longer writes anywhere",
+      verdict("copy_file", src="docs/a.md", dst="/home/u/.bashrc") == "ask")
+check("both ends inside the rule is still allowed",
+      verdict("copy_file", src="docs/a.md", dst="docs/b.md") == "allow")
+if hasattr(os, "symlink"):
+    os.makedirs(os.path.join(work, "src"), exist_ok=True)
+    outside = tempfile.mkdtemp(prefix="perms-outside-")
+    try:
+        os.symlink(outside, os.path.join(work, "src", "escape"))
+        check("a symlink out of src/ is not covered by allow src/*",
+              verdict("edit_file", filepath="src/escape/x.py") == "ask")
+    except OSError:
+        pass
+    try:
+        os.symlink(os.path.join(work, ".env"), os.path.join(work, "innocent.txt"))
+        check("and a link to .env is denied as .env",
+              verdict("write_file", filepath="innocent.txt") == "deny")
+    except OSError:
+        pass
 
 os.chdir(origin)
 

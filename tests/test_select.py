@@ -476,18 +476,18 @@ check("the wheel is the wheel wherever it turns, the prompt's own rows included"
 print("\n--- a paste is shown as its size and sent as it was ---")
 LOG = "alpha\nbeta\ngamma"
 label = promptkeys.paste_label(LOG)
-check("more than a line of it is a placeholder", label == "[Copied text Line:3 Chars:16]", label)
+check("more than a line of it is a placeholder", label == "[Pasted text Line:3 Chars:16]", label)
 check("which says how much there is", promptkeys.is_long(LOG) and not promptkeys.is_long("a word"))
 check("a long single line is one too", promptkeys.is_long("x" * (promptkeys.PASTE_CHARS + 1)))
 check("put back on the way out, where it was",
       promptkeys.expand_pastes(f"why does {label} fail?") == f"why does {LOG} fail?")
 other = promptkeys.paste_label("one\ntwo\nthree333")
 check("two pastes of the same shape are still two",
-      other == "[Copied text #2 Line:3 Chars:16]"
+      other == "[Pasted text #2 Line:3 Chars:16]"
       and promptkeys.expand_pastes(f"{label} and {other}") == f"{LOG} and one\ntwo\nthree333", other)
 check("the same thing pasted twice is one placeholder", promptkeys.paste_label(LOG) == label)
 check("a placeholder somebody edited goes as typed",
-      promptkeys.expand_pastes("[Copied text Line:3 Chars:99]") == "[Copied text Line:3 Chars:99]")
+      promptkeys.expand_pastes("[Pasted text Line:3 Chars:99]") == "[Pasted text Line:3 Chars:99]")
 check("and a line with none is untouched", promptkeys.expand_pastes("hello") == "hello")
 
 
@@ -510,7 +510,7 @@ if config.PROMPT_TOOLKIT_AVAILABLE:
     event = Pasted("first\r\nsecond\r\n")
     paste(event)
     check("the box gets the placeholder, whatever the line endings were",
-          event.current_buffer.text == "[Copied text Line:2 Chars:12]", event.current_buffer.text)
+          event.current_buffer.text == "[Pasted text Line:2 Chars:12]", event.current_buffer.text)
     check("for the text with one kind of line ending",
           promptkeys.expand_pastes(event.current_buffer.text) == "first\nsecond")
     event = Pasted("just this")
@@ -528,7 +528,7 @@ if config.PROMPT_TOOLKIT_AVAILABLE:
     finally:
         screen.clipboard = real_clipboard
     check("a right click pastes what the clipboard holds, the same way",
-          event.current_buffer.text == "[Copied text Line:3 Chars:18]", event.current_buffer.text)
+          event.current_buffer.text == "[Pasted text Line:3 Chars:18]", event.current_buffer.text)
 
 print("\n--- a drag carried past the top of the screen ---")
 # What a terminal's own selection does: hold the button, turn the wheel - or

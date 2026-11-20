@@ -1033,6 +1033,36 @@ def _as_path(value, name: str = "filepath") -> tuple:
                 f'Send it as "{name}": "path/to/file".')
 
 
+def _outside_workspace(path: str) -> bool:
+    """Whether `path` - followed through any symlink - is outside the working directory."""
+    try:
+        resolved = os.path.normcase(os.path.realpath(path))
+        root = os.path.normcase(os.path.realpath(os.getcwd()))
+        return os.path.commonpath([resolved, root]) != root
+    except (OSError, ValueError):      # another drive on Windows, or no cwd
+        return True
+
+
+def _read_outside(tool: str, path: str) -> str:
+    """"" when `tool` may read `path`, otherwise the refusal.
+
+    Inside the project a read asks nobody. Outside it - `~/.ssh`, another
+    project, the rest of the home directory - it is asked about first: what a
+    model reads goes to the provider, and a page it fetched may have told it
+    what to go and read. An allow rule (`read_file(/some/dir/*)`) or `/automode`
+    waves it through as for any other approval.
+    """
+    if not _outside_workspace(path):
+        return ""
+    absolute = os.path.abspath(path)
+    if _approval_prompt("Read Outside The Project",
+                        [("tool", tool), ("path", absolute)],
+                        rule=f"{tool}({absolute})"):
+        return ""
+    return (f"[System] User denied {tool} outside the project folder: {absolute}. "
+            "Work with the files in the project, or ask the user for what you need.")
+
+
 def _as_text(value) -> str:
     """A body as text, allowing for the model that sent it a line at a time."""
     if isinstance(value, str):
@@ -1048,6 +1078,9 @@ def handle_read_file(filepath: str, start_line=0, end_line=0, limit=0) -> str:
     filepath, complaint = _as_path(filepath)
     if complaint:
         return complaint
+    refused = _read_outside("read_file", filepath)
+    if refused:
+        return refused
     if images.is_image(filepath):
         # Read as text a PNG is a screenful of broken bytes that says nothing
         # and costs a thousand tokens to say it. A small model reaches for
@@ -1116,6 +1149,9 @@ def handle_view_image(filepath: str) -> str:
     filepath, complaint = _as_path(filepath)
     if complaint:
         return complaint
+    refused = _read_outside("view_image", filepath)
+    if refused:
+        return refused
     if not os.path.exists(filepath):
         return f"{config.TOOL_ERROR_PREFIX} No such file: {filepath}"
     if not images.is_image(filepath):
@@ -1580,6 +1616,13 @@ def handle_get_url(url: str) -> str:
     url, complaint = _as_path(url, "url")
     if complaint:
         return complaint
+    if "{{env:" in url:
+        # `get_url` asks nobody, so it is never handed a secret (vault.FILLED_IN).
+        # Sent as written the placeholder would only fail; said, the model can
+        # use the tool that does put the value in - after the person agrees.
+        return (f"{config.TOOL_ERROR_PREFIX} get_url does not fill in "
+                "{{env:...}} values. A request that needs a secret goes through "
+                "call_api, which asks the user first.")
     try:
         response = requests.get(url, timeout=15, stream=True,
                                 headers={"User-Agent": "Mozilla/5.0"})
@@ -1731,6 +1774,9 @@ def handle_list_dir(dirpath: str) -> str:
     dirpath, complaint = _as_path(dirpath, "dirpath")
     if complaint:
         return complaint
+    refused = _read_outside("list_dir", dirpath)
+    if refused:
+        return refused
     if not os.path.exists(dirpath):
         return f"[Error] Directory not found: {dirpath}"
     try:
@@ -2270,6 +2316,9 @@ def handle_get_code_skeleton(file_path: str) -> str:
     if not file_path:
         return "[Error] file_path is required."
 
+    refused = _read_outside("get_code_skeleton", file_path)
+    if refused:
+        return refused
     if not os.path.isfile(file_path):
         return f"[Error] File not found: {file_path}"
 
@@ -2308,6 +2357,9 @@ def handle_query_ast_node(file_path: str, pattern: str, language: str = "") -> s
     if not pattern:
         return "[Error] pattern is required."
 
+    refused = _read_outside("query_ast_node", file_path)
+    if refused:
+        return refused
     if not os.path.isfile(file_path):
         return f"[Error] File not found: {file_path}"
 
@@ -2933,6 +2985,11 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
     # between an agent getting on with the job and one talking about it - see
     # `channel.note_tool`.
     channel.note_tool(function_name)
+    # What the files hold before the write, where that is not HEAD's version -
+    # so `/undo` can put back the person's uncommitted work rather than the
+    # last commit (git_ops.remember_before).
+    if git_ops.enabled():
+        git_ops.remember_before(_target_paths(function_name, arguments))
     try:
         # The handler is the only thing that sees a real secret. `arguments` is
         # what was displayed, is what goes on being displayed, and is what the

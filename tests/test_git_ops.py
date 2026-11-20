@@ -243,6 +243,56 @@ finally:
 check("a file another agent holds is not moved out from under it",
       result.startswith(config.TOOL_REFUSAL_PREFIX) and os.path.exists(held), result[:120])
 
+print("\n--- /undo puts back what was there, not what was last committed ---")
+# The AI commit used to sweep the person's uncommitted changes in with the
+# AI's, and undo restored the parent commit - so both went. And a path that is
+# not plain ASCII came back from git quoted and octal-escaped, so undo
+# "removed" a name that was no file and left the AI's version in place.
+root = new_repo()
+os.chdir(root)
+write(root, "mine.txt", "committed\n")
+write(root, "한글.txt", "committed\n")
+git("add", "-A", cwd=root)
+git("commit", "-q", "-m", "two files", cwd=root)
+git_ops._repo_root_cache.clear()
+
+tools.dispatch_tool("write_file", {"filepath": "한글.txt", "content": "ai\n"})
+ok, said = git_ops.undo_last()
+check("a Korean file name is undone", ok and read(root, "한글.txt") == "committed\n",
+      f"{said} / {read(root, '한글.txt')!r}")
+check("and named as itself, not escaped", "한글.txt" in said and "\\3" not in said, said)
+check("leaving nothing staged", git("status", "--porcelain", cwd=root).stdout == "",
+      git("status", "--porcelain", cwd=root).stdout)
+
+write(root, "mine.txt", "committed\nmy own work\n")
+tools.dispatch_tool("write_file", {"filepath": "mine.txt",
+                                   "content": "committed\nmy own work\nai\n"})
+ok, said = git_ops.undo_last()
+check("uncommitted work in an edited file survives the undo",
+      ok and read(root, "mine.txt") == "committed\nmy own work\n", repr(read(root, "mine.txt")))
+check("and is uncommitted again, as it was",
+      git("status", "--porcelain", cwd=root).stdout.strip() == "M mine.txt",
+      git("status", "--porcelain", cwd=root).stdout)
+
+write(root, "scratch.txt", "my notes\n")
+tools.dispatch_tool("write_file", {"filepath": "scratch.txt", "content": "ai\n"})
+ok, said = git_ops.undo_last()
+check("an untracked file the AI overwrote comes back, not deleted",
+      ok and os.path.exists(os.path.join(root, "scratch.txt"))
+      and read(root, "scratch.txt") == "my notes\n", said)
+check("and is untracked again",
+      "?? scratch.txt" in git("status", "--porcelain", cwd=root).stdout)
+
+tools.dispatch_tool("delete_file", {"filepath": "mine.txt"})
+ok, said = git_ops.undo_last()
+check("a deleted file with uncommitted work comes back with that work",
+      ok and read(root, "mine.txt") == "committed\nmy own work\n", said)
+
+tools.dispatch_tool("write_file", {"filepath": "fresh.txt", "content": "new\n"})
+ok, said = git_ops.undo_last()
+check("a file the AI created is still removed",
+      ok and not os.path.exists(os.path.join(root, "fresh.txt")), said)
+
 print("\n--- the startup panel counts a new file as untracked, not modified ---")
 from aetheris import tui      # noqa: E402
 check("nothing listed is clean", tui._describe_status("") == "clean")

@@ -39,6 +39,13 @@ it stops and says which one:
 Commit or discard those first - undoing now would take them with it.
 ```
 
+**Undo puts back what was there, not what was last committed.** A file with
+your own uncommitted changes - or an untracked file the AI overwrote - is
+remembered just before the tool writes it (as a git object, named in the AI
+commit's message). `/undo` restores exactly that: your uncommitted work comes
+back uncommitted, an untracked file comes back untracked. File names in any
+script, Korean included, are undone as themselves.
+
 Outside a git repository, and on a machine with no git installed, nothing is
 committed and nothing breaks. Set `GIT_AUTO_COMMIT = False` in `config.py` to
 default it off.
@@ -54,6 +61,14 @@ by the third tool call. So the file is wrong, the turn ends, and you find out
 by running the program yourself, copying the traceback, and pasting it back in.
 
 That round trip is now the harness's job.
+
+**It is asked about once.** A check runs the project's tests - including any
+test or `conftest.py` the model just wrote - so writing a file is not allowed to
+mean running one. The first time a project's check would run, you get the same
+approval prompt as `run_cmd` (`a` saves `run_cmd(<the command>)` as a rule; a
+`deny` rule on it refuses it). The answer holds for the session, and
+`/autoverify on` asks again. The check runs without this harness's API keys in
+its environment, as `run_cmd` does.
 
 When a turn changes a file, the harness works out what kind of project the file
 belongs to, runs that project's own check once the turn's tool calls are all

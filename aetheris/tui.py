@@ -88,6 +88,11 @@ _LOGO_WIDTH = max(len(row) for row in _LOGO_WIDE.splitlines())
 # rule under it, one blank line, and the prompt the person then types at.
 _WELCOME_CHROME = 15
 
+
+def _tip_rows() -> int:
+    """The prompt_toolkit tip: one more row, when there is one to print."""
+    return 0 if config.PROMPT_TOOLKIT_AVAILABLE else 1
+
 def _logo() -> str:
     """The face, sized to the terminal it is about to be printed into.
 
@@ -98,7 +103,8 @@ def _logo() -> str:
     were meant to see was the one thing they never did.
     """
     rows = len(_LOGO_WIDE.splitlines()) + 2        # a blank line above and below
-    fits = config.tw() >= _LOGO_WIDTH + 2 and th() >= rows + _WELCOME_CHROME
+    fits = (config.tw() >= _LOGO_WIDTH + 2
+            and th() >= rows + _WELCOME_CHROME + _tip_rows())
     return f"{S.ACCENT}{S.BOLD}\n{_LOGO_WIDE if fits else _LOGO_NARROW}\n{S.R}"
 
 
@@ -129,7 +135,10 @@ def _welcome():
     print(f"  {S.GRAY}memory{S.R}     {S.WHITE}{memory_count} item{'s' if memory_count != 1 else ''}{S.R}")
     print(f"  {S.GRAY}sessions{S.R}   {S.WHITE}{session_count} saved{S.R}")
     print(f"  {S.GRAY}Type {S.ACCENT}/help{S.GRAY} for commands · {S.ACCENT}/exit{S.GRAY} to quit{S.R}")
-    if not config.PROMPT_TOOLKIT_AVAILABLE:
+    narrow = len(_LOGO_NARROW.splitlines()) + 2
+    if _tip_rows() and th() >= narrow + _WELCOME_CHROME + _tip_rows():
+        # Only where it fits: on a terminal with no row to spare, the tip
+        # pushed the logo off the top - the one thing meant to be seen.
         print(f"  {S.WARN}⚠ Tip: pip install prompt_toolkit for history & autocompletion.{S.R}")
     print(f"  {_hr()}")
     # Exactly one blank line under it, and nothing else: every row spent here is
@@ -507,6 +516,9 @@ def _show_perms():
 
     for problem in permissions.errors:
         print(f"  {S.ERR}✗ {problem}{S.R}")
+    for path in permissions.untrusted:
+        print(f"  {S.WARN}⚠ {path} is not trusted - only its deny rules apply. "
+              f"/perms reload asks again.{S.R}")
 
     denied = permissions.rules_for("deny")
     allowed = permissions.rules_for("allow")
@@ -560,6 +572,9 @@ def _show_mcp(detail: str = "", only: str = ""):
 
     for problem in getattr(mcp_client.load_servers, "errors", []):
         print(f"  {S.ERR}✗ {problem}{S.R}")
+    for path in mcp_client.untrusted:
+        print(f"  {S.WARN}⚠ {path} is not trusted - none of its servers are started. "
+              f"/mcp reload asks again.{S.R}")
 
     if not servers:
         print(f"  {S.GRAY}No servers configured. Declare one in:{S.R}")

@@ -30,9 +30,14 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ["AETHERIS_HOME"] = tempfile.mkdtemp(prefix="verify-home-")
 from aetheris import config
 config.MCP_ENABLED = False
 config.SAVE_CHAT_HISTORY = False
+# Running a check is approved like `run_cmd` (see the section on it below);
+# everything before that section is about the check itself, so it is waved
+# through here rather than depending on whatever the machine's settings say.
+config.AUTO_ALLOW = True
 
 from aetheris import llm_client, tools, verify      # noqa: E402
 
@@ -276,6 +281,69 @@ check("three failures in a row is where it gives up",
 giving_up = verify.gave_up_message(llm_client.MAX_VERIFY_FAILURES)
 check("and it tells the model to explain rather than guess again",
       "Stop editing" in giving_up and "/undo" in giving_up)
+
+# ---------------------------------------------------------------------------
+print("\n--- a check runs what the model wrote, so it is approved like run_cmd ---")
+from aetheris import permissions, tui                             # noqa: E402
+config.AUTO_ALLOW = False
+asked = []
+real_prompt = tui._approval_prompt
+
+
+def answer(reply):
+    def prompt(label, details, rule=""):
+        asked.append((label, rule))
+        return reply
+    return prompt
+
+
+gate = os.path.join(HOME, "gate")
+with using(PROBE):
+    tui._approval_prompt = answer(False)
+    verify.note_written([probe_project(gate, 1, "boom")])
+    check("declined, it does not run", verify.run_pending() == [])
+    check("the person was asked, as run_cmd",
+          asked and asked[0][1].startswith("run_cmd("), str(asked))
+    verify.note_written([os.path.join(gate, "unit.probe")])
+    check("and is not asked again after every edit",
+          verify.run_pending() == [] and len(asked) == 1, str(asked))
+
+with using(PROBE):
+    asked.clear()
+    tui._approval_prompt = answer(True)
+    verify.note_written([os.path.join(gate, "unit.probe")])
+    first = verify.run_pending()
+    verify.note_written([os.path.join(gate, "unit.probe")])
+    second = verify.run_pending()
+    check("approved, it runs", len(first) == 1 and first[0].ok is False)
+    check("and the answer holds for the session", len(second) == 1 and len(asked) == 1,
+          str(asked))
+
+with using(PROBE):
+    asked.clear()
+    rule_dir = tempfile.mkdtemp(prefix="verify-rules-")
+    here = os.getcwd()
+    os.chdir(rule_dir)
+    with open(".permissions.json", "w", encoding="utf-8") as handle:
+        handle.write('{"deny": ["run_cmd(python *)"]}')
+    permissions.load_rules(force=True)
+    verify.note_written([os.path.join(gate, "unit.probe")])
+    check("a deny rule on the command refuses it without asking",
+          verify.run_pending() == [] and not asked, str(asked))
+    os.chdir(here)
+    permissions.load_rules(force=True)
+
+tui._approval_prompt = real_prompt
+config.AUTO_ALLOW = True
+
+print("\n--- the suite does not get this harness's API keys ---")
+from aetheris import providers                                    # noqa: E402
+os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-not-real"
+check("a provider key is not in the check's environment",
+      "ANTHROPIC_API_KEY" not in verify._environment())
+check("CI is still set, so watchers exit",
+      verify._environment().get("CI") == "1")
+os.environ.pop("ANTHROPIC_API_KEY", None)
 
 shutil.rmtree(HOME, ignore_errors=True)
 

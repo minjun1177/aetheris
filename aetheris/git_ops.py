@@ -42,10 +42,24 @@ def _git(*arguments, cwd: str = None) -> subprocess.CompletedProcess:
     git installed must still be able to write a file.
     """
     try:
-        return subprocess.run(("git",) + arguments, cwd=cwd, capture_output=True,
+        # `core.quotePath=false`: otherwise every path git prints that is not
+        # plain ASCII - a Korean file name - comes back as an octal-escaped,
+        # quoted string, and `/undo` then "removed" a name that is no file
+        # while the real one kept the AI's version.
+        return subprocess.run(("git", "-c", "core.quotePath=false") + arguments,
+                              cwd=cwd, capture_output=True,
                               text=True, encoding="utf-8", errors="replace")
     except (OSError, ValueError) as error:
         return subprocess.CompletedProcess(arguments, 1, "", str(error))
+
+
+def _git_bytes(*arguments, cwd: str = None) -> bytes | None:
+    """Run git for its raw output - a blob, which need not be text. None on failure."""
+    try:
+        done = subprocess.run(("git",) + arguments, cwd=cwd, capture_output=True)
+    except (OSError, ValueError):
+        return None
+    return done.stdout if done.returncode == 0 else None
 
 
 def _resolved(path: str) -> str:
@@ -118,6 +132,49 @@ def move(src: str, dst: str) -> str:
     return "" if result.returncode == 0 else (result.stderr.strip() or "git mv failed")
 
 
+# What a file held just before a tool wrote it, when that was not what HEAD
+# has: the person's own uncommitted work, or an untracked file. Keyed by the
+# resolved path; the value is a blob written into the object store.
+#
+# Without it the AI commit swept the person's uncommitted changes in with the
+# AI's, and `/undo` - which puts back the parent commit's version - took both.
+# The commit records the blob (`BEFORE_TRAILER`), and `undo_last` puts the
+# file back exactly as it was, uncommitted work and all.
+_before: dict = {}
+BEFORE_TRAILER = "Aetheris-Before:"
+
+
+def remember_before(paths: list) -> None:
+    """Note what each of `paths` holds now, where that differs from HEAD.
+
+    Called just before a tool writes them. A file that does not exist yet, or
+    that matches HEAD exactly, needs nothing: undo already gets those right.
+    """
+    if not enabled():
+        return
+    for path in paths:
+        absolute = _resolved(path)
+        _before.pop(absolute, None)
+        if not os.path.isfile(absolute):
+            continue
+        root = repo_root(absolute)
+        if not root or not _is_inside(absolute, root):
+            continue
+        relative = os.path.relpath(os.path.realpath(absolute),
+                                   os.path.realpath(root)).replace(os.sep, "/")
+        # Compared as git would store it (filters applied); kept as the raw
+        # bytes on disk (`--no-filters`), so what comes back is what was there.
+        current = _git("hash-object", "--", relative, cwd=root).stdout.strip()
+        committed = _git("rev-parse", "--verify", "--quiet", f"HEAD:{relative}",
+                         cwd=root).stdout.strip()
+        if current and current == committed:
+            continue
+        blob = _git("hash-object", "-w", "--no-filters", "--", relative,
+                    cwd=root).stdout.strip()
+        if blob:
+            _before[absolute] = blob
+
+
 def auto_commit(paths: list, tool: str, summary: str = "") -> str:
     """Commit exactly `paths`. Returns a short sha, or "" if nothing happened.
 
@@ -159,6 +216,15 @@ def auto_commit(paths: list, tool: str, summary: str = "") -> str:
         return ""            # nothing actually changed; a rewrite of the same bytes
 
     message = f"{MESSAGE_PREFIX}{tool}): {summary or ', '.join(inside)}"
+    kept = []
+    for path in paths:
+        blob = _before.pop(_resolved(path), None)
+        if blob and _is_inside(path, root):
+            relative = os.path.relpath(os.path.realpath(path),
+                                       os.path.realpath(root)).replace(os.sep, "/")
+            kept.append(f"{BEFORE_TRAILER} {blob} {relative}")
+    if kept:
+        message += "\n\n" + "\n".join(kept)
     # --no-verify: a hook that rejects work in progress would strand the edit
     # uncommitted, which is the one state this exists to avoid.
     committed = _git("commit", "--no-verify", "-m", message, "--", *known, cwd=root)
@@ -227,14 +293,27 @@ def undo_last() -> tuple:
     if _git("reset", "--soft", "HEAD~1", cwd=root).returncode != 0:
         return False, "git refused to move the branch; nothing was changed."
 
+    before = _befores(sha, root)
     restored, removed = [], []
     for path in paths:
         existed = _git("cat-file", "-e", f"HEAD:{path}", cwd=root).returncode == 0
         if existed:
             _git("checkout", "HEAD", "--", path, cwd=root)
-            restored.append(path)
         else:
             _git("rm", "-f", "--quiet", "--cached", "--", path, cwd=root)
+        held = _git_bytes("cat-file", "blob", before[path], cwd=root) if path in before else None
+        if held is not None:
+            # What was on disk before the tool ran, uncommitted work included.
+            try:
+                with open(os.path.join(root, path), "wb") as handle:
+                    handle.write(held)
+                restored.append(path)
+                continue
+            except OSError:
+                pass
+        if existed:
+            restored.append(path)
+        else:
             try:
                 os.remove(os.path.join(root, path))
             except OSError:
@@ -247,6 +326,18 @@ def undo_last() -> tuple:
     if removed:
         detail.append(f"removed {', '.join(removed)}")
     return True, f"Undid '{subject}'" + (f" - {'; '.join(detail)}." if detail else ".")
+
+
+def _befores(sha: str, root: str) -> dict:
+    """{path: blob} from a commit's `BEFORE_TRAILER` lines."""
+    body = _git("log", "-1", "--format=%B", sha, cwd=root).stdout
+    found = {}
+    for line in body.splitlines():
+        if line.startswith(BEFORE_TRAILER):
+            parts = line[len(BEFORE_TRAILER):].strip().split(" ", 1)
+            if len(parts) == 2 and _git("cat-file", "-e", parts[0], cwd=root).returncode == 0:
+                found[parts[1]] = parts[0]
+    return found
 
 
 def head() -> str:

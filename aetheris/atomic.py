@@ -30,6 +30,11 @@ def write_text(path: str, data: str, private: bool = False,
     never readable by anyone else at any point in between. `encoding` is for a
     file somebody else owns that is not UTF-8; this program's own are.
     """
+    if os.path.islink(path):
+        # `os.replace` over a link replaces the link: the file it pointed at
+        # kept its old contents and the link became a separate copy. The file
+        # being written is the one the link names, so that is what is replaced.
+        path = os.path.realpath(path)
     directory = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(directory, exist_ok=True)
 

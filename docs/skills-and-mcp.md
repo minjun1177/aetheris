@@ -65,6 +65,12 @@ Servers are read from `./.mcp.json` first, then `~/.aetheris/mcp.json`; a
 project entry wins over a personal one with the same name. Copy
 `.mcp.json.example` to get started.
 
+A project's `.mcp.json` is used only once you have trusted it: at startup its
+servers and the commands they run are shown, and you are asked
+`Trust this file? [y/N]`. A yes is remembered (against the file's contents, so
+an edit is asked about again); a no means none of its servers start this
+session. See [Tool Permissions](permissions.md) for the details.
+
 ```json
 {
   "mcpServers": {

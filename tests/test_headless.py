@@ -126,6 +126,10 @@ providers.apply_startup = lambda: None
 providers._active = Scripted(replies)
 real_out = sys.stdout
 captured = io.StringIO()
+# Run from the directory being looked at: a read outside the working directory
+# is asked about (test_trust.py), and under -p nothing can answer.
+was_in = os.getcwd()
+os.chdir(here)
 try:
     sys.stdout = captured
     with contextlib.redirect_stderr(io.StringIO()):
@@ -133,6 +137,7 @@ try:
 finally:
     sys.stdout = real_out
     providers._active = saved_active
+    os.chdir(was_in)
 try:
     report = json.loads(captured.getvalue())
 except ValueError:

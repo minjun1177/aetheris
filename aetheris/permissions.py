@@ -21,6 +21,10 @@ followed by a space, so `run_cmd(git status)` covers `git status --short`.
 
 `deny` wins over `allow`, and anything unmatched falls through to the approval
 prompt exactly as before - an empty rule set changes nothing.
+
+A project file is somebody's repository talking, so its `allow` rules count
+only once the person has trusted that file (`trust.py`). Its `deny` rules
+always count: a rule that can only refuse more is safe to take from anyone.
 """
 
 import json
@@ -29,6 +33,7 @@ from fnmatch import fnmatch
 
 from aetheris import atomic
 from aetheris import paths
+from aetheris import trust
 
 
 PROJECT_CONFIG_FILES = (".permissions.json", "permissions.json")
@@ -51,6 +56,9 @@ _loaded = False
 
 errors: list[str] = []
 
+# Project files that are there but not trusted: only their `deny` rules apply.
+untrusted: list[str] = []
+
 
 def config_paths() -> list[tuple[str, str]]:
     """(source label, path) pairs, highest precedence first."""
@@ -69,6 +77,7 @@ def load_rules(force: bool = False) -> dict[str, list[tuple[str, str]]]:
     _rules.update({verdict: [] for verdict in VERDICTS})
     _sources.clear()
     errors.clear()
+    untrusted.clear()
 
     seen_project = False
     for source, path in config_paths():
@@ -88,8 +97,17 @@ def load_rules(force: bool = False) -> dict[str, list[tuple[str, str]]]:
             errors.append(f"{path}: {e}")
             continue
 
+        if not isinstance(data, dict):
+            errors.append(f"{path}: does not hold a JSON object")
+            continue
+        verdicts = VERDICTS
+        if source == "project" and not trust.is_trusted(path):
+            # Its denies only: a repository nobody has read does not get to
+            # wave its own calls through.
+            untrusted.append(path)
+            verdicts = ("deny",)
         _sources.append(path)
-        for verdict in VERDICTS:
+        for verdict in verdicts:
             entries = data.get(verdict)
             if not isinstance(entries, list):
                 continue
@@ -198,6 +216,41 @@ def _all_targets(arguments: dict) -> list:
     return targets
 
 
+# Arguments that name a file. A rule about a path is about the file, not about
+# how the model happened to spell it: `.env`, `./.env`, `/abs/proj/.env`,
+# `docs/../.env` and a symlink to it are all the same file, and a rule matched
+# against the text alone was answered differently for each.
+_PATH_KEYS = ("filepath", "dirpath", "src", "dst", "file_path")
+
+
+def _forms(path: str) -> list:
+    """`path` as a rule may name it: relative to here when inside, and absolute."""
+    absolute = os.path.abspath(path)
+    forms = []
+    try:
+        relative = os.path.relpath(absolute)
+    except ValueError:              # another drive, on Windows
+        relative = ""
+    if relative and relative != os.pardir and not relative.startswith(os.pardir + os.sep):
+        forms.append(relative)
+    forms.append(absolute)
+    return forms
+
+
+def _spellings(path: str) -> tuple:
+    """(as written, resolved): the forms of the path, and of the file it reaches."""
+    written = _forms(os.path.normpath(path))
+    resolved = _forms(os.path.realpath(path))
+    return written, resolved
+
+
+def _path_arguments(arguments: dict) -> list:
+    if not isinstance(arguments, dict):
+        return []
+    return [arguments[key].strip() for key in _PATH_KEYS
+            if isinstance(arguments.get(key), str) and arguments[key].strip()]
+
+
 def _normalise(text: str) -> str:
     # Rules are written with forward slashes; Windows paths arrive with both.
     return text.replace("\\", "/").casefold() if os.name == "nt" else text.replace("\\", "/")
@@ -259,6 +312,8 @@ def matches(rule: str, tool: str, target: str) -> bool:
     if not target:
         return False
     subject, wanted = _normalise(target), _normalise(pattern)
+    if wanted.startswith("./") and len(wanted) > 2:
+        wanted = wanted[2:]
     if fnmatch(subject, wanted):
         return True
     # A pattern with no wildcard also covers "<pattern> <anything>", so a rule
@@ -275,20 +330,48 @@ def decide(tool: str, arguments: dict) -> tuple[str, str]:
         return "ask", ""
 
     target, key = _target_and_key(arguments)
-    for verdict in VERDICTS:               # deny is checked first and wins
-        # A deny is asked about every path the call touches; an allow only
-        # about the one target. See `_all_targets`.
-        subjects = _all_targets(arguments) if verdict == "deny" else [target]
-        for rule, _source in rules_for(verdict):
-            if not any(matches(rule, tool, subject) for subject in subjects or [""]):
-                continue
-            if (verdict == "allow" and key == "command"
-                    and chains_a_second_command(_split_rule(rule)[1], target)):
-                # The rule covers the command it names; it does not cover
-                # whatever the shell was told to run afterwards. Fall through
-                # to the prompt rather than waving the whole line through.
-                continue
-            return verdict, rule
+    paths_given = _path_arguments(arguments)
+
+    # A deny is asked about every argument the call has and every spelling of
+    # every path in it: any one matching refuses the call.
+    subjects = list(_all_targets(arguments))
+    for path in paths_given:
+        written, resolved = _spellings(path)
+        subjects += [form for form in written + resolved if form not in subjects]
+    for rule, _source in rules_for("deny"):
+        if any(matches(rule, tool, subject) for subject in subjects or [""]):
+            return "deny", rule
+
+    allowed = rules_for("allow")
+    if paths_given and key in _PATH_KEYS:
+        # Every path the call touches has to be allowed - `copy_file` writes
+        # `dst`, which an allow on `src` never looked at - and each by what it
+        # *is*: the spelling normalised (so `src/../../etc/x` is not "in src/"),
+        # and the file a symlink leads to as well as the link.
+        decided = ""
+        for path in paths_given:
+            covering = ""
+            for spelling in _spellings(path):
+                rule = next((rule for rule, _ in allowed
+                             if any(matches(rule, tool, form) for form in spelling)), "")
+                if not rule:
+                    covering = ""
+                    break
+                covering = covering or rule
+            if not covering:
+                return "ask", ""
+            decided = decided or covering
+        return "allow", decided
+
+    for rule, _source in allowed:
+        if not matches(rule, tool, target):
+            continue
+        if key == "command" and chains_a_second_command(_split_rule(rule)[1], target):
+            # The rule covers the command it names; it does not cover
+            # whatever the shell was told to run afterwards. Fall through
+            # to the prompt rather than waving the whole line through.
+            continue
+        return "allow", rule
     return "ask", ""
 
 
@@ -308,8 +391,15 @@ def add_rule(rule: str, verdict: str = "allow") -> tuple[bool, str]:
         return False, f"unknown verdict '{verdict}'"
 
     path = os.path.abspath(PROJECT_CONFIG_FILES[0])
+    existed = os.path.isfile(path)
+    if existed and not trust.is_trusted(path):
+        # Saving would mean trusting the whole file afterwards - including
+        # whatever `allow` rules the repository put there - on the strength of
+        # one rule the person wrote. They decide about the file first.
+        return False, (f"{path} is not trusted, so nothing is added to it. "
+                       f"Restart and trust it, or add the rule by hand.")
     data = {}
-    if os.path.isfile(path):
+    if existed:
         try:
             with open(path, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
@@ -331,5 +421,8 @@ def add_rule(rule: str, verdict: str = "allow") -> tuple[bool, str]:
     except Exception as e:
         return False, f"{path} could not be written ({e})"
 
+    # The person wrote this file's new contents themselves, through this
+    # harness: the new fingerprint is the trusted one.
+    trust.remember(path, True)
     load_rules(force=True)
     return True, path

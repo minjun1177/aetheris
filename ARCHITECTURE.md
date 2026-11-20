@@ -678,6 +678,7 @@ app.py            the loop, slash commands, session lifecycle
 | `images.py` | Recognising an image, resizing one too big for an API, and the base64 a provider sends (5.17) | The four wire shapes - `providers` builds those |
 | `mentions.py` | `@path` in a typed message: what it names, and what it attaches | Printing - the caller does that |
 | `permissions.py` | Rule loading and the allow/deny/ask decision | |
+| `trust.py` | Which project `.mcp.json` / `.permissions.json` the person trusted: a yes kept in the home against the file's sha256, a no for the session | Asking - `app._settle_trust` does, before either file is read |
 | `shell_session.py` | Live commands, waiting-vs-busy detection | |
 | `vm.py` | The scratch Python process: its wire protocol, its ceilings, and restarting it after it dies | How the result is worded - that is `tools.handle_run_python` |
 | `mcp_client.py` | MCP transports, JSON-RPC, MCP tool schemas, which servers are described now | Whether the *built-in* tools are shown - that is `toolspec` |
@@ -1440,7 +1441,8 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_durability.py` | Atomic writes, including killing a writer mid-write; the token estimate (5.7) |
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
-| `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said |
+| `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said; that a path rule is about the file however it is spelled - `./`, `..`, absolute, a symlink - and that `copy_file` needs its `dst` allowed too |
+| `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |

@@ -46,6 +46,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from aetheris import paths
+from aetheris import trust
 from aetheris.sse import iter_sse
 
 
@@ -741,6 +742,11 @@ def _read_config(path: str) -> dict:
     return servers if isinstance(servers, dict) else {}
 
 
+# Project files that are there but were not trusted, so not one server in them
+# was read. Filled by `load_servers`.
+untrusted: list[str] = []
+
+
 def load_servers(force: bool = False) -> dict[str, MCPServer]:
     """Read the config files and build (but do not connect) the server objects."""
     global _loaded
@@ -754,8 +760,15 @@ def load_servers(force: bool = False) -> dict[str, MCPServer]:
     _config_files.clear()
     errors = []
 
+    untrusted.clear()
     for source, path in config_paths():
         if not os.path.isfile(path):
+            continue
+        if source == "project" and not trust.is_trusted(path):
+            # A repository's server list starts commands and fills in the
+            # person's environment variables. Nothing in it is used until the
+            # person has said this file is theirs to trust (`trust.py`).
+            untrusted.append(path)
             continue
         try:
             entries = _read_config(path)

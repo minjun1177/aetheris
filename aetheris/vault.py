@@ -82,7 +82,10 @@ FILLED_IN = {
     "send_input": ("stdin",),
     "run_python": ("content", "stdin"),
     "call_api": ("url", "headers", "payload"),
-    "get_url": ("url",),
+    # Not `get_url`: it runs without an approval prompt, so a secret filled
+    # into its URL would leave the machine without anybody being asked - one
+    # line of prompt injection in a fetched page was enough. A request that
+    # needs a key goes through `call_api`, which asks.
 }
 
 _cache: dict = {}           # path -> (mtime, size, {name: value})
@@ -335,7 +338,7 @@ def prompt_section() -> str:
         "value, hidden from you and from the conversation.\n"
         f"Available: {', '.join(listed)}\n"
         "To use one, write `{{env:NAME}}` where the value would go in a "
-        "`run_cmd`, `run_python`, `get_url` or `call_api` call - the harness "
+        "`run_cmd`, `run_python` or `call_api` call (never `get_url`) - the harness "
         "puts the real value in as it runs, so the command works and you still "
         "never see it. It is NOT filled in when writing a file, so a "
         "placeholder written to a file stays a placeholder.\n"

@@ -595,6 +595,98 @@ def _images_this_model_can_see(pictures: list) -> list:
     return []
 
 
+def _project_config_files() -> list:
+    """(kind, path) for each project config file that is here and would be read.
+
+    `.mcp.json` and `mcp.json` are both read; of the permission files only the
+    first that exists is (`permissions.load_rules`).
+    """
+    found = [("MCP servers", path) for source, path in mcp_client.config_paths()
+             if source == "project" and os.path.isfile(path)]
+    for source, path in permissions.config_paths():
+        if source == "project" and os.path.isfile(path):
+            found.append(("permission rules", path))
+            break
+    return found
+
+
+def _trust_summary(kind: str, path: str) -> list:
+    """What trusting the file would let it do, as approval-box rows."""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+    except Exception as error:
+        return [("file", path), ("problem", f"cannot be read ({error})")]
+    rows = [("file", path)]
+    if not isinstance(data, dict):
+        return rows
+    if kind == "MCP servers":
+        servers = data.get("mcpServers") or data.get("servers") or {}
+        for name, spec in (servers.items() if isinstance(servers, dict) else ()):
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("command"):
+                args = spec.get("args") if isinstance(spec.get("args"), list) else []
+                what = " ".join([str(spec["command"])] + [str(a) for a in args])
+            else:
+                what = str(spec.get("url") or "?")
+            rows.append((f"runs {name}", what))
+    else:
+        for rule in data.get("allow") or []:
+            rows.append(("allows", str(rule)))
+    return rows
+
+
+def _settle_trust(ask: bool = True) -> None:
+    """Ask about each project config file nobody has trusted yet.
+
+    A repository's `.mcp.json` starts commands and its `.permissions.json` can
+    allow tools outright, so neither is used until the person says so
+    (`trust.py`). Asked before anything reads them; under `-p` nothing can be
+    asked, and an untrusted file simply stays unused.
+    """
+    from aetheris import trust
+    pending = [(kind, path) for kind, path in _project_config_files()
+               if trust.decision(path) is None]
+    if not pending:
+        return
+    for kind, path in pending:
+        if not ask:
+            print(f"  {S.WARN}⚠ {path} is not trusted, so its {kind} are not used. "
+                  f"Run aetheris here once without -p to trust it.{S.R}")
+            continue
+        print()
+        print(f"  {S.WARN}⚠  {S.BOLD}This project has its own {kind}{S.R}")
+        for label, value in _trust_summary(kind, path):
+            print(f"  {S.GRAY}{label}:{S.R} {value}")
+        if kind == "MCP servers":
+            note = "Trusting it starts these commands now and every time it is unchanged."
+        else:
+            note = "Trusting it lets these calls run without asking. Its deny rules apply either way."
+        print(f"  {S.MUTED}{note}{S.R}")
+        try:
+            answer = tui.ask_the_driver(
+                f"Trust {os.path.basename(path)}?", [("file", path)],
+                [("y", "Trust"), ("n", "Do not trust")],
+                f"  {S.WARN}Trust this file? {S.MUTED}[{S.OK}y{S.MUTED}/{S.ERR}N{S.MUTED}]"
+                f" {S.WARN}›{S.R} ")
+        except KeyboardInterrupt:
+            print()
+            answer = None
+        trusted = (answer or "").strip().lower() in ("y", "yes")
+        problem = trust.remember(path, trusted)
+        if trusted:
+            print(f"  {S.OK}✓ trusted{S.R} {S.MUTED}(asked again if the file changes){S.R}")
+        else:
+            print(f"  {S.MUTED}✗ not trusted - its {kind} are not used this session{S.R}")
+        if problem:
+            print(f"  {S.ERR}✗ {problem}{S.R}")
+    print()
+    # Read again, now that the answers are in.
+    mcp_client.load_servers(force=True)
+    permissions.load_rules(force=True)
+
+
 def _connect_mcp_servers() -> list:
     """Bring up the configured MCP servers. Returns the ones that failed.
 
@@ -2549,6 +2641,7 @@ async def _cmd_mcp(chat, user_input: str, cmd: str):
     elif sub in ("tools", "prompts", "all"):
         _show_mcp(sub, args[0] if args else "")
     elif sub in ("reload", "refresh"):
+        _settle_trust()
         sys.stdout.write(f"  {S.MUTED}⟳ reloading MCP servers…{S.R}")
         sys.stdout.flush()
         mcp_client.reconnect()
@@ -2628,6 +2721,7 @@ async def _cmd_perms(chat, user_input: str, cmd: str):
     if not sub:
         _show_perms()
     elif sub in ("reload", "refresh"):
+        _settle_trust()
         permissions.load_rules(force=True)
         allowed = len(permissions.rules_for("allow"))
         denied = len(permissions.rules_for("deny"))
@@ -2838,6 +2932,7 @@ async def main(resume_id: str = "") -> None:
     print("\033[2J\033[H", end="")
     paths.close_home()
     providers.apply_startup()
+    _settle_trust()
     failed_mcp = _connect_mcp_servers()
     if providers.current().drives_turns and providers.current().api_key:
         # After the MCP servers, so the first announcement already lists theirs.
@@ -3373,6 +3468,7 @@ async def run_headless(prompt: str, resume_id: str = "") -> dict:
     """
     paths.close_home()
     providers.apply_startup()
+    _settle_trust(ask=False)
     _report_mcp_problems(_connect_mcp_servers())
     provider = providers.current()
     if provider.drives_turns:

@@ -74,6 +74,7 @@ an answer arrives or the deadline passes.
 """
 
 import collections
+import ipaddress
 import json
 import os
 import re
@@ -522,10 +523,16 @@ def complete_pairing(who: str, offered: str) -> str:
             spent = _pairing["tries"]
             if spent >= PAIR_TRIES:
                 _pairing = None
+                # And the address waits before it can ask for another. Without
+                # this a dead code was replaced at once, so three guesses at a
+                # time came round as fast as the codes could be asked for.
+                record = _bad.setdefault(who, {"count": 0, "until": 0.0})
+                record["until"] = time.time() + max(1.0, float(config.REMOTE_LOCKOUT))
             _wake.notify_all()
             if spent >= PAIR_TRIES:
                 _note(f"{who} got the pairing code wrong {PAIR_TRIES} times. "
-                      f"The code is dead; they can ask for another.")
+                      f"The code is dead, and that address is refused for "
+                      f"{int(max(1.0, float(config.REMOTE_LOCKOUT)))}s.")
             return ""
         key = secrets.token_urlsafe(24)
         _sessions[key] = {"address": who, "since": time.time(), "last": time.time()}
@@ -896,9 +903,15 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         if _bound and name == str(_bound[0]).lower():
             return True
-        # An address is a name nobody had to resolve, so a bare IPv4 that is
-        # this machine's own is allowed - that is how a phone reaches it.
-        return bool(re.fullmatch(r"[0-9a-f.:]+", name))
+        # An address is a name nobody had to resolve, so a bare IP literal is
+        # allowed - that is how a phone reaches it. Parsed, not pattern-matched:
+        # `[0-9a-f.:]+` also matched `deadbeef.cafe`, a name an attacker can
+        # register and rebind to this machine.
+        try:
+            ipaddress.ip_address(name.split("%", 1)[0])
+        except ValueError:
+            return False
+        return True
 
     def _reply(self, code: int, body: bytes, kind: str) -> None:
         self.send_response(code)
