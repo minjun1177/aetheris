@@ -122,6 +122,10 @@ from the working directory, but now only once they have been trusted.
   tools only, so `sed -i`, a redirect or `git checkout` through `run_cmd`
   edited the test anyway. A command that names a locked test file and writes
   is now refused too.
+- **A relative allow rule works on Windows.** The resolved path was measured
+  from the working directory as spelled, which on Windows is often an 8.3 name
+  (`RUNNER~1`) that `realpath` writes out in full, so `edit_file(src/*)` covered
+  nothing and every such call was asked about. Both ends are now resolved.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

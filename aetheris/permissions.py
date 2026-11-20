@@ -223,12 +223,12 @@ def _all_targets(arguments: dict) -> list:
 _PATH_KEYS = ("filepath", "dirpath", "src", "dst", "file_path")
 
 
-def _forms(path: str) -> list:
-    """`path` as a rule may name it: relative to here when inside, and absolute."""
+def _forms(path: str, base: str = "") -> list:
+    """`path` as a rule may name it: relative to `base` (here) when inside, and absolute."""
     absolute = os.path.abspath(path)
     forms = []
     try:
-        relative = os.path.relpath(absolute)
+        relative = os.path.relpath(absolute, base or os.getcwd())
     except ValueError:              # another drive, on Windows
         relative = ""
     if relative and relative != os.pardir and not relative.startswith(os.pardir + os.sep):
@@ -240,7 +240,16 @@ def _forms(path: str) -> list:
 def _spellings(path: str) -> tuple:
     """(as written, resolved): the forms of the path, and of the file it reaches."""
     written = _forms(os.path.normpath(path))
-    resolved = _forms(os.path.realpath(path))
+    # The resolved path is measured from the resolved working directory. From
+    # the working directory as spelled, a file in `src` was not in `src` on
+    # Windows, where the temp directory and many home directories are an 8.3
+    # name (`RUNNER~1`) that `realpath` spells out in full: the relative form
+    # began with `..`, and `edit_file(src/*)` allowed nothing at all.
+    # Absolute first: POSIX `realpath` takes the working directory it is handed
+    # for a relative path as already resolved, so both ends must be resolved
+    # from the same spelling.
+    resolved = _forms(os.path.realpath(os.path.abspath(path)),
+                      os.path.realpath(os.getcwd()))
     return written, resolved
 
 

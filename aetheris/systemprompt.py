@@ -47,13 +47,13 @@ def context_files() -> list:
         root = ""
     root = os.path.realpath(root) if root else here
     try:
-        inside = os.path.commonpath([root, here]) == root
+        inside = os.path.normcase(os.path.commonpath([root, here])) == os.path.normcase(root)
     except ValueError:              # another drive, on Windows
         inside = False
     if not inside:
         root = here
     directories = [here]
-    while directories[-1] != root:
+    while os.path.normcase(directories[-1]) != os.path.normcase(root):
         parent = os.path.dirname(directories[-1])
         if parent == directories[-1]:
             break
@@ -68,7 +68,10 @@ def context_files() -> list:
 def load_context_file() -> str:
     """Every file `context_files` finds, as the system prompt's last section."""
     sections = []
-    here = os.getcwd()
+    # Resolved, as the paths from `context_files` are: measured from the
+    # working directory as spelled, an 8.3 or symlinked one, every label began
+    # with a run of `..` through directories nobody is in.
+    here = os.path.realpath(os.getcwd())
     for scope, path in context_files():
         try:
             with open(path, "r", encoding="utf-8-sig", errors="replace") as f:

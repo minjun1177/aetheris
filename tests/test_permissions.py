@@ -187,6 +187,30 @@ check("an allow on src/* still covers a file in src",
       verdict("edit_file", filepath="src/app.py") == "allow")
 check("and ./src/app.py, the same file",
       verdict("edit_file", filepath="./src/app.py") == "allow")
+# Windows spells the temp directory - and many home directories - as an 8.3
+# name (`RUNNER~1`) that `realpath` writes out in full, so the working
+# directory as spelled and as resolved differ. A symlinked working directory is
+# the same shape on any system; until it was allowed for, both checks above
+# failed on Windows CI.
+if hasattr(os, "symlink"):
+    alias = os.path.join(tempfile.mkdtemp(prefix="perms-alias-"), "short")
+    try:
+        os.symlink(work, alias)
+        made = True
+    except (OSError, NotImplementedError):
+        made = False
+    if made:
+        # As on Windows: the working directory keeps its short spelling, and
+        # `realpath` - even of a relative path - writes it out in full.
+        real_getcwd, real_realpath = os.getcwd, os.path.realpath
+        os.getcwd = lambda: alias
+        os.path.realpath = lambda p, **k: real_realpath(
+            p if os.path.isabs(p) else os.path.join(alias, p), **k)
+        try:
+            check("from a working directory spelled another way, src/* still covers src",
+                  verdict("edit_file", filepath="src/app.py") == "allow")
+        finally:
+            os.getcwd, os.path.realpath = real_getcwd, real_realpath
 check("but not a path that only starts with src/ and climbs out",
       verdict("edit_file", filepath="src/../../etc/passwd") == "ask")
 check("copy_file allowed by its source no longer writes anywhere",
