@@ -34,6 +34,20 @@ own, and out to a package of its own only when someone needs it there.
 
 ## Unreleased
 
+- **Permission modes, on Shift+Tab.** `manual`, `plan`, `accept-edits`,
+  `deepthink` and `auto` are one cycle at the prompt, and the mode in force is
+  shown under it; `/mode` lists or picks one. `accept-edits` is new: writes,
+  edits, copies and moves inside the project run without asking, while
+  commands, deletes, paths outside the project and anything under a `.git` -
+  git runs what its config and hooks name - still ask. A mode changes this
+  session only.
+- **`multi_edit`**: several edits, in one file or across several, made all
+  together or not at all - one approval with the whole diff, one commit, one
+  `/undo`. Every edit is anchored to the lines `read_file` gave, so two edits
+  that change a file's length can be sent together.
+- **`/btw` answers in a panel of their own**, dismissed with Esc, Enter or
+  Space, instead of streaming into the conversation it was meant to stay out
+  of.
 - **`/btw` can be kept.** `f` on the answer panel adds the question and the
   answer to the conversation as a turn; Esc, Enter or Space still dismiss it
   unkept. Either way the session is saved at once, so an aside asked just
@@ -45,17 +59,21 @@ own, and out to a package of its own only when someone needs it there.
 - **`/loop`, `/schedule` and `/tasks`.** A prompt sent now and on an interval,
   or once at a time, typed into the prompt only when it is empty and never
   mid-turn. They last as long as the session. `/tasks` lists them with the
-  background commands, `/tasks stop` ends one.
+  background commands, `/tasks stop` ends one. A date and time that has
+  already passed is refused rather than run at once.
 - **Background commands.** `run_cmd` takes `background`, returns a job id at
   once, and the model is told when the command ends - before its next request
   mid-turn, or by a turn of its own at an empty prompt (`BACKGROUND_WAKE`). A new
   tool, `read_background`, reads one's output; `end_process` stops one.
-  `BACKGROUND_MAX_JOBS` and `BACKGROUND_OUTPUT_CHARS` bound them.
+  `BACKGROUND_MAX_JOBS` and `BACKGROUND_OUTPUT_CHARS` bound them. What the
+  model is told when one ends is redacted like any tool result.
 - **Sub-agents: the model, and a worktree.** `spawn_agent`'s `model` takes
   `provider:model` to run the job on another provider, refused up front when
   that provider cannot be used; `SUBAGENT_MODELS` lists the choices in the
   system prompt. `isolation="worktree"` runs it in a git worktree on a branch of
-  its own, kept afterwards only when it changed something.
+  its own, kept afterwards only when it changed something. Work that cannot be
+  committed there - no git identity on the machine - is left in the checkout
+  and named in the report, never removed with it.
 - **`/init` and `/add-dir`.** `/init` has the model write the project's
   instructions file, or improve the one there, and the system prompt reads it
   as soon as that turn ends. `/add-dir` makes another directory part of the
@@ -96,6 +114,19 @@ own, and out to a package of its own only when someone needs it there.
   `result` that is the `--json` report. `--output-format json` is `--json`.
 - **`/fork [title]`** carries on in a copy of the conversation under a new id;
   the original stays saved as it was, for `/load`.
+- **Ctrl+O shows the whole conversation**, every thought and tool result in
+  full, and the next press puts the screen back exactly as it was. The record
+  is saved with the session, so a loaded conversation has its thinking too, and
+  a reply whose thinking was hidden says "thought for 2.3s · Ctrl+O shows it".
+- **`run_python` keeps its files per session**, in
+  `~/.aetheris/vm/session-<pid>`, removed on exit or `/clear`, and a call that
+  wrote files says they are there and not in the project.
+- **Auto-verify finds tests without a config file.** A `test_*.py` or
+  `*_test.py` marks a Python project, so a directory of `calc.py` and
+  `test_calc.py` has its tests run after an edit.
+- **`-p` draws nothing but the answer.** The spinner, thinking and token line
+  went to stderr; now only a question or a warning does, and `--verbose`
+  draws the turn as plain text.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.
@@ -190,6 +221,25 @@ from the working directory, but now only once they have been trusted.
   `deadbeef.cafe` for an IP address; it parses addresses now. Three wrong
   pairing codes also shut that address out for `REMOTE_LOCKOUT` seconds, so
   codes cannot be cycled through three guesses at a time.
+- **Ollama, stopped or missing a model.** A stopped daemon is one error with
+  how to start it, not three retries of httpx's words - on Windows too, where a
+  closed port takes two seconds to refuse - and a model that was never pulled
+  is no longer shown as connected.
+- **A small window no longer compresses every turn.** At `NUM_CTX` 12k the
+  reply reserve left about 4k tokens for a prompt that needs 7.8k, so every turn
+  announced the limit and summarised. The reserve is capped at a quarter of the
+  window, and a prompt too big for it is said once.
+- **Answers wrap by display cells** at a space, with later rows hung under the
+  text after a bullet or number, so Korean is not cut mid-word at the last
+  column.
+- **The mouse wheel scrolls in place** and leaves the drag selection working; a
+  blank line in a thought copies as a blank line, not its border.
+- **Ctrl+C at a settings question says "Cancelled."**, and the startup panel
+  counts new files apart from modified ones.
+- **Removed: the April Fools banner and `/aether`**, which opened a website on
+  one day a year. It was never listed or documented.
+- **Removed: `requirements-lock.txt`**, a freeze of one machine with 32
+  packages this project does not use. `requirements.txt` is the one list.
 - **The welcome banner fits a 20-row terminal** with the prompt_toolkit tip.
 - **A paste reads `[Pasted text ...]`** rather than `[Copied text ...]`.
 
