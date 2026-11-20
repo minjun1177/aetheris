@@ -1493,7 +1493,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_caching.py` | That the cache breakpoints reach Anthropic, that all three hosted providers' cache counters are read back, and that the prefix this harness builds is byte-stable enough to cache |
 | `test_verify.py` | That auto-verify picks the right check, runs it once per turn, refuses one it cannot run, and turns off a suite that will not finish (§7a) |
 | `test_mcp_lazy.py` | That a big MCP server is announced rather than described, that asking for it hands over the parameters, that a call to an unloaded one still works, and that names and schemas cannot come apart (5.13) |
-| `test_tdd.py` | That `/tdd` reaches a test file however its path is written, refuses in `dispatch_tool`, holds nothing on disk, and lifts itself (§7a) |
+| `test_tdd.py` | That `/tdd` reaches a test file however its path is written, refuses in `dispatch_tool` - a shell command that writes one too -, holds nothing on disk, and lifts itself (§7a) |
 | `test_malformed_state.py` | State that is not the shape the code assumed: a message with no content, a hand-edited `memory.json`, a setting of nought - and that writing a file through a tool is atomic and leaves its line endings alone (5.7) |
 | `test_memory.py` | That a memory marked `important` reaches the prompt a session opens on, that the mark survives being saved over, and that the block is capped and byte-stable (5.15) |
 | `test_images.py` | That an image is recognised by extension and by its bytes, that a large one is resized and relabelled as what it became, that all four wire shapes are right with the cache breakpoint still on the text, and that a model which cannot see is found out before the request (5.17) |

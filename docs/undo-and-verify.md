@@ -192,7 +192,11 @@ For that one request the project's test files are refused to `edit_file`,
 `write_file`, `delete_file` and `copy_file` at the dispatcher - through the
 same permission rules as everything else (§13), held in memory and never
 written to your `.permissions.json`. The model is told so up front, so it
-spends its calls on the code rather than discovering the wall. Auto-verify gets
+spends its calls on the code rather than discovering the wall. A `run_cmd` that
+names a test file and writes - a redirect, `sed -i`, `tee`, `cp`/`mv`/`rm`,
+`git checkout` or `restore`, `python -c` - is refused as well. That catches the
+usual detours, not every one: a command's effect cannot be read off its text,
+which is why the approval prompt still shows each command. Auto-verify gets
 six tries instead of three, because staying in that loop is the whole point.
 
 It lifts itself when the turn ends, including when the turn failed or you

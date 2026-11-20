@@ -1,5 +1,6 @@
 import os
 import re
+import fnmatch
 import json
 import subprocess
 import time
@@ -3026,6 +3027,35 @@ def _names_the_key_file(arguments: dict) -> str:
     return check(arguments, 0)
 
 
+# What makes a shell command a write. Not a parser - a shell command's effects
+# cannot be read off its text - but the ways a model actually reaches for when
+# `edit_file` on a test is refused: a redirect, `sed -i`, `tee`, a copy or move
+# over it, deleting it, or checking an old version out.
+_SHELL_WRITES = re.compile(
+    r">|\btee\b|\bsed\b[^|;&]*\s(-[a-zA-Z]*i|--in-place)|\bperl\b[^|;&]*\s-[a-zA-Z]*i|"
+    r"\b(rm|mv|cp|truncate|dd|install|ln|unlink|patch)\b|"
+    r"\bgit\s+(checkout|restore|apply|stash|reset|rm|mv)\b|\b(python[0-9.]*|node|ruby)\s+-[ce]\b")
+
+
+def _tdd_shell_refusal(function_name: str, arguments: dict) -> str:
+    """The refusal for a command that would write a test file /tdd has locked."""
+    if not config.TDD_LOCK or function_name != "run_cmd":
+        return ""
+    command = str(arguments.get("command") or "")
+    if not _SHELL_WRITES.search(command):
+        return ""
+    for word in re.split(r"[\s'\"=<>|;&()]+", command):
+        candidate = word.replace("\\", "/").lstrip("./")
+        if candidate and any(fnmatch.fnmatch(candidate, pattern) or
+                             fnmatch.fnmatch("/" + candidate, pattern)
+                             for pattern in verify.TEST_PATTERNS):
+            return (f"[System] 'run_cmd' was refused: /tdd has this project's test files "
+                    f"locked, and this command would change {word}. Make the test pass "
+                    "by changing the code it tests; if the test itself is wrong, say so "
+                    "and stop.")
+    return ""
+
+
 def _harness_controls() -> dict:
     """The files in the home that decide what this harness lets run, by real path.
 
@@ -3145,6 +3175,11 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
                 "or changes it. Nothing in it is needed for the task. Do not try "
                 "another way to reach it; if the user wants a key changed, they "
                 "use /connect.")
+
+    locked = _tdd_shell_refusal(function_name, arguments)
+    if locked:
+        print(f"  {S.ERR}✗ refused: /tdd has the test files locked{S.R}")
+        return locked
 
     control, controls = _writes_harness_control(function_name, arguments)
     if control:

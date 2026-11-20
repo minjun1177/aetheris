@@ -122,6 +122,10 @@ from the working directory, but now only once they have been trusted.
   `settings.json`, so the next repository anybody opened ran every tool with no
   question. It now lasts for the session, and a value an older version saved is
   ignored. `--auto-allow` still turns it on for one `-p` run.
+- **`/tdd` refuses the shell detour.** The test files were locked to the file
+  tools only, so `sed -i`, a redirect or `git checkout` through `run_cmd`
+  edited the test anyway. A command that names a locked test file and writes
+  is now refused too.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

@@ -103,6 +103,23 @@ written = [path for _, path in permissions.config_paths()
 check("and none of them reached a rules file on disk", not written, str(written))
 
 # ---------------------------------------------------------------------------
+print("\n--- a shell command cannot do what edit_file may not ---")
+import contextlib   # noqa: E402
+import io           # noqa: E402
+for command in ("sed -i 's/assert x/assert True/' tests/test_parser.py",
+                "echo 'pass' > tests/test_parser.py",
+                "cat fixed.py | tee test_util.py",
+                "rm src/parser_test.go",
+                "git checkout HEAD~3 -- tests/test_parser.py",
+                "python -c \"open('tests/test_x.py','w')\""):
+    with contextlib.redirect_stdout(io.StringIO()):
+        result = tools.dispatch_tool("run_cmd", {"command": command})
+    check(f"refused: {command}", str(result).startswith("[System]") and "/tdd" in str(result),
+          str(result)[:100])
+for command in ("python -m pytest tests/test_parser.py -q", "cat tests/test_parser.py",
+                "sed -i 's/a/b/' src/parser.py"):
+    check(f"not refused: {command}", tools._tdd_shell_refusal("run_cmd", {"command": command}) == "")
+
 print("\n--- and it lifts ---")
 dropped = permissions.release("/tdd")
 config.TDD_LOCK = False
