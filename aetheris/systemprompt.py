@@ -9,15 +9,86 @@ from aetheris import vault
 
 CURRENT_OS = platform.system()
 
-def load_context_file() -> str:
-    for filename in ["CONVENTIONS.md", ".clauderc", "AGENTS.md", "CLAUDE.md"]:
-        if os.path.exists(filename):
-            try:
-                with open(filename, "r", encoding="utf-8") as f:
-                    return f"\n\n### PROJECT CONVENTIONS:\n{f.read()}\n"
-            except Exception:
-                pass
+# The names an instructions file goes by, in the order one directory's are
+# preferred: only the first that exists in a directory is read.
+CONTEXT_FILES = ("CONVENTIONS.md", ".clauderc", "AGENTS.md", "CLAUDE.md")
+CONTEXT_FILE_MAX_CHARS = 20000      # per file; a pasted manual is not a convention
+
+
+def _first_in(directory: str) -> str:
+    for filename in CONTEXT_FILES:
+        path = os.path.join(directory, filename)
+        if os.path.isfile(path):
+            return path
     return ""
+
+
+def context_files() -> list:
+    """(scope, path) for every instructions file that applies here, broadest first.
+
+    The person's own, in the harness's home, which follows them into every
+    project; then one per directory from the top of the git working tree down
+    to the current directory. Only the current directory's used to be read, so
+    a terminal opened in `src/` lost the repository's AGENTS.md, and nothing
+    said how the person likes to work in every project at once. Most specific
+    last, so where two disagree the nearer one has the last word.
+    """
+    from aetheris import paths
+    found = []
+    own = _first_in(paths.home())
+    if own:
+        found.append(("yours", own))
+    here = os.path.realpath(os.getcwd())
+    root = ""
+    try:
+        from aetheris import git_ops
+        root = git_ops.repo_root(here)
+    except Exception:
+        root = ""
+    root = os.path.realpath(root) if root else here
+    try:
+        inside = os.path.commonpath([root, here]) == root
+    except ValueError:              # another drive, on Windows
+        inside = False
+    if not inside:
+        root = here
+    directories = [here]
+    while directories[-1] != root:
+        parent = os.path.dirname(directories[-1])
+        if parent == directories[-1]:
+            break
+        directories.append(parent)
+    for directory in reversed(directories):
+        path = _first_in(directory)
+        if path and path != own:
+            found.append(("project", path))
+    return found
+
+
+def load_context_file() -> str:
+    """Every file `context_files` finds, as the system prompt's last section."""
+    sections = []
+    here = os.getcwd()
+    for scope, path in context_files():
+        try:
+            with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+                text = f.read(CONTEXT_FILE_MAX_CHARS + 1)
+        except OSError:
+            continue
+        if not text.strip():
+            continue
+        if len(text) > CONTEXT_FILE_MAX_CHARS:
+            text = text[:CONTEXT_FILE_MAX_CHARS] + "\n... (cut here - the rest was too long)"
+        if scope == "yours":
+            heading = "### YOUR USER'S OWN INSTRUCTIONS (every project)"
+        else:
+            try:
+                shown = os.path.relpath(path, here)
+            except ValueError:
+                shown = path
+            heading = f"### PROJECT CONVENTIONS ({shown})"
+        sections.append(f"{heading}:\n{text.strip()}\n")
+    return ("\n\n" + "\n".join(sections)) if sections else ""
 
 def summarizeprompt() -> str:
     return """

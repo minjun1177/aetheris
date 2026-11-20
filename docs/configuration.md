@@ -151,3 +151,26 @@ Before 0.2.0 the sessions, the memory and the input history were written into
 whatever directory the harness started in. If you have those, they are not read
 any more and nothing has moved them; the harness names them at startup and
 prints the one line that moves them across.
+
+---
+
+## Instructions files
+
+Standing instructions for the model are kept in plain markdown files and added
+to the end of the system prompt. **A directory contributes one file**: the
+first of these names that exists in it.
+
+```text
+CONVENTIONS.md   .clauderc   AGENTS.md   CLAUDE.md
+```
+
+| Where | Read | What it is for |
+| :--- | :--- | :--- |
+| `~/.aetheris/` (the harness's home) | In **every** project, first | How you like to work anywhere: language, tone, habits |
+| The top of the git working tree | When you are anywhere inside it | The repository's conventions |
+| Each directory between there and the current one | When you are in it or below it | Rules for one part of the tree |
+
+They are read broadest first, so where two disagree the one nearest the current
+directory comes last. Outside a git repository only the current directory's file
+is read. A file is cut at 20,000 characters. A change is picked up when the
+system prompt is next built, for example by `/clear`.

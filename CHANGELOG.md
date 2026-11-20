@@ -43,6 +43,12 @@ own, and out to a package of its own only when someone needs it there.
 - **`/compact [focus]`** summarises the conversation when the person decides
   to, not only when the window is nearly full, and keeps the last exchange.
   The focus tells the summariser what it must keep in full.
+- **Instructions files follow the repository.** The conventions file (the
+  same four names as before) is read in every directory from the top of the
+  git working tree down to the current one, so a terminal in `src/` keeps the
+  repository's rules. One in `~/.aetheris/` holds the person's own and is read
+  in every project. Each file is cut at 20,000 characters - see
+  `docs/configuration.md`.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.
