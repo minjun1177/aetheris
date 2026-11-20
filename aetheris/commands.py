@@ -48,6 +48,25 @@ def _read(path: str) -> tuple:
     return description, body
 
 
+# The last answer, and what the directories looked like when it was given. The
+# `/` menu asks on every key pressed; a listing and a stat per file is cheap,
+# reading every file each time was not.
+_cache: dict = {"key": None, "value": ({}, [])}
+
+
+def _fingerprint(reserved) -> tuple:
+    seen = []
+    for _, directory in directories():
+        try:
+            for entry in sorted(os.scandir(directory), key=lambda e: e.name):
+                if entry.name.lower().endswith(".md"):
+                    stat = entry.stat()
+                    seen.append((entry.path, stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            continue
+    return tuple(seen), frozenset(reserved)
+
+
 def discover(reserved=()) -> tuple:
     """({name: command}, [problems]). Never raises.
 
@@ -55,6 +74,16 @@ def discover(reserved=()) -> tuple:
     named like one of them is left out and reported, rather than quietly
     changing what a documented command does.
     """
+    key = _fingerprint(reserved)
+    if _cache["key"] == key:
+        found, problems = _cache["value"]
+        return dict(found), list(problems)
+    found, problems = _scan(reserved)
+    _cache.update(key=key, value=(dict(found), list(problems)))
+    return found, problems
+
+
+def _scan(reserved) -> tuple:
     found, problems = {}, []
     for source, directory in directories():
         try:

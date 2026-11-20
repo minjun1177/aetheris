@@ -82,6 +82,19 @@ found, _ = commands.discover(reserved)
 check("the project's file is used", found["review"]["source"] == "project"
       and commands.expand("/review it", reserved)[0] == "Project review of it.")
 
+print("\n--- the menu does not reread every file on every key ---")
+reads = []
+real_read = commands._read
+commands._read = lambda path: reads.append(path) or real_read(path)
+commands.discover(reserved)
+commands.discover(reserved)
+check("nothing changed, nothing read", reads == [], str(reads))
+write(os.path.join(USER, "notes.md"), "Release notes, rewritten.\n")
+os.utime(os.path.join(USER, "notes.md"), ns=(1, 1))
+check("a changed file is read again",
+      commands.discover(reserved)[0]["notes"]["description"] == "Release notes, rewritten.")
+commands._read = real_read
+
 print("\n--- the menu and /commands show them ---")
 offered = {insert: meta for insert, _, meta in tui.complete_command("/re")}
 check("typing / offers them, with what they do",
