@@ -84,6 +84,9 @@ from the working directory, but now only once they have been trusted.
   `/load` and `/skill` matched as a bare prefix, so "/systemd keeps
   restarting" set the persona to "d keeps restarting" and "/exporter" wrote a
   file called "er". Each now matches its whole name only.
+- **`/export` never writes over a file.** `/export README.md` replaced the
+  README with the conversation. It now refuses a name that exists, as `/copy`
+  already did.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

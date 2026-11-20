@@ -1977,20 +1977,27 @@ def _export_command(rest: str, messages: list[dict]) -> None:
         # `/export ` with a stray space used to name no file at all and report
         # `Export failed: ''` instead of exporting.
         name = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    parts = []
+    for m in messages:
+        if not isinstance(m, dict) or m.get("role") == "system":
+            continue
+        role_name = "User" if m.get("role") == "user" else "Assistant"
+        content = m.get("content")
+        if not isinstance(content, str):
+            continue
+        c = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL)
+        c = strip_thinking(c)
+        if c:
+            parts.append(f"### {role_name}\n\n{c}\n\n")
     try:
-        with open(name, "w", encoding="utf-8") as f:
-            for m in messages:
-                if not isinstance(m, dict) or m.get("role") == "system":
-                    continue
-                role_name = "User" if m.get("role") == "user" else "Assistant"
-                content = m.get("content")
-                if not isinstance(content, str):
-                    continue
-                c = re.sub(r'<tool_call>.*?</tool_call>', '', content, flags=re.DOTALL)
-                c = strip_thinking(c)
-                if c:
-                    f.write(f"### {role_name}\n\n{c}\n\n")
+        # "x", as /copy has: `/export README.md` used to replace the README
+        # with the conversation, and nothing said so.
+        with open(name, "x", encoding="utf-8") as f:
+            f.write("".join(parts))
         print(f"  {S.OK}✓ Conversation exported to {name}{S.R}\n")
+    except FileExistsError:
+        print(f"  {S.ERR}✗ {name} already exists - /export will not write over a file. "
+              f"Give it another name.{S.R}\n")
     except Exception as e:
         print(f"  {S.ERR}✗ Export failed: {e}{S.R}\n")
 

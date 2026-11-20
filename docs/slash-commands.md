@@ -21,7 +21,7 @@ The interactive terminal supports special slash commands to control options and 
 | `/title` | Show the current session's title and id |
 | `/title <name>` | Retitle the current session and rename its file to match |
 | `/fork [title]` | Carry on in a copy of this conversation, under a new id and title (`<title> (fork)` when none is given). The original stays saved exactly as it was, and `/load` goes back to it. Only the conversation is copied; files on disk are shared |
-| `/export [filename]` | Export current chat history into a Markdown file |
+| `/export [filename]` | Export current chat history into a Markdown file. A file that already exists is never written over |
 | `/rewind [n]` | Take back the last prompt and everything said and done after it - or the last `n` - and put that prompt back in the box to edit or send again. Files stay as they are: it lists the AI commits those turns left, for `/undo`. It reaches the prompts sent since the conversation was opened, up to 20 |
 | `/compact [focus]` | Summarise the conversation now rather than when the window is nearly full. The summary goes into the system prompt and the last exchange stays as it was. Anything after the command tells the summariser what it must keep in full, e.g. `/compact the failing test in parser.py`. A summary already there is folded into the new one |
 | `/btw <question>` | A side question: answered from the conversation so far, with no tool run and nothing kept, so the next turn never sees it. The request is the conversation as it stands plus the question, so a provider's prompt cache still applies |

@@ -205,6 +205,13 @@ try:
     check("the tool call is stripped from the answer", "<tool_call>" not in written,
           written)
     check("and both speakers are in it", "### User" in written and "### Assistant" in written)
+    with open("keep.md", "w", encoding="utf-8") as handle:
+        handle.write("the person's own file\n")
+    with contextlib.redirect_stdout(io.StringIO()) as said:
+        app._export_command(" keep.md", conversation)
+    check("an existing file is never written over",
+          open("keep.md", encoding="utf-8").read() == "the person's own file\n"
+          and "already exists" in said.getvalue(), said.getvalue())
 
     with contextlib.redirect_stdout(io.StringIO()):
         app._export_command("   ", conversation)
