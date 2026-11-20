@@ -1691,6 +1691,54 @@ def using_model(model: str):
             _active_cache_clear()
 
 
+def split_model(spec: str) -> tuple:
+    """("anthropic", "claude-haiku-5-5") for "anthropic:claude-haiku-5-5".
+
+    ("", spec) for a model of the current provider - which is every spec whose
+    part before the first colon is not a provider's name, so an Ollama tag like
+    "qwen3:4b" stays one model name.
+    """
+    spec = (spec or "").strip()
+    head, colon, rest = spec.partition(":")
+    if colon and head.strip().lower() in PROVIDERS and rest.strip():
+        return head.strip().lower(), rest.strip()
+    return "", spec
+
+
+@contextlib.contextmanager
+def using_agent_model(spec: str):
+    """`using_model`, for a spec that may name another provider: `spawn_agent`'s `model`.
+
+    Another provider is built from a copy of its saved settings with the model
+    put in, so nothing saved changes, and checked with `ready()` before
+    anything is sent - a missing key is a sentence for the hiring model, not a
+    sub-agent that dies on its first request. A provider that runs its own
+    agent loop (Attacca) cannot be one: there is no local loop to run.
+    Raises ValueError with the reason.
+    """
+    from aetheris import config
+    global _active
+    name, model = split_model(spec)
+    if not name or name == current().name:
+        with using_model(model) as provider:
+            yield provider
+        return
+    factory = PROVIDERS[name]
+    if factory.drives_turns:
+        raise ValueError(f"{factory.label} runs its own agent loop, so a sub-agent "
+                         f"cannot be run on it")
+    provider = factory({**settings_for(name), "model": model})
+    problem = provider.ready()
+    if problem:
+        raise ValueError(f"{factory.label} cannot run the sub-agent: {problem}")
+    previous, previous_model = _active, config.MODEL
+    _active, config.MODEL = provider, model
+    try:
+        yield provider
+    finally:
+        _active, config.MODEL = previous, previous_model
+
+
 def _active_cache_clear() -> None:
     global _active
     _active = None

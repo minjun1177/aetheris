@@ -94,8 +94,9 @@ check("rule 9 sends it back to read_file after a search",
 
 print("\n--- arguments bind the way the handlers expect ---")
 cases = [
-    ("run_cmd", {"command": "ls"}, ["ls", ""]),
-    ("run_cmd", {"command": "ls", "input": "y"}, ["ls", "y"]),
+    ("run_cmd", {"command": "ls"}, ["ls", "", ""]),
+    ("run_cmd", {"command": "ls", "input": "y"}, ["ls", "y", ""]),
+    ("run_cmd", {"command": "npm run dev", "background": "true"}, ["npm run dev", "", "true"]),
     ("send_input", {"session": "s1", "text": "50"}, ["s1", "50"]),
     ("send_input", {"session": "s1", "stdin": ""}, ["s1", ""]),
     ("search_in_file", {"query": "x"}, ["x", False, "", 0]),

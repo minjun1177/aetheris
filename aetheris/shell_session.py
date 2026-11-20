@@ -102,6 +102,7 @@ class Session:
         self._encoding_settled = False
         self._queue: queue.Queue = queue.Queue()
         self._open_pipes = 0
+        self._closed = 0          # pipes `drain` has seen close; `read_until_idle` counts its own
 
         for stream in (process.stdout, process.stderr):
             if stream is None:
@@ -329,6 +330,28 @@ class Session:
                 continue
             quiet_since = None
             chunks.append(item)
+
+    def drain(self, timeout: float) -> tuple[str, bool]:
+        """What arrived within `timeout` seconds. Returns (text, every_pipe_closed).
+
+        For a command nobody is waiting on (`background.py`): it is read for as
+        long as it runs, a chunk at a time, rather than until it falls quiet.
+        """
+        chunks = []
+        try:
+            item = self._queue.get(timeout=max(0.0, timeout))
+        except queue.Empty:
+            return "", self._closed >= self._open_pipes
+        while True:
+            if item is None:
+                self._closed += 1
+            else:
+                chunks.append(item)
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+        return "".join(chunks), self._closed >= self._open_pipes
 
     # -- writing ----------------------------------------------------------
 

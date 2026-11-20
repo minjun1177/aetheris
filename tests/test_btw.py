@@ -176,6 +176,75 @@ check("it is shown once - not streamed above the panel as well",
       shown.count("It is in context.py.") == 1)
 check("and the conversation is still untouched", history == before)
 
+print("\n--- f keeps the aside in the conversation ---")
+check("f is the key that keeps it", tui._panel_key("f") == "keep"
+      and tui._panel_key("F") == "keep")
+check("Esc, Enter, Space and q still dismiss it",
+      all(tui._panel_key(k) == "dismiss" for k in ("\x1b", "\r", " ", "q")))
+check("any other key does neither", tui._panel_key("x") == "")
+sys.stdin = io.StringIO("")
+check("with no keyboard there is no key to wait for", tui.wait_for_panel_key() == "")
+sys.stdin = real_stdin
+check("the panel says f keeps it", "f keeps" in tui.BTW_DISMISS)
+
+config.SAVE_CHAT_HISTORY = True
+config.SESSION_DIR = os.path.join(os.environ["AETHERIS_HOME"], "sessions")
+from aetheris import session as session_mod, transcript   # noqa: E402
+
+
+class Chat:
+    def __init__(self):
+        self.messages = [dict(m) for m in before]
+        self.session_id = None
+
+
+def btw(chat, line, pressed):
+    real_panel = app._btw_panel
+
+    async def panel(messages, question):
+        return f"answer to {question}", pressed
+    app._btw_panel = panel
+    out, real = io.StringIO(), sys.stdout
+    sys.stdout = out
+    try:
+        outcome = asyncio.run(app._cmd_btw(chat, line, line.lower()))
+    finally:
+        sys.stdout = real
+        app._btw_panel = real_panel
+    return outcome, out.getvalue()
+
+
+kept_chat = Chat()
+outcome, shown = btw(kept_chat, "/btw which file holds the parser?", True)
+check("kept: the question and the answer join the conversation",
+      kept_chat.messages[-2:] == [
+          {"role": "user", "content": "which file holds the parser?"},
+          {"role": "assistant", "content": "answer to which file holds the parser?"}],
+      str(kept_chat.messages[-2:]))
+check("without the note that called it an aside",
+      llm_client.SIDE_NOTE not in kept_chat.messages[-2]["content"])
+check("it is drawn as a turn, and says it was kept",
+      "which file holds the parser?" in shown and "kept" in shown, shown)
+check("and saved at once", kept_chat.session_id is not None and
+      session_mod.load_session(kept_chat.session_id)["messages"][-1]["content"]
+      == "answer to which file holds the parser?")
+
+left_chat = Chat()
+outcome, shown = btw(left_chat, "/btw just curious", False)
+check("dismissed: the conversation is as it was", left_chat.messages == before)
+check("but the session is saved now, not with the next message",
+      left_chat.session_id is not None)
+record = session_mod.load_session(left_chat.session_id).get("transcript", {})
+check("with the aside in its record, for Ctrl+O and /load",
+      any(turn["prompt"] == "/btw just curious" for turn in record.get("turns", [])),
+      str(record)[:200])
+empty = Chat()
+empty.messages = [{"role": "system", "content": "sys"}]
+btw(empty, "/btw first thing", False)
+check("an aside before anything was said leaves no session file", empty.session_id is None)
+transcript.reset()
+config.SAVE_CHAT_HISTORY = False
+
 
 print()
 if failures:

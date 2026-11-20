@@ -34,6 +34,34 @@ own, and out to a package of its own only when someone needs it there.
 
 ## Unreleased
 
+- **`/btw` can be kept.** `f` on the answer panel adds the question and the
+  answer to the conversation as a turn; Esc, Enter or Space still dismiss it
+  unkept. Either way the session is saved at once, so an aside asked just
+  before leaving is in the record Ctrl+O and `/load` draw from - it used to be
+  saved only with the next message.
+- **`/sessions delete` and `/sessions rename`.** Pick a saved conversation from
+  the list and delete it, after a yes, or give it a new title. The open one is
+  never deleted, and a typed name cannot reach a file outside `sessions/`.
+- **`/loop`, `/schedule` and `/tasks`.** A prompt sent now and on an interval,
+  or once at a time, typed into the prompt only when it is empty and never
+  mid-turn. They last as long as the session. `/tasks` lists them with the
+  background commands, `/tasks stop` ends one.
+- **Background commands.** `run_cmd` takes `background`, returns a job id at
+  once, and the model is told when the command ends - before its next request
+  mid-turn, or by a turn of its own at an empty prompt (`BACKGROUND_WAKE`). A new
+  tool, `read_background`, reads one's output; `end_process` stops one.
+  `BACKGROUND_MAX_JOBS` and `BACKGROUND_OUTPUT_CHARS` bound them.
+- **Sub-agents: the model, and a worktree.** `spawn_agent`'s `model` takes
+  `provider:model` to run the job on another provider, refused up front when
+  that provider cannot be used; `SUBAGENT_MODELS` lists the choices in the
+  system prompt. `isolation="worktree"` runs it in a git worktree on a branch of
+  its own, kept afterwards only when it changed something.
+- **`/init` and `/add-dir`.** `/init` has the model write the project's
+  instructions file, or improve the one there, and the system prompt reads it
+  as soon as that turn ends. `/add-dir` makes another directory part of the
+  project for the session: reads there are not asked about, and accept-edits
+  covers it.
+
 - **Hooks.** `~/.aetheris/hooks.json` and a trusted `.hooks.json` run the
   person's own commands before a tool call (`pre_tool`, which can refuse it),
   after one (`post_tool`, whose complaint is added to the result) and when a

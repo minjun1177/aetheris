@@ -99,7 +99,7 @@ def run_user_cmd(command: str) -> str:
         _keep_keys = False
 
 
-def safe_run_cmd(command_string: str, stdin_text: str = "") -> str:
+def safe_run_cmd(command_string: str, stdin_text: str = "", background="") -> str:
     """Run a shell command, and stay connected to it while it runs.
 
     The command is handed to the shell as written. It used to be split with
@@ -113,14 +113,19 @@ def safe_run_cmd(command_string: str, stdin_text: str = "") -> str:
     That is the only way an interactive program can work here: its prompts are
     captured, so the user never sees them, and letting it hold the terminal just
     froze the app with nothing on screen.
+
+    With `background` true it is not waited on at all: see `background.py`.
     """
     command = (command_string or "").strip()
     if not command:
         return "[Error] Empty command."
 
     stdin_text = stdin_text if isinstance(stdin_text, str) else ""
+    in_background = _truthy(background)
 
     details = [("command", command)]
+    if in_background:
+        details.append(("runs", "in the background - the conversation goes on"))
     if stdin_text.strip():
         preview = stdin_text if len(stdin_text) <= 200 else stdin_text[:200] + "...[truncated]"
         details.append(("input", preview.replace("\n", " ⏎ ").strip()))
@@ -128,6 +133,9 @@ def safe_run_cmd(command_string: str, stdin_text: str = "") -> str:
         return "[System] User denied command execution."
 
     from aetheris import providers      # here, not at the top: see `_handlers`
+    if in_background:
+        return _start_background(command, stdin_text,
+                                 None if _keep_keys else providers.child_environment())
     try:
         # The model's command runs without the provider keys in its
         # environment (`providers.child_environment`). A command the person
@@ -183,7 +191,57 @@ def handle_send_input(session_id: str, text: str) -> str:
     return _session_result(session, output, ended, timed_out)
 
 
+def _start_background(command: str, stdin_text: str, env) -> str:
+    """`run_cmd` with `background`: started, and handed back as a job id."""
+    from aetheris import background
+    try:
+        job = background.start(command, env=env)
+    except RuntimeError as full:
+        listing = ", ".join(f"{j.id} ({j.command})" for j in background.running())
+        return (f"[Error] Not started: {full} ({listing}). Stop one with "
+                f"end_process, or run this one without background.")
+    except Exception as e:
+        return f"[Error] Failed to start the command in the background: {e}"
+    note = (" It gets no input, so the <stdin> you sent was not used."
+            if stdin_text.strip() else "")
+    return (f"[Success] Started in the background as job {job.id}: `{command}`.{note} "
+            f"You will be told when it ends, with the end of its output. Meanwhile "
+            f"read_background with job '{job.id}' shows what it has printed, and "
+            f"end_process with session '{job.id}' stops it. Carry on with other work.")
+
+
+def handle_read_background(job_id: str = "") -> str:
+    """What a background job has printed since it was last read, and its state."""
+    from aetheris import background
+    if not str(job_id or "").strip():
+        listed = background.jobs()
+        if not listed:
+            return "No background jobs. Start one with run_cmd and background=true."
+        return "Background jobs:\n" + "\n".join(
+            f"  {job.id}  {job.state()}  `{job.command}`" for job in listed)
+    job = background.get(job_id)
+    if job is None:
+        known = ", ".join(j.id for j in background.jobs()) or "none"
+        return f"[Error] No background job '{job_id}'. Jobs this session: {known}."
+    fresh = job.unread(config.CMD_OUTPUT_CHARS).rstrip()
+    head = f"Job {job.id} (`{job.command}`) is {job.state()}."
+    if not job.running:
+        # Said here too, so a job read after it ended is not announced again.
+        job.reported = True
+    if fresh:
+        return f"{head} New output since the last read:\n{fresh}"
+    return f"{head} Nothing new since the last read."
+
+
 def handle_end_process(session_id: str) -> str:
+    from aetheris import background
+    job = background.get(session_id)
+    if job is not None:
+        was_running = job.running
+        background.stop(job.id)
+        if not was_running:
+            return f"[Success] Job {job.id} (`{job.command}`) had already {job.state()}."
+        return f"[Success] Stopped background job {job.id} (`{job.command}`)."
     session = shell_session.get(session_id)
     if session is None:
         return f"[Error] No running session '{session_id}'."
@@ -1045,13 +1103,21 @@ def _as_path(value, name: str = "filepath") -> tuple:
 
 
 def _outside_workspace(path: str) -> bool:
-    """Whether `path` - followed through any symlink - is outside the working directory."""
+    """Whether `path` - followed through any symlink - is outside the working
+    directory and every directory `/add-dir` added (`config.ADDED_DIRS`)."""
     try:
         resolved = os.path.normcase(os.path.realpath(path))
-        root = os.path.normcase(os.path.realpath(os.getcwd()))
-        return os.path.commonpath([resolved, root]) != root
-    except (OSError, ValueError):      # another drive on Windows, or no cwd
+    except (OSError, ValueError):
         return True
+    roots = [os.getcwd()] + [d for d in config.ADDED_DIRS if isinstance(d, str)]
+    for root in roots:
+        try:
+            root = os.path.normcase(os.path.realpath(root))
+            if os.path.commonpath([resolved, root]) == root:
+                return False
+        except (OSError, ValueError):  # another drive on Windows, or no cwd
+            continue
+    return True
 
 
 def _read_outside(tool: str, path: str) -> str:
@@ -2633,7 +2699,8 @@ def handle_read_mcp_resource(uri: str, server_name: str = "") -> str:
     return mcp_client.read_resource_text(uri, server_name)
 
 
-def handle_spawn_agent(task: str, context: str = "", model: str = "") -> str:
+def handle_spawn_agent(task: str, context: str = "", model: str = "",
+                       isolation: str = "") -> str:
     """Delegate a self-contained job to a fresh agent. See subagent.py.
 
     Approval is asked for here rather than left to the sub-agent's own tool
@@ -2650,10 +2717,12 @@ def handle_spawn_agent(task: str, context: str = "", model: str = "") -> str:
                 "agent loop runs elsewhere. Do this part of the work yourself.")
     first_line = (task or "").strip().splitlines()[0] if (task or "").strip() else ""
     details = [("task", first_line), ("model", model or "same as this one")]
+    if str(isolation or "").strip():
+        details.append(("isolation", str(isolation).strip()))
     if not _approval_prompt("Hire Sub-agent", details, rule="spawn_agent"):
         return ("[System] The user declined to start a sub-agent. Do this part of "
                 "the work yourself.")
-    return subagent.run(task, context, model)
+    return subagent.run(task, context, model, isolation)
 
 
 # ---------------------------------------------------------------------------
@@ -3331,6 +3400,7 @@ def _handlers() -> dict:
             "run_cmd": safe_run_cmd,
             "send_input": handle_send_input,
             "end_process": handle_end_process,
+            "read_background": handle_read_background,
             "run_python": handle_run_python,
             "multi_edit": handle_multi_edit,
             "list_dir": handle_list_dir,

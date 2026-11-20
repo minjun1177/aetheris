@@ -18,6 +18,7 @@ from aetheris.tui import (_fmt_tool_call, _fmt_tool_result, _fmt_tokens,
 from aetheris.renderer import _render_line, _format_table, fit_rows
 from aetheris.tools import dispatch_tool
 from aetheris import tools as _tools
+from aetheris import background
 from aetheris import channel
 from aetheris import images
 from aetheris import context
@@ -1040,6 +1041,14 @@ async def chat_turn(messages: list[dict]) -> str:
                 messages.append({"role": "user", "content": arrived})
                 print(f"  {S.MUTED}↪ a message arrived from another agent; "
                       f"passed it to the model{S.R}")
+            # A `run_cmd` started with `background` that has ended since the
+            # last request: the model hears it now, mid-job, rather than after
+            # the turn it may have been waiting on it in.
+            ended = background.take_finished()
+            if ended:
+                messages.append({"role": "user", "content": background.note(ended)})
+                print(f"  {S.MUTED}↪ background job {', '.join(j.id for j in ended)} "
+                      f"ended; passed it to the model{S.R}")
         first_request = False
         # Text a console mangled cannot be encoded, so one bad character would
         # fail this request and every later one. Repair it before it is sent.

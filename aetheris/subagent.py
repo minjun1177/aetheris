@@ -26,6 +26,7 @@ delegated precisely so they would not have to watch it.
 """
 
 import asyncio
+import os
 import threading
 
 from aetheris import config
@@ -82,6 +83,24 @@ to the AI that hired you, as the result of one tool call. So:
 {tool_rules(native)}
 Write your report in the language the brief is written in.
 """
+
+
+def models_prompt_section() -> str:
+    """The models `spawn_agent` may be run on (`SUBAGENT_MODELS`), for the system prompt.
+
+    "" when none are listed, so a prompt that never mentioned them is byte for
+    byte what it was. In the list's own order: it is a cache prefix (5.10).
+    """
+    listed = [str(m).strip() for m in (config.SUBAGENT_MODELS or []) if str(m).strip()]
+    if not listed:
+        return ""
+    rows = "\n".join(f"- {name}" for name in listed)
+    return ("\n\n### SUB-AGENT MODELS\n"
+            "spawn_agent's `model` may be any of these. Choose for the job: a "
+            "small or local one for long mechanical work - searching, reading, "
+            "listing - and a stronger one where the sub-agent has to judge or "
+            "write code. Leave `model` out to use the one you are running on.\n"
+            f"{rows}\n")
 
 
 def brief(task: str, context: str = "") -> str:
@@ -199,8 +218,13 @@ def _run_off_thread(task: str, context: str, depth: int, model: str) -> str:
 
     def worker():
         try:
-            with providers.using_model(model):
+            # `using_agent_model`: a "provider:model" spec reaches another
+            # provider for the length of this job, and one that cannot be used
+            # is refused before the first request rather than on it.
+            with providers.using_agent_model(model):
                 outcome["value"] = asyncio.run(_work(task, context, depth))
+        except ValueError as refused:
+            outcome["refused"] = str(refused)
         except BaseException as error:      # reported, never raised into the loop
             outcome["error"] = error
 
@@ -208,17 +232,32 @@ def _run_off_thread(task: str, context: str, depth: int, model: str) -> str:
     thread.start()
     thread.join()
 
+    if "refused" in outcome:
+        return (f"[Error] The sub-agent was not started: {outcome['refused']}. "
+                "Pick another model, or leave 'model' out to use this one.")
     if "error" in outcome:
         return f"[Error] The sub-agent stopped: {outcome['error']}"
     return outcome.get("value", "[Error] The sub-agent returned nothing.")
 
 
-def run(task: str, context: str = "", model: str = "") -> str:
-    """The `spawn_agent` tool. Returns the sub-agent's report as the tool result."""
+ISOLATIONS = ("", "none", "worktree")
+
+
+def run(task: str, context: str = "", model: str = "", isolation: str = "") -> str:
+    """The `spawn_agent` tool. Returns the sub-agent's report as the tool result.
+
+    `isolation="worktree"` runs it in a git worktree of its own (`worktree.py`):
+    the working directory is moved there for the length of the job - the
+    assistant's own loop is blocked on this call, so nothing else is working in
+    it meanwhile - and moved back however the job ends.
+    """
     task = (task or "").strip()
     if not task:
         return ("[Error] spawn_agent needs a 'task'. Write the brief as if for "
                 "someone who cannot see this conversation.")
+    isolation = str(isolation or "").strip().lower()
+    if isolation not in ISOLATIONS:
+        return (f"[Error] isolation must be 'worktree' or left out, not '{isolation}'.")
 
     depth = int(config.SUBAGENT_DEPTH)
     limit = int(config.SUBAGENT_MAX_DEPTH)
@@ -226,22 +265,46 @@ def run(task: str, context: str = "", model: str = "") -> str:
         return (f"[System] Sub-agents may not hire sub-agents (depth limit {limit}). "
                 "Do this part of the work yourself.")
 
+    tree = None
+    if isolation == "worktree":
+        from aetheris import worktree
+        tree, problem = worktree.create()
+        if tree is None:
+            return (f"[Error] No worktree could be made for the sub-agent: {problem}. "
+                    "Nothing was started. Leave 'isolation' out to run it here.")
+        context = "\n\n".join(part for part in (worktree.note_for_brief(tree),
+                                                   context.strip()) if part)
+
     label = model or providers.current().model
-    _banner("hired", label, task)
+    _banner("hired", label, task, tree.path if tree else "")
 
     config.SUBAGENT_DEPTH = depth + 1
+    here = os.getcwd()
+    left = ""
     try:
+        if tree is not None:
+            os.chdir(tree.path)
         report = _run_off_thread(task, context, depth + 1, model)
     finally:
+        os.chdir(here)
         config.SUBAGENT_DEPTH = depth
+        if tree is not None:
+            # In the `finally`: a checkout left behind by a job that blew up is
+            # a branch nobody knows to look at.
+            from aetheris import worktree
+            left = worktree.finish(tree)
+    if left:
+        report = f"{report.rstrip()}\n\n{left}"
 
     _banner("reported back", label, "")
     return report
 
 
-def _banner(state: str, model: str, task: str) -> None:
+def _banner(state: str, model: str, task: str, where: str = "") -> None:
     print(f"\n  {S.PURPLE}{'┌' if state == 'hired' else '└'}─ sub-agent {state}{S.R}"
           f"  {S.MUTED}{model}{S.R}")
+    if where:
+        print(f"  {S.PURPLE}│{S.R} {S.MUTED}in its own worktree: {where}{S.R}")
     if task:
         first = task.splitlines()[0]
         print(f"  {S.PURPLE}│{S.R} {S.GRAY}{first[:88]}{'…' if len(first) > 88 else ''}{S.R}")

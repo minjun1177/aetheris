@@ -39,6 +39,9 @@ from aetheris import transcript
 from aetheris import update
 from aetheris import tui
 from aetheris import tools
+from aetheris import background
+from aetheris import scheduler
+from aetheris import subagent
 from aetheris import vault
 from aetheris import verify
 from aetheris import vm
@@ -50,7 +53,7 @@ from aetheris.tui import (_welcome, _show_help, _show_skills, _show_mcp, _show_p
 from aetheris.renderer import _render_full
 from aetheris.session import (save_session, load_session, list_sessions, find_sessions,
                      latest_in_dir, rename_session, generate_session_title, clean_title,
-                     memory_prompt_section)
+                     memory_prompt_section, delete_session, retitle_saved)
 from aetheris.context import (manage_context, _estimate_tokens,
                                     _get_ctx_budget, token_turns)
 from aetheris import llm_client
@@ -66,7 +69,8 @@ def _compose_system_prompt(summary: str = "") -> str:
     # here rather than inside `systemprompt()` - and they land ahead of the
     # summary, which must stay last for `_extract_summary`.
     return (base + memory_prompt_section() + channel.prompt_section()
-            + notes.notes_prompt_section() + summary)
+            + notes.notes_prompt_section() + subagent.models_prompt_section()
+            + summary)
 
 
 def _extract_summary(system_content: str) -> str:
@@ -371,7 +375,8 @@ def _adopt_session(loaded) -> list[dict]:
 # notes, a peer's message, a deepthink stage. Nobody typed any of it and none of
 # it was on screen as written - live, each printed a line of its own or nothing -
 # so a replay that showed it would be showing the model's side of the screen.
-_NOT_TYPED = ("[System]", "[System Note", "[Tool Error]", "[Channel]", "[Deepthink")
+_NOT_TYPED = ("[System]", "[System Note", "[Tool Error]", "[Channel]", "[Deepthink",
+              "[Background]")
 
 # What the harness appends to a line after it was typed: the files an `@`
 # attached and the `/tdd` note. Cut off, the line is what the prompt showed.
@@ -481,7 +486,7 @@ def _clear_screen() -> None:
 SESSIONS_SHOWN = 15
 
 
-def _pick_session(current: str, query: str = "") -> str:
+def _pick_session(current: str, query: str = "", verb: str = "Open") -> str:
     """`/sessions`: the saved conversations, and which one to open. "" for none.
 
     Listing and loading were two commands, with an id read off the first and
@@ -510,7 +515,7 @@ def _pick_session(current: str, query: str = "") -> str:
                   f"letters of a title find them{S.R}")
         print()
         answer = connect._ask(
-            f"  {S.INFO}Open{S.R} {S.MUTED}(1~{len(shown)}, or part of a title; "
+            f"  {S.INFO}{verb}{S.R} {S.MUTED}(1~{len(shown)}, or part of a title; "
             f"Enter to stay){S.R} {S.INFO}›{S.R} ",
             title="Saved sessions",
             options=[(str(n), title or sid) for n, (sid, title, _) in enumerate(shown, 1)])
@@ -1085,6 +1090,72 @@ async def _watch_channel(session_pt=None) -> None:
         try:
             if _maybe_auto_turn(session_pt, arrived):
                 return          # the prompt is closing; this line is answered
+        except Exception:
+            return              # never let the watcher be the reason a prompt dies
+
+
+def _due_line() -> str:
+    """The line a task would type into the prompt now, or "".
+
+    A background command that has ended comes first - something the model
+    started is waiting on its answer - then a `/loop` or `/schedule` prompt
+    that has fallen due. Each is handed out once: taking it moves it on.
+    """
+    if config.BACKGROUND_WAKE:
+        ended = background.take_finished()
+        if ended:
+            ids = ", ".join(job.id for job in ended)
+            _print_above(f"  {S.INFO}◆ background job {ids} ended; passing it to "
+                         f"the model{S.R}")
+            return background.note(ended)
+    task = scheduler.due()
+    if task is None:
+        return ""
+    kind = (f"/loop every {scheduler.every_text(task.every)}" if task.repeats
+            else "/schedule")
+    first = task.prompt.splitlines()[0] if task.prompt else ""
+    shown = first if len(first) <= 80 else first[:79] + "…"
+    _print_above(f"  {S.INFO}◆ {task.id} {S.MUTED}({kind}):{S.R} {S.WHITE}{shown}{S.R}")
+    return task.prompt
+
+
+def _maybe_task_turn(session_pt) -> bool:
+    """Type a due task's line into an empty, open prompt. True when it did.
+
+    The same door the channel uses for a question nobody is here to answer
+    (`_maybe_auto_turn`), and the same rule: never over a half-typed line.
+    The line is the person's own work - a prompt they asked to have sent - so
+    it does not spend the channel's budget, but it is not a person arriving
+    either (`_auto_woke`).
+    """
+    global _auto_woke
+    prompt_app = getattr(session_pt, "app", None)
+    if prompt_app is None or not getattr(prompt_app, "is_running", False):
+        return False
+    try:
+        if prompt_app.current_buffer.text.strip():
+            return False        # somebody is typing; the task waits for them
+    except Exception:
+        return False
+    line = _due_line()
+    if not line:
+        return False
+    _auto_woke = True
+    try:
+        prompt_app.exit(result=line)
+    except Exception:
+        _auto_woke = False
+        return False
+    return True
+
+
+async def _watch_tasks(session_pt) -> None:
+    """While the prompt is open, type whatever task falls due into it."""
+    while True:
+        await asyncio.sleep(1.0)
+        try:
+            if _maybe_task_turn(session_pt):
+                return
         except Exception:
             return              # never let the watcher be the reason a prompt dies
 
@@ -1740,6 +1811,14 @@ async def _read_line(session_pt) -> str:
         if _size_changed():
             # The same goes for a resize: noticed only before `input()` blocks.
             return RESIZED
+        due = _due_line()
+        if due:
+            # Without prompt_toolkit nothing can close `input()` once it is
+            # waiting, so a task that falls due during it goes after the next
+            # Enter; one already due goes now.
+            _auto_woke = True
+            print(f"  {S.USER_CLR}{S.BOLD}❯{S.R} {_as_typed(due).splitlines()[0]}")
+            return due
         remote.set_driver("terminal")
         line = input(f"  {S.USER_CLR}{S.BOLD}❯{S.R} ").strip()
         _auto_turns, _auto_spent_said = 0, False
@@ -1766,6 +1845,7 @@ async def _read_line(session_pt) -> str:
     # banner appears with the `!` rather than on the next line.
     message = lambda: ANSI(_prompt_message())          # noqa: E731
     watcher = asyncio.ensure_future(_watch_channel(session_pt))
+    tasks_watcher = asyncio.ensure_future(_watch_tasks(session_pt))
     # `patch_stdout` is what lets the watcher print *above* the prompt rather
     # than through the middle of what is being typed.
     #
@@ -1792,6 +1872,7 @@ async def _read_line(session_pt) -> str:
                 line = await _typed_or_remote(session_pt, message)
     finally:
         watcher.cancel()
+        tasks_watcher.cancel()
     if line is IDLE_CALL or line is RESIZED or line is WEB_TURN:
         return line           # not somebody arriving here
     if not _auto_woke:
@@ -2423,10 +2504,74 @@ async def _cmd_connect(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+def _session_title(session_id: str) -> str:
+    return next((title for sid, title, _ in list_sessions() if sid == session_id), "")
+
+
+def _delete_saved(chat, query: str) -> None:
+    """`/sessions delete [title]`: pick one, say yes, and its file is gone."""
+    picked = _pick_session(chat.session_id, query, verb="Delete")
+    if not picked:
+        return
+    shown = _session_title(picked) or picked
+    if picked == chat.session_id:
+        print(f"  {S.WARN}⚠ '{shown}' is the conversation you are in.{S.MUTED} "
+              f"/clear or /load another one first; deleting it here would only "
+              f"have it saved again with the next message.{S.R}\n")
+        return
+    answer = connect._ask(
+        f"  {S.WARN}Delete{S.R} {S.WHITE}{shown}{S.R}{S.MUTED}? It cannot be "
+        f"brought back. (y/N){S.R} {S.INFO}›{S.R} ",
+        title="Delete a saved session",
+        options=[("y", "Delete it"), ("n", "Keep it")])
+    if str(answer).strip().lower() not in ("y", "yes"):
+        if not isinstance(answer, connect.Cancelled):
+            print(f"  {S.GRAY}Kept.{S.R}\n")
+        return
+    if delete_session(picked):
+        print(f"  {S.OK}✓ Deleted:{S.R} {S.WHITE}{shown}{S.R} {S.MUTED}({picked}){S.R}\n")
+    else:
+        print(f"  {S.ERR}✗ There is no saved session '{picked}' any more.{S.R}\n")
+
+
+def _rename_saved(chat, query: str) -> None:
+    """`/sessions rename [title]`: pick one and give it a new title."""
+    picked = _pick_session(chat.session_id, query, verb="Rename")
+    if not picked:
+        return
+    shown = _session_title(picked) or picked
+    wanted = connect._ask(
+        f"  {S.INFO}New title for{S.R} {S.WHITE}{shown}{S.R} {S.MUTED}(Enter "
+        f"keeps it){S.R} {S.INFO}›{S.R} ", title="Rename a saved session")
+    if not clean_title(wanted):
+        if not isinstance(wanted, connect.Cancelled):
+            print(f"  {S.GRAY}Kept as it was.{S.R}\n")
+        return
+    if picked == chat.session_id:
+        # The open one is `/title`'s: the title on screen moves with the file.
+        chat.session_id = rename_session(chat.session_id, wanted)
+        new_id = chat.session_id
+    else:
+        new_id = retitle_saved(picked, wanted)
+    if new_id:
+        print(f"  {S.OK}✓ Renamed:{S.R} {S.WHITE}{clean_title(wanted)}{S.R} "
+              f"{S.MUTED}({new_id}){S.R}\n")
+    else:
+        print(f"  {S.ERR}✗ That session could not be renamed.{S.R}\n")
+
+
 async def _cmd_sessions(chat, user_input: str, cmd: str):
+    rest = user_input.partition(" ")[2].strip()
+    verb, _, query = rest.partition(" ")
+    if verb.lower() in ("delete", "rm"):
+        _delete_saved(chat, query.strip())
+        return _HANDLED
+    if verb.lower() == "rename":
+        _rename_saved(chat, query.strip())
+        return _HANDLED
     # One step: the list asks which to open, and the answer goes on to
     # `/load` below as if it had been typed there.
-    picked = _pick_session(chat.session_id, user_input.partition(" ")[2].strip())
+    picked = _pick_session(chat.session_id, rest)
     if not picked:
         return _HANDLED
     user_input = f"/load {picked}"
@@ -2530,7 +2675,7 @@ async def _cmd_copy(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
-async def _btw_panel(messages: list, question: str) -> None:
+async def _btw_panel(messages: list, question: str) -> tuple:
     """Answer `question` in a panel of its own, then put the screen back.
 
     The answer is not streamed into the scrollback like a turn's: it is
@@ -2538,6 +2683,10 @@ async def _btw_panel(messages: list, question: str) -> None:
     it are drawn again, so what stays on screen is the conversation and a
     one-line trace that an aside was asked. From a remote, or with no keyboard
     to wait on, the panel is left where it is.
+
+    Returns (answer, kept): `kept` when the person pressed `f` to keep the
+    aside in the conversation rather than dismiss it - the screen is put back
+    either way, and `_cmd_btw` adds it.
     """
     rows_before = screen.snapshot()
     reached: list = []
@@ -2552,21 +2701,42 @@ async def _btw_panel(messages: list, question: str) -> None:
     finally:
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
+    answer = llm_client.strip_thinking(answer)
     waits = not remote.driven() and sys.stdin is not None and sys.stdin.isatty()
-    for row in tui.btw_panel(question, llm_client.strip_thinking(answer), reached,
-                             dismiss=waits):
+    for row in tui.btw_panel(question, answer, reached, dismiss=waits):
         print(row)
     print()
-    if not waits or not await asyncio.to_thread(tui.wait_to_dismiss):
-        return
+    if not waits:
+        return answer, False
+    pressed = await asyncio.to_thread(tui.wait_for_panel_key)
+    if not pressed:
+        return answer, False
     mirrored, sys.stdout = sys.stdout, remote.unmirrored_stdout()
     try:
         screen.restore(rows_before, screen.beneath(sys.stdout))
         sys.stdout.flush()
     finally:
         sys.stdout = mirrored
+    if pressed == "keep":
+        return answer, True
     print(f"  {S.MUTED}↳ /btw answered on the side - not kept in the "
           f"conversation{S.R}\n")
+    return answer, False
+
+
+def _keep_aside(chat, question: str, answer: str) -> None:
+    """`f` on a `/btw` panel: the aside joins the conversation as a turn of its own.
+
+    The question as it was asked and the answer as it was given - without the
+    note that told the model it was an aside, since from here on it is not
+    one. Drawn the way a turn is, so the screen and the history agree.
+    """
+    pair = [{"role": "user", "content": question},
+            {"role": "assistant", "content": answer or "(no answer)"}]
+    chat.messages.extend(pair)
+    with transcript.paused():
+        _replay_messages(pair, record=False)
+    print(f"  {S.MUTED}↳ /btw kept - the next turn sees it{S.R}\n")
 
 
 async def _cmd_btw(chat, user_input: str, cmd: str):
@@ -2586,7 +2756,15 @@ async def _cmd_btw(chat, user_input: str, cmd: str):
     leaving = False
     _stoppable = True
     try:
-        await _btw_panel(chat.messages, question)
+        answer, kept = await _btw_panel(chat.messages, question)
+        if kept:
+            _keep_aside(chat, question, answer)
+        # Saved now, not with the next message: the aside is in the record
+        # Ctrl+O and `/load` draw from, and leaving straight after it used to
+        # lose it. Only once there is a conversation to save, so an aside
+        # asked first thing does not leave a file for an empty session.
+        if any(m.get("role") != "system" for m in chat.messages):
+            chat.session_id = save_session(chat.messages, chat.session_id)
     except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
         leaving = _interrupted(pressed)
         await _absorb_cancel()
@@ -3164,6 +3342,232 @@ async def _cmd_tdd(chat, user_input: str, cmd: str):
     return _Next(user_input, cmd)
 
 
+# ---------------------------------------------------------------------------
+# /init, /add-dir: what the project is
+# ---------------------------------------------------------------------------
+
+_INIT_TARGET = "AGENTS.md"
+# Rebuild the system prompt once the turn `/init` started is over, so the file
+# it wrote is what the rest of the session reads (`_take_refresh_after_turn`).
+_refresh_after_turn = False
+
+
+def _init_target(asked: str = "") -> tuple:
+    """(file name, whether it already exists) for `/init` in this directory.
+
+    The instructions file this directory already has - whichever of the names
+    `systemprompt` reads comes first - so `/init` improves it rather than
+    writing a second one beside it that would never be read. `AGENTS.md` when
+    there is none, or the one named, if it is one of those names.
+    """
+    from aetheris.systemprompt import CONTEXT_FILES
+    here = os.getcwd()
+    if asked in CONTEXT_FILES:
+        return asked, os.path.isfile(os.path.join(here, asked))
+    for name in CONTEXT_FILES:
+        if os.path.isfile(os.path.join(here, name)):
+            return name, True
+    return _INIT_TARGET, False
+
+
+def _init_request(target: str, existing: bool, focus: str) -> str:
+    """What `/init` sends: a request to study the project and write `target`."""
+    lines = [
+        f"[/init] Study this project and write `{target}`, the instructions file "
+        f"at its root. Every future session here reads it before the first "
+        f"message, so it should hold what a newcomer most needs and cannot see "
+        f"at a glance.",
+        "1. Look before you write. List the top directory, read the README, the "
+        "build and package files (pyproject.toml, package.json, Cargo.toml, "
+        "go.mod, Makefile, CI workflows) and enough of the source to see how it "
+        "is organised. Never guess what you can read.",
+        "2. Write only what is true and useful, in this order: what the project "
+        "is, in a short paragraph; the exact commands to install, build, run, "
+        "lint and test - one test on its own too, if there is a way; how the "
+        "code is laid out and where the important parts live; the conventions a "
+        "contributor must follow that one file does not show; and what surprises "
+        "people.",
+        "3. Keep it short - well under 200 lines. No generic advice, no list of "
+        "every file, nothing you did not check.",
+    ]
+    if existing:
+        lines.append(f"`{target}` already exists. Read it first and improve it: "
+                     f"keep what is still right, correct what is stale, add what "
+                     f"is missing. Edit it rather than writing it again from "
+                     f"nothing.")
+    if focus:
+        lines.append(f"The user asks you to pay particular attention to: {focus}")
+    lines.append("When it is written, say in two or three lines what it covers.")
+    return "\n".join(lines)
+
+
+def _take_refresh_after_turn() -> bool:
+    global _refresh_after_turn
+    wanted, _refresh_after_turn = _refresh_after_turn, False
+    return wanted
+
+
+async def _cmd_init(chat, user_input: str, cmd: str):
+    global _refresh_after_turn
+    from aetheris.systemprompt import CONTEXT_FILES
+    focus = user_input[len("/init"):].strip()
+    # `/init CLAUDE.md` names the file; anything else is what to look at.
+    asked, focus = (focus, "") if focus in CONTEXT_FILES else ("", focus)
+    target, existing = _init_target(asked)
+    _refresh_after_turn = True
+    print(f"  {S.MUTED}◆ /init - {'improving' if existing else 'writing'} "
+          f"{S.GRAY}{target}{S.MUTED} from what is in this project{S.R}")
+    request = _init_request(target, existing, focus)
+    return _Next(request, request.lower())
+
+
+def _show_added_dirs() -> None:
+    print(f"\n  {S.BOLD}{S.ACCENT}Working directories{S.R}")
+    print(f"  {S.ACCENT}•{S.R} {S.WHITE}{os.getcwd()}{S.R} {S.MUTED}(where it started){S.R}")
+    for directory in config.ADDED_DIRS:
+        print(f"  {S.ACCENT}•{S.R} {S.WHITE}{directory}{S.R} {S.MUTED}(/add-dir){S.R}")
+    if not config.ADDED_DIRS:
+        print(f"  {S.GRAY}  /add-dir <path> adds another, for this session.{S.R}")
+    print()
+
+
+async def _cmd_add_dir(chat, user_input: str, cmd: str):
+    """`/add-dir <path>`: another directory counts as the project, for this session."""
+    raw = user_input[len("/add-dir"):].strip().strip("\"'")
+    if not raw:
+        _show_added_dirs()
+        return _HANDLED
+    path = os.path.realpath(os.path.expanduser(raw))
+    if not os.path.isdir(path):
+        print(f"  {S.ERR}✗ Not a directory: {path}{S.R}\n")
+        return _HANDLED
+    if not tools._outside_workspace(path):
+        print(f"  {S.GRAY}{path} is already part of the project.{S.R}\n")
+        return _HANDLED
+    config.ADDED_DIRS.append(path)
+    # Told as well as allowed: a model that does not know the directory is
+    # its to work in will not think to look there, or will ask first.
+    chat.messages.append({"role": "user", "content": (
+        f"[System] The user added {path} to this session's working directories. "
+        f"Treat the files there as part of the project: read, search and edit "
+        f"them by absolute path as you would the ones here. The working "
+        f"directory is still {os.getcwd()}.")})
+    print(f"  {S.OK}✓ Added:{S.R} {S.WHITE}{path}{S.R} {S.MUTED}- reads there are not "
+          f"asked about, and accept-edits covers it, for this session.{S.R}\n")
+    return _HANDLED
+
+
+# ---------------------------------------------------------------------------
+# /loop, /schedule, /tasks: work that runs later, or on its own
+# ---------------------------------------------------------------------------
+
+def _show_tasks() -> None:
+    loops, jobs = scheduler.tasks(), background.jobs()
+    print(f"\n  {S.BOLD}{S.ACCENT}Tasks{S.R}")
+    if not loops and not jobs:
+        print(f"  {S.GRAY}  None. /loop 5m <prompt>, /schedule in 20m <prompt>, or ask "
+              f"the model to run a command in the background.{S.R}\n")
+        return
+    for task in loops:
+        kind = (f"every {scheduler.every_text(task.every)}" if task.repeats
+                else "once")
+        runs = f", ran {task.runs}x" if task.runs else ""
+        print(f"  {S.ACCENT}{task.id:>4}{S.R}  {S.WHITE}{task.prompt[:70]}{S.R}")
+        print(f"        {S.MUTED}{kind}, next {scheduler.until(task)}{runs}{S.R}")
+    for job in jobs:
+        colour = S.INFO if job.running else (S.ERR if job.code else S.GRAY)
+        print(f"  {S.ACCENT}{job.id:>4}{S.R}  {S.WHITE}$ {job.command[:68]}{S.R}")
+        print(f"        {colour}{job.state()}{S.R}")
+    print(f"  {S.MUTED}/tasks stop <id> ends one; /tasks stop all ends every one.{S.R}\n")
+
+
+def _stop_tasks(which: str) -> None:
+    which = which.strip().lower()
+    if not which:
+        print(f"  {S.ERR}✗ Usage: /tasks stop <id|all>{S.R}\n")
+        return
+    stopped = [task.id for task in scheduler.cancel(which)]
+    if which == "all":
+        stopped += [job.id for job in background.running() if background.stop(job.id)]
+    elif which.startswith("b"):
+        job = background.get(which)
+        if job is not None and job.running:
+            background.stop(which)
+            stopped.append(which)
+    if stopped:
+        print(f"  {S.OK}✓ Stopped:{S.R} {S.WHITE}{', '.join(stopped)}{S.R}\n")
+    else:
+        print(f"  {S.GRAY}Nothing running under '{which}'. /tasks lists them.{S.R}\n")
+
+
+def _schedulable(prompt: str) -> bool:
+    first = prompt.split()[0].lower() if prompt.split() else ""
+    if first in ("/loop", "/schedule", "/exit", "/quit"):
+        print(f"  {S.ERR}✗ {first} cannot be what a task sends.{S.R}\n")
+        return False
+    return True
+
+
+async def _cmd_loop(chat, user_input: str, cmd: str):
+    rest = user_input[len("/loop"):].strip()
+    if not rest:
+        _show_tasks()
+        return _HANDLED
+    if rest.split()[0].lower() in ("stop", "cancel"):
+        _stop_tasks(rest.partition(" ")[2])
+        return _HANDLED
+    every, prompt = scheduler.split_interval(rest)
+    if every <= 0 or not prompt.strip():
+        print(f"  {S.ERR}✗ Usage: /loop <interval> <prompt>{S.MUTED} - e.g. /loop 5m "
+              f"check the CI run and fix what fails{S.R}\n")
+        return _HANDLED
+    if not _schedulable(prompt):
+        return _HANDLED
+    task = scheduler.add_loop(every, prompt, first_now=True)
+    clamped = (f" {S.MUTED}(the shortest is {scheduler.MIN_INTERVAL}s){S.R}"
+               if every < scheduler.MIN_INTERVAL else "")
+    print(f"  {S.OK}✓ Loop {task.id}:{S.R} {S.WHITE}{task.prompt}{S.R}")
+    print(f"  {S.MUTED}Now, then every {scheduler.every_text(task.every)} the prompt is "
+          f"free{clamped}{S.MUTED}. /tasks stop {task.id} ends it.{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_schedule(chat, user_input: str, cmd: str):
+    rest = user_input[len("/schedule"):].strip()
+    if not rest:
+        _show_tasks()
+        return _HANDLED
+    if rest.split()[0].lower() in ("cancel", "stop"):
+        _stop_tasks(rest.partition(" ")[2])
+        return _HANDLED
+    due, prompt = scheduler.split_when(rest)
+    if due <= 0:
+        print(f"  {S.ERR}✗ {prompt}.{S.MUTED} Usage: /schedule <when> <prompt>{S.R}\n")
+        return _HANDLED
+    if not prompt.strip():
+        print(f"  {S.ERR}✗ What should be sent then?{S.MUTED} /schedule <when> <prompt>{S.R}\n")
+        return _HANDLED
+    if not _schedulable(prompt):
+        return _HANDLED
+    task = scheduler.add_once(due, prompt)
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(task.due))
+    print(f"  {S.OK}✓ Scheduled {task.id}:{S.R} {S.WHITE}{task.prompt}{S.R}")
+    print(f"  {S.MUTED}At {at} ({scheduler.until(task)}), once the prompt is free. "
+          f"Only while this session is open. /tasks stop {task.id} drops it.{S.R}\n")
+    return _HANDLED
+
+
+async def _cmd_tasks(chat, user_input: str, cmd: str):
+    rest = user_input[len("/tasks"):].strip()
+    if rest.split() and rest.split()[0].lower() in ("stop", "cancel", "kill"):
+        _stop_tasks(rest.partition(" ")[2])
+    elif rest:
+        print(f"  {S.ERR}✗ Usage: /tasks, or /tasks stop <id|all>{S.R}\n")
+    else:
+        _show_tasks()
+    return _HANDLED
+
+
 _COMMANDS = (
     (lambda cmd: cmd == "/usage", _cmd_usage),
     (lambda cmd: cmd == "/help" or cmd.startswith("/help "), _cmd_help),
@@ -3208,6 +3612,11 @@ _COMMANDS = (
     (lambda cmd: cmd == "/vm" or cmd.startswith("/vm "), _cmd_vm),
     (lambda cmd: cmd == "/set" or cmd.startswith("/set "), _cmd_set),
     (lambda cmd: cmd == "/tdd" or cmd.startswith("/tdd "), _cmd_tdd),
+    (lambda cmd: cmd == "/init" or cmd.startswith("/init "), _cmd_init),
+    (lambda cmd: cmd == "/add-dir" or cmd.startswith("/add-dir "), _cmd_add_dir),
+    (lambda cmd: cmd == "/loop" or cmd.startswith("/loop "), _cmd_loop),
+    (lambda cmd: cmd == "/schedule" or cmd.startswith("/schedule "), _cmd_schedule),
+    (lambda cmd: cmd == "/tasks" or cmd.startswith("/tasks "), _cmd_tasks),
 )
 
 
@@ -3558,6 +3967,13 @@ async def main(resume_id: str = "") -> None:
         if arrived:
             messages.append({"role": "user", "content": arrived})
             print(f"  {S.MUTED}↪ passed the channel messages to the model{S.R}")
+        # Background commands that ended while nobody was asking: the model
+        # started them, so it hears how they went before it reads the line.
+        ended = background.take_finished()
+        if ended:
+            messages.append({"role": "user", "content": background.note(ended)})
+            print(f"  {S.MUTED}↪ background job {', '.join(j.id for j in ended)} "
+                  f"ended; passed it to the model{S.R}")
         # From here the turn is judged on whether it does anything. `_read_line`
         # reads the verdict before opening the next prompt, and it decides both
         # whether the channel may press Enter again and - through
@@ -3660,6 +4076,11 @@ async def main(resume_id: str = "") -> None:
             remote.set_busy(False)
             _report_usage(messages)
             _run_turn_end_hooks(outcome_of_turn)
+            if _take_refresh_after_turn():
+                # `/init` has just written the instructions file the system
+                # prompt is built from; read it in now rather than next session.
+                _refresh_system_prompt(messages)
+                mcp_servers_in_prompt = sorted(config.LOADED_MCP_SERVERS)
             # Not after Ctrl+C: whoever pressed it is already looking.
             if not stopped:
                 _ring_if_long(time.monotonic() - started)

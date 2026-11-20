@@ -403,6 +403,14 @@ CMD_OUTPUT_CHARS = 6000     # per-read output ceiling; the newest is kept
 CMD_MAX_SESSIONS = 3        # live commands kept at once; the oldest is dropped
 CMD_SESSION_LIFETIME = 900  # seconds a live command may sit idle before it is killed
 
+# `run_cmd` with `background` set: the command runs on while the conversation
+# goes on, and the model is told when it ends - in the middle of a turn before
+# its next request, and at an idle prompt by a turn of its own (see
+# background.py). A dev server, a long build, a test suite that takes minutes.
+BACKGROUND_MAX_JOBS = 4         # running at once; a fifth is refused, not queued
+BACKGROUND_OUTPUT_CHARS = 200000  # of one job's output, the newest kept in memory
+BACKGROUND_WAKE = True          # a job that ends while the prompt is empty starts a turn
+
 # run_python: one Python process kept alive beside the harness, so the model can
 # work something out - a calculation, a regex, what a function really returns -
 # instead of guessing at it, and keep what it defined for the next call. See
@@ -456,9 +464,19 @@ HOOK_OUTPUT_CHARS = 2000    # of what a hook printed, what is kept
 TDD_LOCK = False            # armed by /tdd for one turn; not a user setting
 TDD_VERIFY_FAILURES = 6
 
+# Directories `/add-dir` has made part of the project for this session: a read
+# there is not asked about, and accept-edits mode edits there without asking,
+# exactly as in the working directory. Absolute and resolved; not a setting.
+ADDED_DIRS: list = []
+
 SUBAGENT_MAX_TURNS = 12
 SUBAGENT_MAX_DEPTH = 1
 SUBAGENT_DEPTH = 0              # how deep we currently are; not a user setting
+# The models `spawn_agent` may be pointed at, named in the system prompt so the
+# assistant can choose one for the job: "provider:model" reaches another
+# provider ("ollama:qwen3:4b", "anthropic:claude-haiku-5-5"), a bare name is a
+# model of the current one. Empty says nothing, and any model may still be named.
+SUBAGENT_MODELS: list = []
 
 PLANMODE = False
 
@@ -962,7 +980,7 @@ _NOT_A_SETTING = frozenset({
     # Live state that happens to be spelled in capitals.
     "LOADED_SKILLS", "TODOS", "POLICY_AUTO_ALLOW", "DEEPTHINK_READONLY", "SUBAGENT_DEPTH",
     "TDD_LOCK", "LOADED_MCP_SERVERS", "ATTACCA_SESSION", "ATTACCA_CURSOR",
-    "ATTACCA_JOB",
+    "ATTACCA_JOB", "ADDED_DIRS",
     # Where the person's own files live. `AETHERIS_HOME` moves all of them
     # together; moving one by hand splits a memory or a session list in two.
     "MEMORY_FILE", "HISTORY_FILE", "SESSION_DIR", "NOTES_DIR",

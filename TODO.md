@@ -69,6 +69,12 @@
 * [x] Ctrl+O: the last turn uncut
 * [x] /update and a once-a-day check against PyPI
 * [x] Whole-project Tree-sitter index (symbol table): find_symbol, definitions and references
+* [x] /btw f keeps the aside in the conversation; the aside is saved at once
+* [x] /sessions delete and /sessions rename
+* [x] /loop, /schedule and /tasks: prompts sent on an interval or at a time, while the session is open
+* [x] run_cmd background: a job id at once, and the model told when it ends (read_background)
+* [x] spawn_agent: provider:model and SUBAGENT_MODELS, and isolation="worktree"
+* [x] /init writes the instructions file; /add-dir widens the project for the session
 
 ## next
 

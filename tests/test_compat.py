@@ -136,8 +136,8 @@ COMMANDS = (
 
 with open(os.path.join(ROOT, "aetheris", "app.py"), encoding="utf-8") as f:
     APP = f.read()
-defined = (set(re.findall(r'cmd == "(/[a-z]+)"', APP))
-           | set(re.findall(r'cmd\.startswith\("(/[a-z]+)', APP)))
+defined = (set(re.findall(r'cmd == "(/[a-z][a-z-]*)"', APP))
+           | set(re.findall(r'cmd\.startswith\("(/[a-z][a-z-]*)', APP)))
 
 print("--- every command that was ever promised still answers ---")
 gone = missing(COMMANDS, defined)

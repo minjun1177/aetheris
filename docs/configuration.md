@@ -68,6 +68,10 @@ The settings worth knowing:
 | `DEEPTHINK_MAX_PASSES` | 3 | Times the chain may start over when the final check says it is not done |
 | `SUBAGENT_MAX_TURNS` | 12 | Turns a sub-agent gets before it must report |
 | `SUBAGENT_MAX_DEPTH` | 1 | 1 means sub-agents cannot hire sub-agents |
+| `SUBAGENT_MODELS` | (empty) | Models `spawn_agent` may be run on, named in the system prompt so the model can choose - `provider:model` for another provider |
+| `BACKGROUND_MAX_JOBS` | 4 | Background commands running at once; one more is refused |
+| `BACKGROUND_OUTPUT_CHARS` | 200000 | Of one background command's output, the newest kept |
+| `BACKGROUND_WAKE` | on | A background command that ends while the prompt is empty starts a turn |
 | `SHOW_THINKING` | `False` | Show a reasoning model's scratch work |
 | `STORE_THINKING` | `False` | Keep it in the history too. Expensive on a local model |
 | `CHANNEL_ENABLED` | `True` | Join the board other harnesses in this project share |

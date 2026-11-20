@@ -311,6 +311,67 @@ def rename_session(session_id: str, new_title: str) -> str:
         return session_id
 
 
+def _saved_path(session_id: str) -> str:
+    """The file of a saved session, or "" when `session_id` cannot name one.
+
+    An id is a file name and nothing more: one with a separator in it, or one
+    that resolves anywhere but directly inside the sessions directory, names
+    no session - so a typed `../memory` cannot delete or rewrite another file.
+    """
+    sid = str(session_id or "").strip()
+    if not sid or sid != os.path.basename(sid) or sid in (".", ".."):
+        return ""
+    base = os.path.realpath(config.SESSION_DIR)
+    path = os.path.join(base, f"{sid}.json")
+    if os.path.dirname(os.path.realpath(path)) != base or not os.path.isfile(path):
+        return ""
+    return path
+
+
+def delete_session(session_id: str) -> bool:
+    """Delete a saved session's file. False if there was no such session."""
+    path = _saved_path(session_id)
+    if not path:
+        return False
+    try:
+        os.remove(path)
+        return True
+    except OSError as e:
+        print(f"  {S.ERR}✗ Failed to delete session: {e}{S.R}")
+        return False
+
+
+def retitle_saved(session_id: str, new_title: str) -> str:
+    """Retitle a saved session that is not the one open. Returns its (possibly new) id.
+
+    `rename_session` is for the open one: it sets `config.SESSION_TITLE`, which
+    belongs to the conversation on screen. This rewrites only the file.
+    "" when the session or the title is not usable.
+    """
+    new_title = clean_title(new_title)
+    path = _saved_path(session_id)
+    if not new_title or not path:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"  {S.ERR}✗ Failed to read session: {e}{S.R}")
+        return ""
+    if not isinstance(data, dict):
+        return ""           # a legacy list has nowhere to keep a title
+    data["title"] = new_title
+    new_id = _unique_session_id(slugify_title(new_title), current_id=session_id)
+    try:
+        atomic.write_json(path, data, private=True)
+        if new_id != session_id:
+            os.replace(path, os.path.join(os.path.dirname(path), f"{new_id}.json"))
+        return new_id
+    except Exception as e:
+        print(f"  {S.ERR}✗ Failed to rename session: {e}{S.R}")
+        return ""
+
+
 async def generate_session_title(messages: list[dict]) -> str:
     """Ask the model to name the conversation. Returns "" if it cannot."""
     convo = []

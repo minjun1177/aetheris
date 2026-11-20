@@ -16,6 +16,27 @@ a session id - see below. A command that never finishes is stopped at
 `config.CMD_TIMEOUT` (120s) along with everything it started, and whatever it
 printed first is kept.
 
+### Background commands
+
+A dev server, a watcher, or a build that takes ten minutes should not hold the
+turn. `run_cmd` with `background` set starts the command and returns at once:
+
+```
+[Success] Started in the background as job b1: `npm run dev`. You will be told
+when it ends, with the end of its output.
+```
+
+| | |
+| :--- | :--- |
+| **Reading it** | `read_background` with the job id - what it printed since the last read, and whether it is still running |
+| **Stopping it** | `end_process` with the job id, or `/tasks stop b1` yourself |
+| **Being told it ended** | In the middle of a turn, before the model's next request. At an empty prompt, by a turn of its own (`BACKGROUND_WAKE`, on). Otherwise at the start of the next turn |
+| **Input** | None. Its stdin is closed, so a program that asks something gets end-of-file rather than hanging |
+| **Limits** | `BACKGROUND_MAX_JOBS` running at once (4); the newest `BACKGROUND_OUTPUT_CHARS` of each job's output kept |
+
+A job that is stopped on purpose is not announced. Every job still running is
+killed when the harness exits. `/tasks` lists them with the loops and schedules.
+
 ### Answering a program while it runs
 
 `run_cmd` does not wait for the command to finish. It stays connected, draining

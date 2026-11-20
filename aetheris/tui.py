@@ -185,6 +185,8 @@ COMMANDS = (
 
     # -- conversations -----------------------------------------------------
     ("/sessions [title]", "Saved conversations, newest first - pick one to open it"),
+    ("/sessions delete [title]", "Pick a saved conversation and delete its file, after a yes"),
+    ("/sessions rename [title]", "Pick a saved conversation and give it a new title"),
     ("/load <id|title>", "Open a saved conversation directly, by id or by title"),
     ("/title [name]", "Show this session's title, or set it"),
     ("/fork [title]", "Carry on in a copy of this conversation; the original stays "
@@ -194,10 +196,24 @@ COMMANDS = (
                     "and put it back in the box to edit. Files stay; /undo is for those"),
     ("/compact [focus]", "Summarise the conversation now, keeping the last exchange - "
                          "with a focus, what the summary must keep in full"),
-    ("/btw <question>", "Ask on the side: answered from this conversation, never kept "
-                        "in it, and no tool is run"),
+    ("/btw <question>", "Ask on the side: answered from this conversation and no tool "
+                        "is run. Esc dismisses it unkept; f keeps it in the conversation"),
     ("/copy [n] [file]", "Copy the latest answer - or the nth latest, or one of its code "
                          "blocks - without its frame; with a file name, write it there"),
+
+    # -- work that runs later, or on its own --------------------------------
+    ("/loop <interval> <prompt>", "Send a prompt again and again - /loop 5m check the CI "
+                                  "and fix what fails. A slash command works too"),
+    ("/schedule <when> <prompt>", "Send a prompt once, later - /schedule in 20m ..., "
+                                  "/schedule at 14:30 ..."),
+    ("/tasks", "The loops, the scheduled prompts and the background commands of this session"),
+    ("/tasks stop <id|all>", "Stop a loop, a scheduled prompt or a background command"),
+
+    # -- the project -------------------------------------------------------
+    ("/init [focus]", "Have the model study this project and write its AGENTS.md - "
+                      "or improve the instructions file it already has"),
+    ("/add-dir [path]", "Make another directory part of the project for this session: "
+                        "reads there are not asked about. Alone, list them"),
 
     # -- what the model is allowed to do -----------------------------------
     ("/mode [name]", "How much runs without asking: manual, plan, accept-edits, "
@@ -852,8 +868,10 @@ def _set_aside_type_ahead() -> bool:
 # /btw - an answer in a panel of its own
 # ---------------------------------------------------------------------------
 
-BTW_DISMISS = "Esc, Enter or Space to dismiss"
+BTW_DISMISS = "Esc dismisses · f keeps it"
 _DISMISS_KEYS = ("\x1b", "\r", "\n", " ", "q", "\x03")
+# `f` for "follow on from it": the aside joins the conversation instead.
+_KEEP_KEYS = ("f", "F")
 
 
 def _pad(row: str, width: int) -> str:
@@ -906,8 +924,16 @@ def btw_panel(question: str, answer: str, reached=(), dismiss: bool = True) -> l
     return rows
 
 
-def wait_to_dismiss() -> bool:
-    """Wait for Esc, Enter or Space. False when there is no keyboard to wait on.
+def _panel_key(key: str) -> str:
+    if key in _KEEP_KEYS:
+        return "keep"
+    if key in _DISMISS_KEYS:
+        return "dismiss"
+    return ""
+
+
+def wait_for_panel_key() -> str:
+    """Wait for a key that closes the panel: "dismiss", "keep" (`f`), or "" for no keyboard.
 
     Read a key at a time, with the terminal's echo and its Ctrl+C turned off
     for as long as it waits: a dismissed panel must not leave the key that
@@ -916,19 +942,19 @@ def wait_to_dismiss() -> bool:
     """
     try:
         if not sys.stdin or not sys.stdin.isatty():
-            return False
+            return ""
     except Exception:
-        return False
+        return ""
+    pressed = ""
     try:
         if config.CURRENT_OS == "Windows":
             import msvcrt
-            while True:
+            while not pressed:
                 key = msvcrt.getwch()
                 if key in ("\x00", "\xe0"):
                     msvcrt.getwch()          # the second half of an arrow key
                     continue
-                if key in _DISMISS_KEYS:
-                    break
+                pressed = _panel_key(key)
         else:
             import termios
             fd = sys.stdin.fileno()
@@ -938,15 +964,20 @@ def wait_to_dismiss() -> bool:
             quiet[6][termios.VMIN], quiet[6][termios.VTIME] = 1, 0
             termios.tcsetattr(fd, termios.TCSANOW, quiet)
             try:
-                while os.read(fd, 1).decode("utf-8", "ignore") not in _DISMISS_KEYS:
-                    pass
+                while not pressed:
+                    pressed = _panel_key(os.read(fd, 1).decode("utf-8", "ignore"))
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, before)
     except Exception:
-        return False          # a terminal that cannot be read is not waited on
+        return ""             # a terminal that cannot be read is not waited on
     # An arrow key arrives as Esc and two more bytes; only the Esc was read.
     _set_aside_type_ahead()
-    return True
+    return pressed
+
+
+def wait_to_dismiss() -> bool:
+    """Wait for the panel to be closed, either way. False when there is no keyboard."""
+    return bool(wait_for_panel_key())
 
 
 # True while code that catches its own Ctrl+C is holding the thread: a question

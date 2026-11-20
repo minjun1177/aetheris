@@ -12,9 +12,9 @@ mistakes are.
 
 ## 1. What this is
 
-A terminal AI assistant, ~30,300 lines of Python, no framework. It talks to
+A terminal AI assistant, ~32,500 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
-model 45 tools, and runs them with the user's approval. It can also hand whole
+model 46 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
 for (§8d).
 
@@ -645,6 +645,9 @@ app.py            the loop, slash commands, session lifecycle
       └ verify.py the project's own check, run after a turn that wrote a file
   └ deepthink.py  the six-stage chain
   └ subagent.py   spawn_agent's own conversation loop
+      └ worktree.py   the git worktree an isolated sub-agent works in
+  └ scheduler.py  /loop and /schedule: what is due, and when
+      └ background.py run_cmd's background jobs, and which have ended
   └ channel.py    the board the harnesses in one project share
   └ remote.py     the token-locked door a browser drives this session through
       └ qr.py    a QR encoder, stdlib only, for the link that door prints
@@ -670,7 +673,10 @@ app.py            the loop, slash commands, session lifecycle
 | `tools.py` | Handlers, dispatch, approval prompts, the hashline anchor (5.12) | Tool descriptions - those are in `toolspec` |
 | `systemprompt.py` | Prompt text; `tool_rules(native)` shared with `subagent` | A second copy of anything |
 | `deepthink.py` | Stage list, stage instructions, stage gating, when the chain repeats | Tool logic |
-| `subagent.py` | The sub-agent's own loop and prompt | A second protocol |
+| `subagent.py` | The sub-agent's own loop and prompt, the model it runs on, the `SUBAGENT_MODELS` block | A second protocol |
+| `worktree.py` | Making the worktree and branch an isolated sub-agent works in, and putting it away: the branch kept only when something is on it | Running the sub-agent - `subagent.run` moves the working directory there and back |
+| `background.py` | Jobs `run_cmd` started with `background`: draining their output, their state, and the queue of ended ones the model has yet to hear about (`take_finished`) | When the model hears it - `chat_turn` mid-turn, `app` at the prompt |
+| `scheduler.py` | The `/loop` and `/schedule` tasks: reading an interval or a time, what is due, and moving a loop on. Stdlib only, importing nothing local | Typing the line - `app._maybe_task_turn` does, only into an empty prompt |
 | `git_ops.py` | Commit, undo, diff. Never raises | Anything not about git |
 | `verify.py` | Which check a project declares, running it, and the wording of a failure | When to run it or how many times - that is `chat_turn` |
 | `channel.py` | Who else is running here, what they said, what they hold | Anything about one conversation |
@@ -1461,6 +1467,10 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_commands.py` | That a file in a commands directory is `/<name>`, that `$ARGUMENTS` and `$1`..`$9` take what was typed, that a project's file wins, that no file takes over a built-in, and that the menu offers them |
 | `test_diff.py` | That `/diff` lists only the AI's commits this session with their line counts, shows one commit's patch and the net change to the files it touched, and drops a commit `/undo` took back |
 | `test_fork.py` | That `/fork` moves the conversation to a new file and title, that what follows goes to the copy while the original keeps exactly what it had, and that both can be loaded |
+| `test_session_ops.py` | That `/sessions delete` deletes only after a yes and never the open session, that a typed name cannot reach a file outside the sessions directory, and that `/sessions rename` moves the file to its new title |
+| `test_tasks.py` | That `/loop` and `/schedule` read intervals and times as written, that a loop held up runs once rather than catching up, that a task is typed only into an empty prompt, and that a background job's ending - output and exit code - reaches the model mid-turn or by a turn of its own, once |
+| `test_isolation.py` | That a sub-agent in a worktree changes nothing here and leaves a branch only when it changed something, that one with no worktree is not started, that `provider:model` runs it elsewhere and an unusable provider is refused before any request |
+| `test_project_dirs.py` | That `/init` writes the instructions file the directory already has, or the AGENTS one, and the prompt reads it after; that `/add-dir` makes reads there unasked and tells the model |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret, never reaches this machine or its network (checked at each redirect), and asks before a long URL; that a read outside the project is asked about; that no file tool writes the home's control files, even under `/automode` or through a symlink |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |

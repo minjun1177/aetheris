@@ -112,6 +112,7 @@ TOOLS = (
         params=(
             Param(name='command', description="Shell command. On Windows, use 'cmd /c <command>' for built-in commands like echo, dir, etc. On Linux/macOS, use commands directly. The command cannot reach the user's keyboard - you answer its prompts yourself."),
             Param(name='stdin', description='Answers to type in up front, one per line, in a <stdin> raw block.', aliases=('input',), block=True, optional=True, native_description='(Optional) Answers to type in up front, one per line, if you already know what the command will ask.'),
+            Param(name='background', description="(Optional) true to start the command and return at once with a job id instead of waiting for it - for a dev server, a watcher, or a build or test run that takes minutes. You are told when it ends, with the end of its output; read_background shows its output meanwhile and end_process stops it. It gets no input.", optional=True),
         ),
     ),
     Tool(
@@ -125,9 +126,16 @@ TOOLS = (
     ),
     Tool(
         name='end_process',
-        description='Stop a command that run_cmd left running, when you are done with it or it will not exit on its own.',
+        description='Stop a command that run_cmd left running, when you are done with it or it will not exit on its own - a waiting one, or one started with background.',
         params=(
-            Param(name='session', description="The session id from the [Waiting] result, e.g. 's1'."),
+            Param(name='session', description="The session id from the [Waiting] result, e.g. 's1', or a background job id, e.g. 'b1'."),
+        ),
+    ),
+    Tool(
+        name='read_background',
+        description="Read what a command started with run_cmd background=true has printed, and whether it is still running. Without a job id, list every background job and its state.",
+        params=(
+            Param(name='job', description="The job id run_cmd gave you, e.g. 'b1'. Omit it to list them all.", optional=True),
         ),
     ),
     Tool(
@@ -391,7 +399,8 @@ TOOLS = (
         params=(
             Param(name='task', description="The brief, written for someone who cannot see this conversation and cannot ask you anything. State what to do, which files or paths to start from, and exactly what to report back. A vague brief comes back as a vague report."),
             Param(name='context', description="(Optional) Facts it needs that it could not find on its own - what has already been tried, a decision you have made, the shape of an answer you want.", optional=True),
-            Param(name='model', description="(Optional) A different model to run it on, e.g. a smaller one for a long mechanical search. Defaults to the model you are running on.", optional=True),
+            Param(name='model', description="(Optional) A different model to run it on, e.g. a smaller one for a long mechanical search. A model of this provider by name, or another provider's as provider:model (anthropic:claude-haiku-5-5, ollama:qwen3:4b). If your instructions list sub-agent models, choose from those. Defaults to the model you are running on.", optional=True),
+            Param(name='isolation', description="(Optional) 'worktree' to give it a git worktree of its own: a new branch from the last commit, so its edits cannot touch the files you are working in. When it is done you are told the branch its changes are on, to diff, merge or drop. Use it to try a risky change, or two approaches side by side.", optional=True),
         ),
     ),
     Tool(

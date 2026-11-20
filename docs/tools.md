@@ -4,7 +4,7 @@
 
 ## Tool Capabilities
 
-The client equips the model with 45 tools. They are listed in one table in
+The client equips the model with 46 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -284,9 +284,10 @@ that says what went wrong.
 - `search_in_file`: Search the project's files for text or a regex, grep-style. Only what git would show is searched - `.gitignore` is honoured and binaries are skipped - with an optional `glob` (`*.py`, `src/*.ts`) and `context` lines around each match. Uses ripgrep when it is installed, and gives the same answer without it.
 
 ### System & Git Management
-- `run_cmd`: Execute system shell commands (requires approval). Stays connected to the command and reports when it is waiting for input.
+- `run_cmd`: Execute system shell commands (requires approval). Stays connected to the command and reports when it is waiting for input. With `background` set it returns at once with a job id instead, and the model is told when the command ends - see *Background commands*.
 - `send_input`: Answer a running command's prompt and read what it prints next.
-- `end_process`: Stop a command left running by `run_cmd`.
+- `end_process`: Stop a command left running by `run_cmd` - a waiting one (`s1`) or a background job (`b1`).
+- `read_background`: What a background job has printed since it was last read, and whether it is still running. Without a job id, every job and its state.
 - `run_python`: Run Python in a scratch process that keeps what it defines between calls, and get back what it printed plus the value of the last line. See *The Python VM* below.
 - `get_system_info`: Retrieve system CPU, memory usage, disk statistics, and top memory-consuming processes.
 - `view_image`: Look at an image file - a screenshot, a diagram, a chart. The image is put in front of the model together with the tool's result. png, jpeg, gif and webp; `read_file` refuses an image and sends the model here.
@@ -348,7 +349,8 @@ again fill the sub-agent's context instead of the conversation's.
 spawn_agent(task="Find every place a session file is written, and report the
                   file and line of each.",
             context="I already know session.py:save_session is one of them.",
-            model="qwen3:8b")        # optional - a cheaper model for a long search
+            model="qwen3:8b",        # optional - a cheaper model for a long search
+            isolation="worktree")    # optional - a git worktree of its own
 ```
 
 What it may do:
@@ -365,3 +367,28 @@ What it may do:
 Starting one asks for approval, like running a command does - it costs a stretch
 of time, and on a hosted model real money, before it reaches its first tool.
 Allow it permanently with an `allow` rule for `spawn_agent`.
+
+**Which model.** The hiring model chooses, with `model`. A bare name is a model of
+the provider in use (`qwen3:8b`); `provider:model` runs the job on another
+provider for its length (`anthropic:claude-haiku-5-5`, `ollama:qwen3:4b`) without
+changing anything saved. A provider that cannot be used - no key, no model - is
+refused before the first request, and the model is told why. List the models it
+may pick from in `SUBAGENT_MODELS` (`/set SUBAGENT_MODELS ollama:qwen3:4b,anthropic:claude-haiku-5-5`)
+and they are named in the system prompt, with when to choose a small one and when
+a strong one.
+
+**A worktree of its own.** With `isolation="worktree"` the sub-agent works in a
+git worktree: a new branch `aetheris/agent-<time>` from the last commit, checked
+out under `~/.aetheris/worktrees/`. Its edits cannot touch the files the
+conversation is working in, so a risky change - or two approaches side by side -
+can be tried without either one being in the way. When it reports back, anything
+it left uncommitted is committed on its branch, the checkout is removed, and:
+
+| It changed | What is left |
+| :--- | :--- |
+| nothing | nothing - the branch is removed too, and the report says so |
+| something | the branch, named in the report with `git diff`, `git merge` and `git branch -D` lines to look at, take or drop it |
+
+**Important:** a worktree is made from a commit, so work not yet committed here is
+not in it, and the sub-agent is told so. Outside a git repository nothing is
+started.
