@@ -109,6 +109,11 @@ from the working directory, but now only once they have been trusted.
   keeps them (so `gh` and `aws` work), but `env` printed every `GH_TOKEN` and
   AWS key to the model and the provider. A variable whose name says it holds a
   credential is now `[hidden: $NAME]` in every tool result.
+- **`run_cmd(git *)` no longer covers git running another program.** The rule
+  the docs used as an example allowed `git -c core.pager='sh -c ...'`,
+  `git config alias.x '!...'`, `rebase --exec` and `submodule foreach` with no
+  question. Those options and subcommands now go to the approval prompt unless
+  the rule names them.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

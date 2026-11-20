@@ -303,6 +303,45 @@ def chains_a_second_command(pattern: str, target: str) -> bool:
     return any(op in target and op not in pattern for op in _SHELL_OPERATORS)
 
 
+# git can be told to run another program from its own command line, and the
+# rule that people write first - the one the docs used as the example - is
+# `run_cmd(git *)`. Under it `git -c core.pager='sh -c ...' log`, `git config
+# alias.x '!...'`, `git rebase --exec ...` and `git submodule foreach ...` were
+# all allowed outright. Each of these, unless the rule names it itself, falls
+# through to the approval prompt.
+_GIT_RUNS_OTHERS = ("-c", "--config-env", "--exec-path", "--upload-pack", "--receive-pack",
+                    "--exec", "-x", "--extcmd", "--ext-diff", "--output", "-o",
+                    "--open-files-in-pager", "-O", "--textconv", "--tool", "-t")
+_GIT_SUBCOMMANDS_THAT_RUN = ("config", "submodule", "bisect", "filter-branch", "filter-repo",
+                             "difftool", "mergetool", "daemon", "credential", "hook",
+                             "instaweb", "web--browse", "send-email", "archimport", "p4")
+
+
+def git_runs_another_program(pattern: str, target: str) -> bool:
+    """True when a `git` command could run something the rule never mentioned."""
+    import shlex
+    try:
+        words = shlex.split(target, posix=True)
+    except ValueError:
+        return True                    # unbalanced quotes: nothing here can be trusted
+    if not words or os.path.basename(words[0]).lower() not in ("git", "git.exe"):
+        return False
+    named = set(pattern.split())
+    subcommand_seen = False
+    for word in words[1:]:
+        option = word.split("=", 1)[0]
+        if option in _GIT_RUNS_OTHERS and option not in named:
+            return True
+        if word.startswith("-") and len(word) > 2 and not word.startswith("--") \
+                and word[1] in "cxoOt" and word[:2] not in named:
+            return True               # `-cfoo=bar`, `-xcmd` - the short form glued on
+        if not subcommand_seen and not word.startswith("-"):
+            subcommand_seen = True
+            if word in _GIT_SUBCOMMANDS_THAT_RUN and word not in named:
+                return True
+    return False
+
+
 def matches(rule: str, tool: str, target: str) -> bool:
     name, pattern = _split_rule(rule)
     if not fnmatch(_normalise(tool), _normalise(name)):
@@ -370,6 +409,8 @@ def decide(tool: str, arguments: dict) -> tuple[str, str]:
             # The rule covers the command it names; it does not cover
             # whatever the shell was told to run afterwards. Fall through
             # to the prompt rather than waving the whole line through.
+            continue
+        if key == "command" and git_runs_another_program(_split_rule(rule)[1], target):
             continue
         return "allow", rule
     return "ask", ""

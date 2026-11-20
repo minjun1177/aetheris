@@ -87,6 +87,28 @@ check("an operator the rule itself contains is allowed",
       verdict("run_cmd", command="git log --oneline | grep fix") == "allow")
 
 # ---------------------------------------------------------------------------
+print("\n--- run_cmd(git *) does not cover git running another program ---")
+load({"allow": ["run_cmd(git *)", "run_cmd(git config user.*)"]})
+for command in ("git -c core.pager='sh -c whoami' log",
+                "git -ccore.sshCommand=evil fetch",
+                "git config alias.x '!sh -c whoami'",
+                "git rebase --exec 'make test' main",
+                "git rebase -x 'id' main",
+                "git submodule foreach 'id'",
+                "git bisect run ./evil.sh",
+                "git difftool --extcmd=evil HEAD",
+                "git log --output=/home/me/.bashrc",
+                "git --exec-path=/tmp/evil status",
+                "git fetch --upload-pack='sh -c id' origin",
+                "git log 'unbalanced"):
+    check(f"asks: {command}", verdict("run_cmd", command=command) == "ask", command)
+for command in ("git status", "git log --oneline -n 5", "git diff HEAD~1", "git add -A",
+                "git commit -am 'fix: thing'", "git push origin main"):
+    check(f"still allowed: {command}", verdict("run_cmd", command=command) == "allow", command)
+check("a rule that names the subcommand itself still allows it",
+      verdict("run_cmd", command="git config user.name me") == "allow")
+
+# ---------------------------------------------------------------------------
 print("\n--- deny is not weakened by any of this ---")
 load({"deny": ["run_cmd(rm *)", "write_file(*/.env)", "delete_file"]})
 check("a denied command is still denied",

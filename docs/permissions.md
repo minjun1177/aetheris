@@ -72,6 +72,16 @@ command does more than the rule accounts for, and it falls through to the
 approval prompt instead. A rule that asks for a pipeline outright, such as
 `run_cmd(git log * | grep *)`, still gets one.
 
+**`run_cmd(git *)` does not cover git running another program.** git can be
+told to start one from its own command line: `-c core.pager=...`, `--exec-path`,
+`--upload-pack`, `rebase --exec`, `config alias.x '!...'`, `submodule foreach`,
+`bisect run`, `difftool --extcmd`, `log --output=<file>`. Under a wildcard rule
+each of these goes to the approval prompt, unless the rule names it, as in
+`run_cmd(git config user.*)`. **Other programs are not checked the same way.**
+`run_cmd(npm *)`, `run_cmd(python *)` and `run_cmd(make *)` each run whatever
+the project or the arguments say, so allowing one of them with `*` allows nearly
+anything.
+
 **A deny rule is a stop sign, not a sandbox.** It matches text, and text can be
 rewritten: `run_cmd(rm *)` denies `rm -rf x` and does not recognise
 `sh -c 'rm -rf x'` or `/bin/rm -rf x`. Those fall through to the approval

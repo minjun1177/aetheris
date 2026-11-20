@@ -1453,7 +1453,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_durability.py` | Atomic writes, including killing a writer mid-write; the token estimate (5.7) |
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
-| `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said; that a path rule is about the file however it is spelled - `./`, `..`, absolute, a symlink - and that `copy_file` needs its `dst` allowed too |
+| `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said; that `run_cmd(git *)` does not cover git running another program; that a path rule is about the file however it is spelled - `./`, `..`, absolute, a symlink - and that `copy_file` needs its `dst` allowed too |
 | `test_compact.py` | That `/compact` puts the summary in the system prompt and keeps the last exchange, that a focus reaches the summariser, that an earlier summary is summarised rather than lost, and that a failed summary changes nothing |
 | `test_instructions.py` | That the instructions files are the person's own, then one per directory from the repository root down to the current one, nearest last; that outside a repository only the current directory's is read; and that a huge file is cut |
 | `test_pull.py` | That `/connect ollama <model>` offers to pull a model the daemon lacks and only that, streams the progress, drops the cached answers so the model is ready at once, and that no means nothing is downloaded |
