@@ -172,6 +172,80 @@ finally:
     subprocess.run, update.latest, update.how_installed = real_run, real_latest, real_how
 
 
+print("\n--- /update on Windows: the running launcher ---")
+scripts = tempfile.mkdtemp(prefix="update-scripts-")
+launcher = os.path.join(scripts, "aetheris.exe")
+
+
+def write(path, text):
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def read(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def pip_that(code, writes=True):
+    """Stands in for pip: what it saw in Scripts, and the new launcher it writes."""
+    def run(command, **k):
+        ran.append(os.path.exists(launcher))
+        if writes:
+            write(launcher, "new")
+        return Finished(code, "" if code == 0 else "ERROR: no network\n")
+    return run
+
+
+real_run, real_latest, real_how = subprocess.run, update.latest, update.how_installed
+real_replace = os.replace
+update.latest = lambda timeout=update.CHECK_TIMEOUT: "99.0.0"
+update.how_installed = lambda: ("pip", [sys.executable, "-m", "pip", "install",
+                                        "--upgrade", "aetheris"])
+try:
+    write(launcher, "old")
+    ran = []
+    subprocess.run = pip_that(0)
+    said = said_by(update.run, lambda question: "y", True, scripts)
+    aside = [n for n in os.listdir(scripts) if n.endswith(update.OLD_SUFFIX)]
+    check("the launcher is out of pip's way while it runs", ran == [False], str(ran))
+    check("pip's new launcher is the one left in place, the old kept aside",
+          read(launcher) == "new" and len(aside) == 1 and "Installed 99.0.0" in said,
+          f"{os.listdir(scripts)} {said}")
+    update.sweep_old_launchers(scripts)
+    check("a later start sweeps the old one",
+          os.listdir(scripts) == ["aetheris.exe"], str(os.listdir(scripts)))
+
+    write(launcher, "old")
+    ran = []
+    subprocess.run = pip_that(1, writes=False)
+    said = said_by(update.run, lambda question: "y", True, scripts)
+    check("a failed pip puts the launcher back",
+          os.listdir(scripts) == ["aetheris.exe"] and read(launcher) == "old"
+          and "failed (exit 1)" in said, f"{os.listdir(scripts)} {said}")
+
+    ran = []
+    subprocess.run = pip_that(0)
+
+    def locked(src, dst):
+        raise PermissionError(32, "in use by another process")
+    os.replace = locked
+    said = said_by(update.run, lambda question: "y", True, scripts)
+    os.replace = real_replace
+    check("a launcher that will not move: pip is not run, the command is shown",
+          ran == [] and read(launcher) == "old" and "Quit Aetheris" in said
+          and "pip install --upgrade aetheris" in said, said)
+
+    ran = []
+    subprocess.run = pip_that(0)
+    write(launcher, "old")
+    said_by(update.run, lambda question: "y", False, scripts)
+    check("elsewhere nothing is moved", ran == [True]
+          and not [n for n in os.listdir(scripts) if n.endswith(update.OLD_SUFFIX)])
+finally:
+    os.replace = real_replace
+    subprocess.run, update.latest, update.how_installed = real_run, real_latest, real_how
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

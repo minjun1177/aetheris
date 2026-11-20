@@ -11,10 +11,13 @@ worse than doing nothing: `pip install --upgrade` into a git checkout's
 interpreter installs a second copy beside the one being edited, and inside a
 pipx environment there may be no pip at all.
 """
+import glob
 import json
 import os
+import site
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 
@@ -94,6 +97,80 @@ def how_installed(package_dir: str = "", prefix: str = "") -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# the Windows launcher
+# ---------------------------------------------------------------------------
+# On Windows `aetheris.exe` in Scripts is the process running this session, and
+# a running .exe cannot be overwritten or deleted - pip stops with WinError 32.
+# It can be renamed, though, within its own folder. So before pip runs, the
+# launcher is moved aside; pip then finds nothing to remove and writes the new
+# one. The renamed file is still in use until this session ends, so it is
+# swept on a later start.
+
+OLD_SUFFIX = ".old"
+
+
+def _scripts_dir(package_dir: str = "") -> str:
+    """Where pip keeps this copy's launcher: the user scheme's Scripts for a
+    `--user` install, the interpreter's own otherwise."""
+    package_dir = os.path.normcase(os.path.abspath(
+        package_dir or os.path.dirname(os.path.abspath(__file__))))
+    try:
+        user_site = os.path.normcase(os.path.abspath(site.getusersitepackages()))
+    except Exception:
+        user_site = ""
+    if user_site and package_dir.startswith(user_site + os.sep):
+        return sysconfig.get_path("scripts", f"{os.name}_user")
+    return sysconfig.get_path("scripts")
+
+
+def _launchers(scripts_dir: str) -> list:
+    path = os.path.join(scripts_dir, f"{PACKAGE}.exe")
+    return [path] if os.path.isfile(path) else []
+
+
+def move_launchers_aside(scripts_dir: str) -> list:
+    """Rename each launcher out of pip's way. Returns [(moved_to, original)].
+
+    Raises OSError when one will not move; any already moved are put back
+    first, so a failure leaves Scripts as it was.
+    """
+    moved = []
+    for path in _launchers(scripts_dir):
+        aside = f"{path}.{os.getpid()}{OLD_SUFFIX}"
+        try:
+            os.replace(path, aside)
+        except OSError:
+            put_back(moved)
+            raise
+        moved.append((aside, path))
+    return moved
+
+
+def put_back(moved: list) -> None:
+    """Undo `move_launchers_aside` where pip did not write a new launcher."""
+    for aside, path in moved:
+        if not os.path.exists(path):
+            try:
+                os.replace(aside, path)
+            except OSError:
+                pass
+
+
+def sweep_old_launchers(scripts_dir: str = "") -> None:
+    """Delete launchers an earlier `/update` moved aside. One still in use -
+    another session running the old version - stays until a later start."""
+    if os.name != "nt" and not scripts_dir:
+        return
+    pattern = os.path.join(glob.escape(scripts_dir or _scripts_dir()),
+                           f"{PACKAGE}.exe.*{OLD_SUFFIX}")
+    for path in glob.glob(pattern):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # the check at start-up
 # ---------------------------------------------------------------------------
 
@@ -136,6 +213,7 @@ def _check() -> None:
 
 def start_check() -> None:
     """Look in the background. Nothing waits on it; `announce` reads it."""
+    sweep_old_launchers()
     if not config.UPDATE_CHECK:
         return
     threading.Thread(target=_check, name="update-check", daemon=True).start()
@@ -154,10 +232,11 @@ def announce() -> None:
 # /update
 # ---------------------------------------------------------------------------
 
-def run(ask) -> None:
+def run(ask, windows: bool = os.name == "nt", scripts_dir: str = "") -> None:
     """`/update`: find the newest version, and install it if asked to.
 
     `ask` puts a question to whoever is driving and returns the answer.
+    `windows` and `scripts_dir` stand in for this machine's in tests.
     """
     print(f"  {S.GRAY}Asking PyPI for the newest {PACKAGE}...{S.R}")
     try:
@@ -179,12 +258,24 @@ def run(ask) -> None:
     if answer not in ("y", "yes"):
         print(f"  {S.GRAY}Left as it is.{S.R}\n")
         return
+    moved = []
+    if windows and kind == "pip":
+        try:
+            moved = move_launchers_aside(scripts_dir or _scripts_dir())
+        except OSError as error:
+            print(f"  {S.ERR}✗ Windows will not let the running {PACKAGE}.exe be "
+                  f"moved aside ({error}), so pip could not replace it.{S.R}")
+            print(f"  {S.GRAY}Quit Aetheris and run it from a new terminal:{S.R} "
+                  f"{S.WHITE}{' '.join(command)}{S.R}\n")
+            return
     try:
         finished = subprocess.run(command, capture_output=True, text=True, timeout=600)
     except (OSError, subprocess.TimeoutExpired) as error:
+        put_back(moved)
         print(f"  {S.ERR}✗ It did not run: {error}{S.R}\n")
         return
     if finished.returncode != 0:
+        put_back(moved)
         tail = (finished.stderr or finished.stdout or "").strip().splitlines()[-6:]
         print(f"  {S.ERR}✗ It failed (exit {finished.returncode}):{S.R}")
         for line in tail:
