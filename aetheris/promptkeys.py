@@ -649,6 +649,18 @@ def bindings(interrupt=None):
         # from here: drawn under an open prompt it would be drawn over.
         event.app.exit(result=Expand(event.current_buffer.text))
 
+    @keys.add("s-tab")
+    def next_mode(event):
+        # In the completion menu Shift+Tab still steps back through it, as it
+        # did before it meant anything else.
+        buffer = event.current_buffer
+        if buffer.complete_state:
+            buffer.complete_previous()
+            return
+        from aetheris import modes
+        modes.cycle()
+        event.app.invalidate()        # the line under the prompt says so
+
     if interrupt is not None:
         keys.add("c-c")(interrupt)
     keys.add(Keys.Vt100MouseEvent)(mouse(_vt_point, Keys.Vt100MouseEvent))

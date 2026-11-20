@@ -66,6 +66,7 @@ try:
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.formatted_text import ANSI
+    from prompt_toolkit.styles import Style
     # What lets another agent's message be printed *above* a prompt that is
     # already waiting for a line, instead of on top of what is being typed.
     from prompt_toolkit.patch_stdout import patch_stdout
@@ -367,6 +368,10 @@ OLLAMA_TEMPERATURE = None
 OLLAMA_SEED = None
 
 AUTO_ALLOW = False
+# The step short of it: writing, editing, copying and moving files inside the
+# project runs without asking; commands, deletes and anything outside the
+# project still ask. One of the modes Shift+Tab moves through (`modes`).
+ACCEPT_EDITS = False
 # Whether a drag with the mouse, while the prompt is open, selects what it
 # crosses the way this program understands it - a thought without its gutter,
 # an answer without what is under it - and copies it. The terminal cannot do

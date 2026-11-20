@@ -33,6 +33,7 @@ from aetheris import screen
 from aetheris import promptkeys
 from aetheris import qr
 from aetheris import mentions
+from aetheris import modes
 from aetheris import todos
 from aetheris import transcript
 from aetheris import update
@@ -2674,6 +2675,26 @@ async def _cmd_automode(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+async def _cmd_mode(chat, user_input: str, cmd: str):
+    wanted = user_input[len("/mode"):].strip()
+    if wanted:
+        try:
+            modes.set_mode(wanted)
+        except ValueError as problem:
+            print(f"  {S.ERR}✗ {problem}{S.R}\n")
+            return _HANDLED
+        print(f"{modes.status_line()}\n")
+        return _HANDLED
+    now = modes.current()
+    print(f"  {S.INFO}Mode is {S.BOLD}{now}{S.R}"
+          f"{S.MUTED} - Shift+Tab at the prompt moves to the next one{S.R}")
+    for name in modes.MODES:
+        mark = f"{S.OK}●{S.R}" if name == now else f"{S.MUTED}○{S.R}"
+        print(f"  {mark} {S.WHITE}{name:<13}{S.R}{S.MUTED}{modes.ABOUT[name]}{S.R}")
+    print(f"  {S.MUTED}Usage: /mode <name> - for this session only{S.R}\n")
+    return _HANDLED
+
+
 async def _cmd_fullcontent(chat, user_input: str, cmd: str):
     chosen = _switch(
         "/fullcontent", user_input[len("/fullcontent"):],
@@ -3181,6 +3202,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/autocommit" or cmd.startswith("/autocommit "), _cmd_autocommit),
     (lambda cmd: cmd == "/autoverify" or cmd.startswith("/autoverify "), _cmd_autoverify),
     (lambda cmd: cmd == "/deepthink" or cmd.startswith("/deepthink "), _cmd_deepthink),
+    (lambda cmd: cmd == "/mode" or cmd.startswith("/mode "), _cmd_mode),
     (lambda cmd: cmd == "/agents" or cmd.startswith("/agents "), _cmd_agents),
     (lambda cmd: cmd == "/remote" or cmd.startswith("/remote "), _cmd_remote),
     (lambda cmd: cmd == "/vm" or cmd.startswith("/vm "), _cmd_vm),
@@ -3288,6 +3310,11 @@ async def main(resume_id: str = "") -> None:
             key_bindings=promptkeys.bindings(interrupt=_ctrl_c_at_prompt),
             mouse_support=config.Condition(lambda: config.MOUSE_SELECT),
             rprompt=lambda: config.ANSI(promptkeys.note()),
+            # The mode Shift+Tab moves through, under the line being typed.
+            # Erased when the prompt closes, so it never joins the scrollback;
+            # `noreverse` because a toolbar is drawn in reverse video otherwise.
+            bottom_toolbar=lambda: config.ANSI(modes.status_line()),
+            style=config.Style.from_dict({"bottom-toolbar": "noreverse"}),
             # What colours the line itself once it starts with `!`. The banner
             # above comes from `_prompt_message`; between them, a command for
             # this machine never looks like a message for the model.

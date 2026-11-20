@@ -439,9 +439,9 @@ check("so the row the prompt leaves behind draws nothing over it", prompt.output
 if config.PROMPT_TOOLKIT_AVAILABLE:
     from prompt_toolkit.keys import Keys
     bound = {binding.keys[0] for binding in promptkeys.bindings().bindings}
-    check("the prompt is given a paste, both kinds of mouse report, and Ctrl+O",
+    check("the prompt is given a paste, both kinds of mouse report, Ctrl+O and Shift+Tab",
           bound == {Keys.BracketedPaste, Keys.Vt100MouseEvent, Keys.WindowsMouseEvent,
-                    Keys.ControlO},
+                    Keys.ControlO, Keys.BackTab},
           str(bound))
 check("a setting, on unless switched off", config.MOUSE_SELECT is True
       and "MOUSE_SELECT" in config.settable())

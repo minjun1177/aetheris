@@ -200,6 +200,8 @@ COMMANDS = (
                          "blocks - without its frame; with a file name, write it there"),
 
     # -- what the model is allowed to do -----------------------------------
+    ("/mode [name]", "How much runs without asking: manual, plan, accept-edits, "
+                     "deepthink or auto. Shift+Tab at the prompt moves through them"),
     ("/perms", "The rules that decide what runs without asking"),
     ("/perms reload", "Re-read the permission rule files"),
     ("/perms allow|deny <rule>", "Add a rule, e.g. /perms allow run_cmd(git *)"),
@@ -273,6 +275,8 @@ KEYS = (
     ("Ctrl+C", "Stop what is running - a reply, a command, a tool. Pressed "
                "again within a second, leave"),
     ("Ctrl+D", "Leave at once"),
+    ("Shift+Tab", "Next mode: manual, plan, accept edits, deepthink, auto - "
+                  "shown under the prompt. In the completion menu, the item before"),
     ("Ctrl+O", "Expand the whole conversation - every thought, every call's "
                "arguments and result in full - and press again to collapse it"),
     ("Mouse drag", "Select and copy what is above the prompt - a thought without "

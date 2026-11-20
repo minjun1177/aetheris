@@ -2890,6 +2890,23 @@ def _target_paths(function_name: str, arguments: dict) -> list:
             if isinstance(arguments.get(key), str) and arguments[key]]
 
 
+def _accepted_edit(function_name: str, arguments: dict) -> bool:
+    """Does accept-edits mode let this call through without asking?
+
+    Only a tool that puts a file in place (`modes.ACCEPTED_EDITS`), and only
+    when every path it names - what it writes and, for a copy or a move, what
+    it takes from - is inside the project. A call whose paths cannot be read
+    from its arguments is asked about as before: unknown is not inside.
+    """
+    from aetheris import modes
+    if not config.ACCEPT_EDITS or function_name not in modes.ACCEPTED_EDITS:
+        return False
+    paths = _target_paths(function_name, arguments) + [
+        arguments[key] for key in ("src", "dirpath")
+        if isinstance(arguments.get(key), str) and arguments[key]]
+    return bool(paths) and not any(_outside_workspace(path) for path in paths)
+
+
 def _decide(function_name: str, arguments: dict) -> tuple:
     """`permissions.decide`, with a multi_edit asked about as every edit_file in it.
 
@@ -3235,7 +3252,7 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
         print(f"  {S.ERR}✗ stopped by a pre_tool hook{S.R}")
         return vault.redact(stopped)
 
-    config.POLICY_AUTO_ALLOW = verdict == "allow"
+    config.POLICY_AUTO_ALLOW = verdict == "allow" or _accepted_edit(function_name, arguments)
     # Counted here, past every refusal above, so that a tool which was blocked
     # does not read as work done. This is what tells the board the difference
     # between an agent getting on with the job and one talking about it - see
