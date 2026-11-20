@@ -220,7 +220,7 @@ try:
         check("a name that only looks like one is left alone",
               "/tmp/ssh-agent-socket-path" in printed)
         used = quietly(tools.dispatch_tool, "run_cmd",
-                       {"command": "echo %GH_TOKEN%" if WINDOWS else 'echo "$GH_TOKEN" | cut -c1-4'})
+                       {"command": "echo %GH_TOKEN:~0,4%" if WINDOWS else 'echo "$GH_TOKEN" | cut -c1-4'})
         check("and the command itself still has it", "ghp_" in used, used[:60])
     finally:
         for name in ("GH_TOKEN", "SSH_AUTH_SOCK", "MY_SERVICE_PASSWORD"):

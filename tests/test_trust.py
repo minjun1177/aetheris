@@ -45,6 +45,15 @@ def quiet(function, *args, **kwargs):
     return result, out.getvalue()
 
 
+def same_file(path, paths):
+    """Whether `path` is among `paths`, however each is spelled.
+
+    The harness names a project file from the working directory, which on
+    macOS is `/private/var/...` for a temp directory created as `/var/...`.
+    """
+    return os.path.realpath(path) in {os.path.realpath(p) for p in paths}
+
+
 origin = os.getcwd()
 work = tempfile.mkdtemp(prefix="trust-work-")
 os.chdir(work)
@@ -63,10 +72,11 @@ check("its allow rules do not count",
       permissions.decide("run_cmd", {"command": "rm -rf ~"})[0] == "ask")
 check("its deny rules do: refusing more is safe from anyone",
       permissions.decide("delete_file", {"filepath": "a.txt"})[0] == "deny")
-check("and /perms can say why", PERMS in permissions.untrusted, str(permissions.untrusted))
+check("and /perms can say why", same_file(PERMS, permissions.untrusted), str(permissions.untrusted))
 servers = mcp_client.load_servers(force=True)
 check("an untrusted .mcp.json starts nothing", "planted" not in servers, str(list(servers)))
-check("and is reported as untrusted", MCP in mcp_client.untrusted, str(mcp_client.untrusted))
+check("and is reported as untrusted", same_file(MCP, mcp_client.untrusted),
+      str(mcp_client.untrusted))
 saved, said = permissions.add_rule("read_file", "allow")
 check("'always allow' does not write into an untrusted file", not saved, said)
 check("...which is left exactly as it was",
@@ -269,10 +279,15 @@ try:
         check(f"{os.path.basename(path)} is refused even under /automode",
               result.startswith("[System]") and before == after, result[:100])
     link = os.path.join(work, "innocent.json")
-    os.symlink(config.SETTINGS_FILE, link)
-    result, _ = quiet(tools.dispatch_tool, "write_file", {"filepath": link, "content": "{}"})
-    check("and so is a symlink to one", result.startswith("[System]"), result[:100])
-    os.remove(link)
+    try:
+        os.symlink(config.SETTINGS_FILE, link)
+        linked = True
+    except (OSError, NotImplementedError):
+        linked = False          # Windows without the privilege to make one
+    if linked:
+        result, _ = quiet(tools.dispatch_tool, "write_file", {"filepath": link, "content": "{}"})
+        check("and so is a symlink to one", result.startswith("[System]"), result[:100])
+        os.remove(link)
     result, _ = quiet(tools.dispatch_tool, "move_file",
                       {"src": trust.trust_file(), "dst": os.path.join(work, "t.json")})
     check("moving one away is a write too", result.startswith("[System]"), result[:100])

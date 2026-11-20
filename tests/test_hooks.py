@@ -177,9 +177,12 @@ PROJECT = os.path.join(work, ".hooks.json")
 write_json(PROJECT, {"pre_tool": [{"command": "exit 1"}]})
 hooks.load(force=True)
 check("untrusted: none of its hooks", hooks.load() == [], str(hooks.load()))
-check("and /hooks can say why", PROJECT in hooks.untrusted)
+# By real path: on macOS the harness says /private/var/... for a /var/... temp dir.
+real_project = os.path.realpath(PROJECT)
+check("and /hooks can say why", real_project in {os.path.realpath(p) for p in hooks.untrusted})
 check("it is one of the files the trust prompt asks about",
-      ("hooks", PROJECT) in app._project_config_files(), str(app._project_config_files()))
+      ("hooks", real_project) in {(k, os.path.realpath(p)) for k, p in app._project_config_files()},
+      str(app._project_config_files()))
 real_ask = tui.ask_the_driver
 tui.ask_the_driver = lambda *a, **k: "y"
 _, printed = quiet(app._settle_trust)
