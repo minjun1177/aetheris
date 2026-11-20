@@ -52,6 +52,10 @@ own, and out to a package of its own only when someone needs it there.
 - **`/connect` pulls a missing Ollama model.** A model the daemon does not
   have is offered for download, with a progress line, instead of only being
   told to run `ollama pull`.
+- **`find_symbol`**, the 45th tool: where a function, class or method is
+  defined anywhere in the project, with its signature and class, from a
+  Tree-sitter symbol table cached per file. `references=true` adds where the
+  name is used as an identifier, leaving out comments and strings.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.

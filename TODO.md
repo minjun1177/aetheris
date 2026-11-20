@@ -68,8 +68,8 @@
 * [x] Deepthink stage 1 names all six stages
 * [x] Ctrl+O: the last turn uncut
 * [x] /update and a once-a-day check against PyPI
+* [x] Whole-project Tree-sitter index (symbol table): find_symbol, definitions and references
 
 ## next
 
-* [ ] Whole-project Tree-sitter index (symbol table) instead of plain text search
 * [ ] Split a part out to its own PyPI package only when someone asks for it - `mcp_client` first (the library in `aetheris.__all__` comes before any split)

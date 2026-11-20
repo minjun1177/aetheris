@@ -14,7 +14,7 @@ mistakes are.
 
 A terminal AI assistant, ~27,800 lines of Python, no framework. It talks to
 Ollama, Anthropic, OpenAI and Gemini over plain HTTP (no vendor SDKs), gives the
-model 44 tools, and runs them with the user's approval. It can also hand whole
+model 45 tools, and runs them with the user's approval. It can also hand whole
 turns to an agent hosted on Attacca and run the tools that agent calls back
 for (§8d).
 
@@ -686,6 +686,7 @@ app.py            the loop, slash commands, session lifecycle
 | `shell_session.py` | Live commands, waiting-vs-busy detection | |
 | `vm.py` | The scratch Python process: its wire protocol, its ceilings, and restarting it after it dies | How the result is worded - that is `tools.handle_run_python` |
 | `mcp_client.py` | MCP transports, JSON-RPC, MCP tool schemas, which servers are described now | Whether the *built-in* tools are shown - that is `toolspec` |
+| `symbols.py` | `find_symbol`'s project-wide table: definitions per file, cached on mtime and size, and identifier references | Parsing or what a definition is - that is `tools._walk_skeleton`, shared with `get_code_skeleton` |
 | `websearch.py` | Retrieval, extraction, BM25 reranking | |
 | `skills.py` | Skill discovery and loading | |
 | `tui.py` / `renderer.py` | Terminal chrome and markdown | Decisions |
@@ -1449,6 +1450,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_compact.py` | That `/compact` puts the summary in the system prompt and keeps the last exchange, that a focus reaches the summariser, that an earlier summary is summarised rather than lost, and that a failed summary changes nothing |
 | `test_instructions.py` | That the instructions files are the person's own, then one per directory from the repository root down to the current one, nearest last; that outside a repository only the current directory's is read; and that a huge file is cut |
 | `test_pull.py` | That `/connect ollama <model>` offers to pull a model the daemon lacks and only that, streams the progress, drops the cached answers so the model is ready at once, and that no means nothing is downloaded |
+| `test_symbols.py` | That `find_symbol` finds definitions and not mentions, names a method's class and signature, honours `.gitignore`, lists references without comments or strings, and re-reads a file that changed |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |

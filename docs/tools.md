@@ -4,7 +4,7 @@
 
 ## Tool Capabilities
 
-The client equips the model with 44 tools. They are listed in one table in
+The client equips the model with 45 tools. They are listed in one table in
 `toolspec.py`, from which both the system prompt and the dispatcher are
 generated - so this list cannot quietly drift from what actually runs.
 
@@ -328,6 +328,7 @@ Present whenever more than one harness is running in the same project (see The A
 - `use_skill`: Load the full instructions of a skill listed in the system prompt.
 - `submit_plan_for_approval`: Present a task plan and diff blueprint for approval before executing (plan mode).
 - `get_code_skeleton`: Return a JSON outline of a source file's structure via Tree-sitter.
+- `find_symbol`: Find where a function, class or method is defined anywhere in the project, with its signature and the class it is in, from a Tree-sitter symbol table kept per file and refreshed only when a file changes. `references=true` also lists where the name is used as an identifier, leaving out comments and strings. Needs `aetheris[ast]`.
 - `query_ast_node`: Search a source file for Tree-sitter S-expression patterns.
 - `spawn_agent`: Hire a second model for one self-contained job. See below.
 

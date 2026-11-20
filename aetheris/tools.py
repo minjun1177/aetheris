@@ -2349,6 +2349,54 @@ def handle_get_code_skeleton(file_path: str) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
+def handle_find_symbol(name: str, references=False) -> str:
+    """Definitions of `name` across the project, and optionally where it is used."""
+    from aetheris import symbols
+    if not symbols.available():
+        return ("[Error] find_symbol needs Tree-sitter: pip install \"aetheris[ast]\". "
+                "Until then, search_in_file finds the name as text.")
+    name = str(name or "").strip()
+    if not name:
+        return "[Error] A name is required, e.g. \"load_rules\" or \"load_*\"."
+    wants_references = str(references).strip().lower() in ("true", "1", "yes", "on")
+    try:
+        found, cut = symbols.find(name)
+    except Exception as e:
+        return f"[Error] Could not index the project: {e}"
+    note = (f"\n(Only the first {symbols.MAX_FILES} source files were indexed.)"
+            if cut else "")
+    exact = [d for d in found if symbols._matches(name, d["name"])]
+    if not found:
+        return (f"[Found] No definition named '{name}' in this project's source files. "
+                f"It may come from a library, or be defined dynamically - "
+                f"search_in_file finds it as text.{note}")
+    lines = []
+    if exact:
+        lines.append(f"[Found] {len(exact)} definition(s) of '{name}':")
+    else:
+        lines.append(f"[Found] Nothing is named exactly '{name}'; {len(found)} "
+                     f"definition(s) have it in their name:")
+    for d in found[:symbols.MAX_DEFINITIONS]:
+        where = f"{d['file']}:{d['line']}-{d['end_line']}"
+        inside = f"  (in {d['container']})" if d["container"] else ""
+        lines.append(f"{where}  {d['kind']}  {d['signature']}{inside}")
+    if len(found) > symbols.MAX_DEFINITIONS:
+        lines.append(f"... and {len(found) - symbols.MAX_DEFINITIONS} more - "
+                     f"give a more exact name.")
+    if wants_references and exact and not any(c in name for c in "*?["):
+        skip = tuple((d["file"], d["line"]) for d in exact)
+        used = symbols.references(name, skip=skip)
+        lines.append("")
+        if used:
+            cap = (f", the first {symbols.MAX_REFERENCES}"
+                   if len(used) >= symbols.MAX_REFERENCES else "")
+            lines.append(f"[References] {len(used)} line(s) use '{name}'{cap}:")
+            lines.extend(f"{path}:{line}: {text}" for path, line, text in used)
+        else:
+            lines.append(f"[References] '{name}' is not used anywhere else as an identifier.")
+    return "\n".join(lines) + note
+
+
 def handle_query_ast_node(file_path: str, pattern: str, language: str = "") -> str:
     if not TREE_SITTER_AVAILABLE:
         return "[Error] tree-sitter is not installed."
@@ -3096,6 +3144,7 @@ def _handlers() -> dict:
             "update_todos": todos.handle_update_todos,
             "call_api": handle_call_api,
             "get_code_skeleton": handle_get_code_skeleton,
+            "find_symbol": handle_find_symbol,
             "query_ast_node": handle_query_ast_node,
             "submit_plan_for_approval": handle_submit_plan_for_approval,
             "use_skill": handle_use_skill,

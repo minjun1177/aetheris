@@ -352,6 +352,15 @@ TOOLS = (
         ),
     ),
     Tool(
+        name='find_symbol',
+        description='Find where a function, class or method is DEFINED anywhere in the project, from a Tree-sitter symbol table rather than a text search: each definition\'s file, line range, signature and the class it is in. Set references to true to also list where the name is used as an identifier - comments and strings are skipped. Use this instead of search_in_file when you are looking for a definition or its callers.',
+        params=(
+            Param(name='name', description='The exact name, e.g. "load_rules", or a glob such as "load_*". When nothing has exactly that name, names containing it are shown.',
+                  aliases=('symbol', 'query')),
+            Param(name='references', description='(Optional) true to also list where the name is used. Default false.', default=False, optional=True),
+        ),
+    ),
+    Tool(
         name='get_code_skeleton',
         description='Parse a source code file using AST and return a JSON tree of its structure (functions, classes, parameters, return types, decorators). Useful for understanding architecture without reading the entire file. Supports: Python, JavaScript, TypeScript, Java, C, C++, Go, Rust, C#.',
         params=(
