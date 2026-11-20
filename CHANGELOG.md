@@ -80,6 +80,10 @@ from the working directory, but now only once they have been trusted.
   `find_symbol` and `find_files` read the project without asking, and followed
   a link into `~/.ssh` to quote what it pointed at.
   Files whose real path is outside the project are now left out.
+- **A message that begins like a command is a message.** `/system`, `/export`,
+  `/load` and `/skill` matched as a bare prefix, so "/systemd keeps
+  restarting" set the persona to "d keeps restarting" and "/exporter" wrote a
+  file called "er". Each now matches its whole name only.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

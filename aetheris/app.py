@@ -3105,7 +3105,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/model", _cmd_model),
     (lambda cmd: cmd == "/connect" or cmd.startswith("/connect "), _cmd_connect),
     (lambda cmd: cmd == "/sessions" or cmd.startswith("/sessions ") or cmd == "/load", _cmd_sessions),
-    (lambda cmd: cmd.startswith("/load"), _cmd_load),
+    (lambda cmd: cmd == "/load" or cmd.startswith("/load "), _cmd_load),
     (lambda cmd: cmd == "/title" or cmd.startswith("/title "), _cmd_title),
     (lambda cmd: cmd == "/fork" or cmd.startswith("/fork "), _cmd_fork),
     (lambda cmd: cmd == "/update", _cmd_update),
@@ -3119,13 +3119,13 @@ _COMMANDS = (
     (lambda cmd: cmd == "/automode" or cmd.startswith("/automode "), _cmd_automode),
     (lambda cmd: cmd == "/fullcontent" or cmd.startswith("/fullcontent "), _cmd_fullcontent),
     (lambda cmd: cmd == "/record" or cmd.startswith("/record "), _cmd_record),
-    (lambda cmd: cmd.startswith("/export"), _cmd_export),
-    (lambda cmd: cmd.startswith("/system"), _cmd_system),
+    (lambda cmd: cmd == "/export" or cmd.startswith("/export "), _cmd_export),
+    (lambda cmd: cmd == "/system" or cmd.startswith("/system "), _cmd_system),
     (lambda cmd: cmd == "/planmode" or cmd.startswith("/planmode "), _cmd_planmode),
     (lambda cmd: cmd == "/artifacts" or cmd.startswith("/artifacts "), _cmd_artifacts),
     (lambda cmd: cmd == "/skills" or cmd.startswith("/skills "), _cmd_skills),
     (lambda cmd: cmd == "/commands", _cmd_commands),
-    (lambda cmd: cmd.startswith("/skill"), _cmd_skill),
+    (lambda cmd: cmd == "/skill" or cmd.startswith("/skill "), _cmd_skill),
     (lambda cmd: cmd == "/mcp" or cmd.startswith("/mcp "), _cmd_mcp),
     (lambda cmd: cmd == "/perms" or cmd.startswith("/perms "), _cmd_perms),
     (lambda cmd: cmd == "/hooks" or cmd.startswith("/hooks "), _cmd_hooks),
@@ -3144,7 +3144,13 @@ _COMMANDS = (
 
 
 async def _slash_command(chat, user_input: str, cmd: str):
-    """Run the command `cmd` names. `_HANDLED`, `_LEAVE`, or a `_Next`."""
+    """Run the command `cmd` names. `_HANDLED`, `_LEAVE`, or a `_Next`.
+
+    Every matcher is the whole word or the word and a space. Four of them used
+    to be a bare prefix, so a message that only began like one was taken for
+    it: "/systemd keeps restarting nginx" set the persona to "d keeps
+    restarting nginx", and "/exporter" wrote a file called "er".
+    """
     for wanted, handler in _COMMANDS:
         if wanted(cmd):
             outcome = await handler(chat, user_input, cmd)

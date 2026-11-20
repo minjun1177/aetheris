@@ -97,6 +97,28 @@ check("/commands lists each with its source",
       and "/notes" in out.getvalue(), out.getvalue())
 check("and the problems", "built-in" in out.getvalue())
 
+print("\n--- a built-in matches its whole name, not a prefix of it ---")
+import asyncio   # noqa: E402
+
+
+class Chat:
+    pass
+
+
+chat = Chat()
+chat.messages, chat.session_id, chat.mcp_servers = [{"role": "system", "content": "s"}], None, []
+for line in ("/systemd keeps restarting nginx, why?", "/exporter config", "/loadtest x",
+             "/skillset y"):
+    config.CUSTOM_PERSONA = ""
+    with contextlib.redirect_stdout(io.StringIO()):
+        outcome = asyncio.run(app._slash_command(chat, line, line.lower()))
+    check(f"{line.split()[0]} is not taken for a built-in", isinstance(outcome, app._Next)
+          and config.CUSTOM_PERSONA == "" and not os.path.exists("er config"), repr(outcome))
+write(os.path.join(USER, "skillset.md"), "Skill set for $ARGUMENTS.\n")
+check("so a command of yours may begin like one",
+      commands.expand("/skillset me", tui.reserved_names())[0] == "Skill set for me.")
+config.CUSTOM_PERSONA = ""
+
 os.chdir(origin)
 print()
 if failures:
