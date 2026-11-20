@@ -337,6 +337,22 @@ check("and no read keeps a default of its own",
            if re.search(r"""getattr\(config, *["'][A-Z_]+["'],|_cfg\(["'][A-Z_]+["'],""",
                         open(path, encoding="utf-8").read())])
 
+print("\n--- AUTO_ALLOW is for the session, never written down ---")
+import json as _json   # noqa: E402
+ok, where = config.set_setting("AUTO_ALLOW", "on")
+on_disk = _json.load(open(config.SETTINGS_FILE, encoding="utf-8")) \
+    if os.path.exists(config.SETTINGS_FILE) else {}
+check("it is on now", ok and config.AUTO_ALLOW is True)
+check("and says it is not saved", "never saved" in where, where)
+check("settings.json does not hold it", "AUTO_ALLOW" not in on_disk, str(on_disk))
+with open(config.SETTINGS_FILE, "w", encoding="utf-8") as handle:
+    _json.dump({"AUTO_ALLOW": True}, handle)          # written by an older version
+config.AUTO_ALLOW = False
+applied = config.load_saved_settings()
+check("one an older version saved is not obeyed",
+      config.AUTO_ALLOW is False and "AUTO_ALLOW" not in applied, str(applied))
+config.set_setting("AUTO_ALLOW", "off")
+
 print()
 if failures:
     print(f"{len(failures)} FAILURE(S): {failures}")

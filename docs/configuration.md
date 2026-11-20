@@ -50,7 +50,7 @@ The settings worth knowing:
 | `OLLAMA_SEED` | unset | A fixed seed, for runs that have to be repeatable - a benchmark, a comparison |
 | `NATIVE_TOOLS` | `True` | `False` forces the `<tool_call>` text protocol everywhere |
 | `MAX_TOOL_CALLS` | 10 | Tool calls per turn before asking whether to continue |
-| `AUTO_ALLOW` | `False` | `True` is `/automode on` from startup - no approval prompts |
+| `AUTO_ALLOW` | `False` | No approval prompts. **For the session only**: `/set AUTO_ALLOW on` is never saved, and a value an older version saved is ignored, so a repository opened tomorrow is asked about as usual. `aetheris -p --auto-allow` turns it on for one run |
 | `PERMISSIONS_ENABLED` | `True` | Whether `.permissions.json` rules are consulted at all |
 | `SECRET_REDACT` | `True` | Whether `.env` values are hidden from the model and pasted back in by the harness - see [Secrets in `.env`](permissions.md#secrets-in-env) |
 | `SECRET_MIN_LENGTH` | 8 | Below this a value is a word like `dev`, not a secret, and hiding it would rewrite every result that mentions it |
