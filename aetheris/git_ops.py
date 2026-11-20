@@ -429,8 +429,11 @@ def session_ai_commits(start: str) -> list:
     if not root:
         return []
     span = [f"{start}..HEAD"] if start else ["HEAD"]
+    # --no-renames: a rename is listed as `old => new`, which is no path at all,
+    # so `/diff all` asked git about a file that does not exist and left the
+    # moved file out. As a delete and an add, both are real paths.
     result = _git("log", "--reverse", *span, "--format=%x01%h%x00%s%x00%ar",
-                  "--numstat", cwd=root)
+                  "--numstat", "--no-renames", cwd=root)
     if result.returncode != 0:
         return []
     commits = []

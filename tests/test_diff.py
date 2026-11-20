@@ -91,6 +91,16 @@ check("/diff all covers every file the AI touched",
       "new.py" in net and "+two" in net and "+print('a')" in net, net)
 check("and only those", "mine.txt" not in net)
 
+print("\n--- a moved file is a delete and an add, both shown ---")
+with contextlib.redirect_stdout(io.StringIO()):
+    tools.dispatch_tool("move_file", {"src": "new.py", "dst": "moved.py"})
+commits = git_ops.session_ai_commits(app._session_start_head)
+paths = [path for path, _, _ in commits[-1]["files"]]
+check("the move lists real paths", sorted(paths) == ["moved.py", "new.py"], str(paths))
+check("and /diff all shows where it went", "moved.py" in shown("all"))
+with contextlib.redirect_stdout(io.StringIO()):
+    git_ops.undo_last()
+
 print("\n--- /undo takes one out ---")
 with contextlib.redirect_stdout(io.StringIO()):
     git_ops.undo_last()
