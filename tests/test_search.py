@@ -151,6 +151,29 @@ check("at most 200, and it says how many there were",
       len([l for l in found.splitlines() if l.startswith("gen/")]) == 200
       and "230 files" in found, found.splitlines()[0])
 
+print("\n--- a symlink out of the project is not searched ---")
+outside = tempfile.mkdtemp(prefix="search-outside-")
+write(outside, "secret.txt", "OUTSIDE-SECRET-LINE\n")
+linked = os.path.join(root, "linked_notes.md")
+try:
+    os.symlink(os.path.join(outside, "secret.txt"), linked)
+    can_link = True
+except (OSError, NotImplementedError):
+    can_link = False            # Windows without the privilege
+if can_link:
+    write(root, "inside.md", "INSIDE-LINE\n")
+    os.symlink(os.path.join(root, "inside.md"), os.path.join(root, "alias.md"))
+    for label, which in backends:
+        tools._ripgrep = which
+        found = tools.handle_search_in_file("OUTSIDE-SECRET")
+        check(f"{label}: a link that leads outside is not read", "OUTSIDE-SECRET" not in found
+              or "No matches" in found, found)
+    tools._ripgrep = real
+    check("nor listed", "linked_notes.md" not in tools.handle_find_files("*.md"))
+    check("a link that stays inside still is", "alias.md" in tools.handle_find_files("*.md"))
+    os.remove(linked)
+shutil.rmtree(outside, ignore_errors=True)
+
 os.chdir(here)
 shutil.rmtree(root, ignore_errors=True)
 shutil.rmtree(plain, ignore_errors=True)

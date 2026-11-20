@@ -1901,19 +1901,45 @@ def _glob_matches(pattern: str, relative: str) -> bool:
     return pattern.startswith("**/") and fnmatch.fnmatch(relative, pattern[3:])
 
 
+def _inside(root: str, relative: str) -> bool:
+    """Whether `relative` is a file that - through any symlink - is still under `root`."""
+    path = os.path.join(root, relative)
+    if not os.path.isfile(path):
+        return False
+    try:
+        real = os.path.normcase(os.path.realpath(path))
+        base = os.path.normcase(os.path.realpath(root))
+        return os.path.commonpath([real, base]) == base
+    except (OSError, ValueError):
+        return False
+
+
 def _workspace_files(root: str) -> list:
-    """Files under `root` a person would call the project, relative to it, sorted."""
-    listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others",
-                             "--exclude-standard"], cwd=root, capture_output=True)
-    if listed.returncode == 0:
+    """Files under `root` a person would call the project, relative to it, sorted.
+
+    A symlink that leads out of the project is left out. Everything that walks
+    the project reads from here - `search_in_file`, `find_symbol` - and none of
+    them asks before reading, which `read_file` does for a path outside. A
+    repository that ships `notes.md -> ~/.ssh/id_rsa` used to have that file
+    searched and quoted with no question asked.
+    """
+    try:
+        listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others",
+                                 "--exclude-standard"], cwd=root, capture_output=True,
+                                timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        listed = None
+    if listed is not None and listed.returncode == 0:
         names = [n for n in listed.stdout.decode("utf-8", "replace").split("\0") if n]
         # A tracked file deleted from the disk is still in the index.
-        return sorted({n for n in names if os.path.isfile(os.path.join(root, n))})
+        return sorted({n for n in names if _inside(root, n)})
     found = []
     for directory, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in _SEARCH_SKIP_DIRS]
         for name in files:
-            found.append(os.path.relpath(os.path.join(directory, name), root))
+            relative = os.path.relpath(os.path.join(directory, name), root)
+            if _inside(root, relative):
+                found.append(relative)
     return sorted(found)
 
 

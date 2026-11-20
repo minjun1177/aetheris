@@ -93,6 +93,19 @@ else:
     check("nothing found says what to do instead", "search_in_file" in result, result)
     check("an empty name is an error", tools.handle_find_symbol("").startswith("[Error]"))
 
+    print("\n--- a symlink out of the project is not read ---")
+    outside = tempfile.mkdtemp(prefix="symbols-outside-")
+    write(os.path.join(outside, "secret.py"), "def load_rules():\n    SECRET_VALUE = 1\n")
+    try:
+        os.symlink(os.path.join(outside, "secret.py"), os.path.join(work, "pkg", "leak.py"))
+        check("its definitions are not indexed",
+              not any(d["file"] == "pkg/leak.py" for d in symbols.find("load_rules")[0]))
+        check("and its lines are never quoted",
+              "SECRET_VALUE" not in tools.handle_find_symbol("load_rules", True))
+        os.remove(os.path.join(work, "pkg", "leak.py"))
+    except (OSError, NotImplementedError):
+        pass
+
     print("\n--- the table follows the files ---")
     time.sleep(0.01)
     write("pkg/rules.py", "def renamed():\n    pass\n")

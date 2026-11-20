@@ -1465,7 +1465,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_sse.py` | That an event stream is read whether or not it came gzipped, still event by event, and that a gzipped Anthropic reply comes through as text |
 | `test_headless.py` | That `-p` writes only the answer or one JSON object to stdout, with every tool call and its outcome, and fails with an exit status; that `stream-json` is one event per line, start to result, with each tool call announced before its result |
 | `test_bench.py` | That the benchmark graders pass a right answer and fail the wrong ones small models give, and that the edit fixture still carries its bug |
-| `test_search.py` | That `search_in_file` honours `.gitignore`, skips binaries, narrows by glob, shows context, and says the same with or without ripgrep |
+| `test_search.py` | That `search_in_file` honours `.gitignore`, skips binaries, narrows by glob, shows context, and says the same with or without ripgrep; that a symlink out of the project is neither searched nor listed |
 | `test_loops.py` | That the same call a third time is warned and a fourth refused, that a write resets the count, and that refusals in a row still end the turn |
 | `test_todos.py` | That the checklist is read in any shape, reminded on what is sent but never stored in the history, and kept with the session |
 | `test_resume.py` | That `--resume` and `-c` resolve on the command line, and refuse rather than guess |

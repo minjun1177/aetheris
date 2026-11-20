@@ -76,6 +76,10 @@ Security and data-safety fixes. One of them changes how a project file in the
 Compatibility table is used: `.mcp.json` and `.permissions.json` are still read
 from the working directory, but now only once they have been trusted.
 
+- **A symlink out of the project is not searched.** `search_in_file`,
+  `find_symbol` and `find_files` read the project without asking, and followed
+  a link into `~/.ssh` to quote what it pointed at.
+  Files whose real path is outside the project are now left out.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow
