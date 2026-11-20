@@ -92,6 +92,9 @@ is.
    ```bash
    ollama pull gemma4:e4b
    ```
+   Or skip this step: `/connect ollama gemma4:e4b` inside the harness sees the
+   model is missing, asks, and pulls it with a progress line. Ctrl+C stops the
+   download, and what was already downloaded is kept.
 
 3. **Launch it**:
    ```bash

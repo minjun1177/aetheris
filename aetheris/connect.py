@@ -236,6 +236,40 @@ def _pick_model(name: str) -> str:
     return models[index]["name"] if index >= 0 else ""
 
 
+def _size(count: int) -> str:
+    if count >= 1024 ** 3:
+        return f"{count / 1024 ** 3:.1f}GB"
+    return f"{count / 1024 ** 2:.0f}MB"
+
+
+def _offer_pull(provider, model: str) -> str:
+    """Ask to download a model Ollama does not have, and do it. The problem left, or ""."""
+    print(f"  {S.WARN}⚠ {model} is not pulled into Ollama yet.{S.R}")
+    answer = _ask(f"  {S.INFO}Pull it now?{S.R} {S.MUTED}[Y/n]{S.R} {S.INFO}›{S.R} ",
+                  title=f"Pull {model}?", options=[("y", "Pull it"), ("n", "Not now")])
+    if isinstance(answer, Cancelled) or answer.lower() in ("n", "no"):
+        return f"{model} is not pulled - run: ollama pull {model}"
+
+    def show(status: str, completed: int, total: int) -> None:
+        line = f"  {S.MUTED}⇣ {model}{S.R} {S.GRAY}{status}{S.R}"
+        if total:
+            line += (f" {S.WHITE}{completed * 100 // total:3d}%{S.R} "
+                     f"{S.MUTED}{_size(completed)}/{_size(total)}{S.R}")
+        print(f"\r\033[K{line}", end="", flush=True)
+
+    try:
+        problem = providers.ollama_pull(model, provider.host, show)
+    except KeyboardInterrupt:
+        print(f"\r\033[K  {S.GRAY}Pull stopped. What was downloaded is kept; "
+              f"/connect again carries on from there.{S.R}")
+        return f"{model} is not pulled - run: ollama pull {model}"
+    print("\r\033[K", end="")
+    if problem:
+        return f"the pull failed: {problem}"
+    print(f"  {S.OK}✓ Pulled {model}{S.R}")
+    return provider.ready()
+
+
 def run(argument: str) -> None:
     """Handle `/connect ...`. Everything it prints, it prints itself."""
     parts = argument.split()
@@ -270,6 +304,8 @@ def run(argument: str) -> None:
             return
 
     provider, problem = providers.connect(name, model=model)
+    if problem and name == "ollama" and providers.ollama_needs_pull(model, provider.host):
+        problem = _offer_pull(provider, model)
     if problem:
         print(f"  {S.WARN}⚠ Connected to {provider.label}, but {problem}.{S.R}\n")
         return

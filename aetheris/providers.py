@@ -811,6 +811,50 @@ def ollama_model_problem(model: str, host: str = "") -> str:
     return f"{model} is not pulled - run: ollama pull {model}"
 
 
+def ollama_needs_pull(model: str, host: str = "") -> bool:
+    """True only when the daemon answered and the model is not among its own.
+
+    Not "is not ready": a daemon that is off, or one that would not list, is
+    not a model that a download would fix.
+    """
+    installed = _installed_ollama_models(host)
+    if not model or not isinstance(installed, set):
+        return False
+    wanted = model if ":" in model else f"{model}:latest"
+    return model not in installed and wanted not in installed
+
+
+def ollama_pull(model: str, host: str = "", progress=None) -> str:
+    """Download `model` into the daemon at `host`. "" when done, else the problem.
+
+    `progress(status, completed, total)` is called for each event the daemon
+    streams back; `completed` and `total` are bytes, 0 when it does not say.
+    Ctrl+C is left to the caller - a download nobody wants any more is theirs
+    to stop. The cached answers about this model are dropped either way, so the
+    next question about it asks the daemon again.
+    """
+    try:
+        for event in ollama_client(host).pull(model, stream=True):
+            if progress is None:
+                continue
+            get = event.get if isinstance(event, dict) else (
+                lambda key, default=None: getattr(event, key, default))
+            progress(str(get("status", "") or ""), int(get("completed", 0) or 0),
+                     int(get("total", 0) or 0))
+        problem = ""
+    except KeyboardInterrupt:
+        raise
+    except Exception as error:
+        if _refused_connection(error) or _connect_timed_out(error):
+            problem = f"Ollama is not running at {host or 'http://localhost:11434'}"
+        else:
+            problem = str(getattr(error, "error", "") or error) or type(error).__name__
+    finally:
+        _ollama_installed.pop(host, None)
+        _ollama_capability_lists.pop((host, model), None)
+    return problem
+
+
 def ollama_not_running(host: str = "") -> str:
     """What to do when nothing answers at the Ollama address."""
     where = host or "http://localhost:11434"

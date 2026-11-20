@@ -49,6 +49,9 @@ own, and out to a package of its own only when someone needs it there.
   repository's rules. One in `~/.aetheris/` holds the person's own and is read
   in every project. Each file is cut at 20,000 characters - see
   `docs/configuration.md`.
+- **`/connect` pulls a missing Ollama model.** A model the daemon does not
+  have is offered for download, with a progress line, instead of only being
+  told to run `ollama pull`.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.
