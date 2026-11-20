@@ -303,6 +303,21 @@ check("both kinds are counted apart",
       tui._describe_status(" M a.py\nA  b.py\n?? c.py\n") == "2 modified, 1 untracked",
       tui._describe_status(" M a.py\nA  b.py\n?? c.py\n"))
 
+print("\n--- a signing setup cannot stall or stop an AI commit ---")
+signed = new_repo()
+os.chdir(signed)
+git_ops._repo_root_cache.clear()
+# Signing on, and a "gpg" that fails - the shape of a pinentry nobody answers.
+git("config", "commit.gpgsign", "true", cwd=signed)
+git("config", "gpg.program", "false", cwd=signed)
+write(signed, "a.txt", "changed\n")
+sha = git_ops.auto_commit(["a.txt"], "write_file")
+check("the AI commit is made, unsigned", bool(sha) and subjects(signed, 1)[0] == "ai(write_file): a.txt",
+      f"{sha!r} {subjects(signed, 1)}")
+check("git is told nobody can answer a prompt",
+      git_ops._environment().get("GIT_TERMINAL_PROMPT") == "0")
+check("and every call has a ceiling", git_ops.GIT_TIMEOUT > 0)
+
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print()
 if failures:

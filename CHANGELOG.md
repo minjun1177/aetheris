@@ -114,6 +114,10 @@ from the working directory, but now only once they have been trusted.
   `git config alias.x '!...'`, `rebase --exec` and `submodule foreach` with no
   question. Those options and subcommands now go to the approval prompt unless
   the rule names them.
+- **A signing setup cannot stall an AI commit.** With `commit.gpgsign` on, git
+  asked for a passphrase in the middle of a tool call, and no git call had a
+  time limit. AI commits are now unsigned, and every git call has a 60-second
+  ceiling and `GIT_TERMINAL_PROMPT=0`.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

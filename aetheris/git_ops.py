@@ -29,6 +29,19 @@ import subprocess
 MESSAGE_PREFIX = "ai("
 _repo_root_cache: dict = {}
 
+# Every git call here runs inside a tool call, and nothing about a local git
+# operation should take a minute - but one that waits for a human does: a
+# credential prompt, or a GPG passphrase for a signed commit. With no ceiling
+# and the terminal owned by the prompt, that wait was the harness hanging.
+GIT_TIMEOUT = 60
+
+
+def _environment() -> dict:
+    """git's environment, told that nobody is at a terminal to answer it."""
+    environment = dict(os.environ)
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+    return environment
+
 
 def _cfg(name):
     from aetheris import config
@@ -47,8 +60,12 @@ def _git(*arguments, cwd: str = None) -> subprocess.CompletedProcess:
         # quoted string, and `/undo` then "removed" a name that is no file
         # while the real one kept the AI's version.
         return subprocess.run(("git", "-c", "core.quotePath=false") + arguments,
-                              cwd=cwd, capture_output=True,
-                              text=True, encoding="utf-8", errors="replace")
+                              cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL,
+                              text=True, encoding="utf-8", errors="replace",
+                              timeout=GIT_TIMEOUT, env=_environment())
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(arguments, 1, "",
+                                           f"git did not finish in {GIT_TIMEOUT}s")
     except (OSError, ValueError) as error:
         return subprocess.CompletedProcess(arguments, 1, "", str(error))
 
@@ -56,8 +73,10 @@ def _git(*arguments, cwd: str = None) -> subprocess.CompletedProcess:
 def _git_bytes(*arguments, cwd: str = None) -> bytes | None:
     """Run git for its raw output - a blob, which need not be text. None on failure."""
     try:
-        done = subprocess.run(("git",) + arguments, cwd=cwd, capture_output=True)
-    except (OSError, ValueError):
+        done = subprocess.run(("git",) + arguments, cwd=cwd, capture_output=True,
+                              stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
+                              env=_environment())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
     return done.stdout if done.returncode == 0 else None
 
@@ -227,7 +246,12 @@ def auto_commit(paths: list, tool: str, summary: str = "") -> str:
         message += "\n\n" + "\n".join(kept)
     # --no-verify: a hook that rejects work in progress would strand the edit
     # uncommitted, which is the one state this exists to avoid.
-    committed = _git("commit", "--no-verify", "-m", message, "--", *known, cwd=root)
+    # Unsigned: an AI commit is a local checkpoint for /undo, made in the
+    # middle of a tool call. With commit.gpgsign on, git asked for a
+    # passphrase there - a pinentry fighting the prompt for the terminal.
+    # Squash or re-sign before pushing, as with any work-in-progress commit.
+    committed = _git("-c", "commit.gpgsign=false", "commit", "--no-verify", "-m", message,
+                     "--", *known, cwd=root)
     if committed.returncode != 0:
         return ""
     return _git("rev-parse", "--short", "HEAD", cwd=root).stdout.strip()

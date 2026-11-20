@@ -29,6 +29,12 @@ follows, and a wrong edit three tool calls ago is gone.
 
 Two rules keep this from being a nuisance:
 
+**AI commits are not signed.** They are local checkpoints made in the middle of
+a tool call, so `commit.gpgsign` is switched off for them alone - a passphrase
+prompt there used to stall the harness. Squash or re-sign them before pushing,
+as you would any work-in-progress commit. Every git call also has a 60-second
+ceiling and is told that nobody is at a terminal to answer it.
+
 **It commits only what the tool named.** Whatever else you have staged or
 changed is left exactly as it was - `git commit` is given those paths
 explicitly rather than being allowed to sweep up your index.

@@ -1834,14 +1834,14 @@ def handle_list_dir(dirpath: str) -> str:
 
 def handle_git_status() -> str:
     try:
-        res = subprocess.run(["git", "status"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        res = subprocess.run(["git", "status"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=60, stdin=subprocess.DEVNULL)
         return res.stdout or res.stderr
     except Exception as e:
         return f"[Error] git status failed: {e}"
 
 def handle_git_diff() -> str:
     try:
-        res = subprocess.run(["git", "diff"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        res = subprocess.run(["git", "diff"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=60, stdin=subprocess.DEVNULL)
         return res.stdout or res.stderr
     except Exception as e:
         return f"[Error] git diff failed: {e}"

@@ -1449,7 +1449,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_registry.py` | The tool table, the prompt and the handlers still describe the same tools (5.1) |
 | `test_native_tools.py` | Each vendor's tool-call wire format; both protocols reach the same place (5.3, 5.5) |
 | `test_deepthink.py` | Stage sequencing, both early exits, read-only really read-only (§7) |
-| `test_git_ops.py` | Commit and undo against real repositories, including undo refusing (5.8) |
+| `test_git_ops.py` | Commit and undo against real repositories, including undo refusing (5.8); that a signing setup cannot stall or stop an AI commit |
 | `test_durability.py` | Atomic writes, including killing a writer mid-write; the token estimate (5.7) |
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
