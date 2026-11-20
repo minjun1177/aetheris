@@ -87,6 +87,15 @@ from the working directory, but now only once they have been trusted.
 - **`/export` never writes over a file.** `/export README.md` replaced the
   README with the conversation. It now refuses a name that exists, as `/copy`
   already did.
+- **`get_url` reaches public addresses only, and asks before a long URL.** It
+  runs without a question, so a page that told the model what to fetch could
+  reach this machine, its network or `169.254.169.254` (a cloud VM's
+  credentials), and a URL carrying a file it had read sent the file away.
+  Now every hop of a redirect is resolved and refused unless public
+  (`URL_ALLOW_PRIVATE` to change that; `call_api` asks and goes anywhere), a
+  URL over `GET_URL_QUIET_CHARS` characters is asked about, the pages
+  `search_web` reads follow the same rule, and a `search_web` query is capped
+  at `SEARCH_QUERY_MAX_CHARS`.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

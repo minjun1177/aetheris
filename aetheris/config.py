@@ -316,6 +316,12 @@ TOOL_REFUSAL_PREFIX = "[System]"
 MENTION_MAX_CHARS = 40000
 
 SEARCH_MAX_RESULTS = 5
+SEARCH_QUERY_MAX_CHARS = 200    # a query leaves the machine unasked; data does not ride in one
+# get_url runs without asking. It never goes to this machine or its network
+# (netguard.py) unless this is on, and a URL longer than this is asked about,
+# since a long URL is how data leaves inside one.
+URL_ALLOW_PRIVATE = False
+GET_URL_QUIET_CHARS = 300
 
 # Point this at a self-hosted SearXNG (e.g. "http://localhost:8080") to make
 # candidate generation fully local. Empty = use the keyless public sources only.

@@ -35,6 +35,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from aetheris import config
+from aetheris import netguard
 
 # A backstop, not the fix. Beautiful Soup guesses on two shapes of input that
 # the caller has made a mistake and says so on stderr in a paragraph - and it
@@ -385,9 +386,18 @@ def _fetch(cand):
     if cand["text"]:
         return cand
     try:
+        # A result's address comes from a search engine, not from anybody
+        # here: the same rule as `get_url`, at the start and after redirects.
+        if netguard.refusal(cand["url"]):
+            cand["text"] = ""
+            return cand
         resp = requests.get(cand["url"], headers=UA, stream=True,
                             timeout=config.SEARCH_FETCH_TIMEOUT)
         try:
+            if any(netguard.refusal(hop.url) for hop in resp.history) or \
+                    netguard.refusal(resp.url):
+                cand["text"] = ""
+                return cand
             resp.raise_for_status()
             is_html = "html" in resp.headers.get("Content-Type", "").lower()
             chunks, total = [], 0

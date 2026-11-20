@@ -103,6 +103,9 @@ The settings worth knowing:
 | `NOTES_TITLES_MAX` | 40 | Project-note titles the system prompt will list |
 | `NOTE_MAX_CHARS` | 20000 | Ceiling on one note, which comes back into the conversation whole |
 | `SEARXNG_URL` | `""` | A self-hosted search instance to prefer over the public sources |
+| `SEARCH_QUERY_MAX_CHARS` | 200 | Longest `search_web` query. A query leaves the machine without a question, so data does not ride in one |
+| `URL_ALLOW_PRIVATE` | `False` | Let `get_url` and the pages `search_web` reads reach this machine and its network. Off, they reach public addresses only; `call_api`, which asks, reaches anything |
+| `GET_URL_QUIET_CHARS` | 300 | A `get_url` address longer than this is asked about first - a long URL is how data leaves inside one |
 
 The rest are tuning knobs for search, MCP and command sessions; they are
 documented in the sections above, commented where they are defined, and all of

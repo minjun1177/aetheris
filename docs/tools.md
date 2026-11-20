@@ -249,7 +249,7 @@ that says what went wrong.
 
 ### Web & Network Tools
 - `search_web`: Multi-source search with local relevance ranking (see Web Search below).
-- `get_url`: Fetch web page contents and strip raw HTML down to readable text.
+- `get_url`: Fetch web page contents and strip raw HTML down to readable text. It runs without asking, so it only goes to **public addresses** - never this machine, its network or a cloud metadata address, checked again at every redirect - and an address over `GET_URL_QUIET_CHARS` (300) characters is asked about first. Use `call_api`, which asks, for anything local.
 - `call_api`: Execute HTTP requests (GET, POST, PUT, PATCH, DELETE) with custom headers and JSON/text payloads.
 
 ### File System & Workspace Tools

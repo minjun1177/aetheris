@@ -687,6 +687,7 @@ app.py            the loop, slash commands, session lifecycle
 | `vm.py` | The scratch Python process: its wire protocol, its ceilings, and restarting it after it dies | How the result is worded - that is `tools.handle_run_python` |
 | `mcp_client.py` | MCP transports, JSON-RPC, MCP tool schemas, which servers are described now | Whether the *built-in* tools are shown - that is `toolspec` |
 | `symbols.py` | `find_symbol`'s project-wide table: definitions per file, cached on mtime and size, and identifier references | Parsing or what a definition is - that is `tools._walk_skeleton`, shared with `get_code_skeleton` |
+| `netguard.py` | Whether an unapproved request may go to an address: public only, resolved, at every redirect | Asking - a request that may go anywhere is `call_api`'s, which asks |
 | `websearch.py` | Retrieval, extraction, BM25 reranking | |
 | `skills.py` | Skill discovery and loading | |
 | `commands.py` | The person's own slash commands: which files are commands, and the message one expands to | Which names are built in - `tui.reserved_names` says |
@@ -1457,7 +1458,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_diff.py` | That `/diff` lists only the AI's commits this session with their line counts, shows one commit's patch and the net change to the files it touched, and drops a commit `/undo` took back |
 | `test_fork.py` | That `/fork` moves the conversation to a new file and title, that what follows goes to the copy while the original keeps exactly what it had, and that both can be loaded |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
-| `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
+| `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret, never reaches this machine or its network (checked at each redirect), and asks before a long URL; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |
 | `test_terms.py` | That the terms are shown before anything runs, asked once, and never assumed from a pipe |
 | `test_tool_parsing.py` | The text protocol's repair engine: the shapes it reads, and the ones it refuses |

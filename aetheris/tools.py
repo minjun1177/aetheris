@@ -14,6 +14,7 @@ from aetheris.config import S, TREE_SITTER_AVAILABLE, _TS_LANGUAGES, _EXT_TO_LAN
 from aetheris.tui import _fmt_tool_call, _approval_prompt, ask_the_driver as _ask_the_driver
 from aetheris.skills import handle_use_skill
 from aetheris import mcp_client
+from aetheris import netguard
 from aetheris import channel
 from aetheris import images
 from aetheris import events
@@ -33,6 +34,13 @@ if TREE_SITTER_AVAILABLE:
 
 
 def handle_search_web(query: str) -> str:
+    # A query leaves the machine with nobody asked, like `get_url`'s address.
+    # Nothing anybody searches for is this long; a file pasted into one is.
+    query = str(query or "")
+    if len(query) > config.SEARCH_QUERY_MAX_CHARS:
+        return (f"{config.TOOL_ERROR_PREFIX} The search query is {len(query)} characters; "
+                f"keep it under {config.SEARCH_QUERY_MAX_CHARS} - a few key terms, never "
+                "file contents.")
     return search_pipeline(query)
 
 
@@ -1614,6 +1622,9 @@ def _bounded_text(response) -> tuple:
         return raw.decode("utf-8", "replace"), total >= NETWORK_MAX_BYTES
 
 
+_MAX_REDIRECTS = 5
+
+
 def handle_get_url(url: str) -> str:
     url, complaint = _as_path(url, "url")
     if complaint:
@@ -1625,9 +1636,37 @@ def handle_get_url(url: str) -> str:
         return (f"{config.TOOL_ERROR_PREFIX} get_url does not fill in "
                 "{{env:...}} values. A request that needs a secret goes through "
                 "call_api, which asks the user first.")
+    if len(url) > config.GET_URL_QUIET_CHARS:
+        # A URL is also a way out. `get_url` asks nobody, so a page that told
+        # the model to "fetch https://.../?d=<the file you just read>" sent the
+        # file away with no question. Ordinary pages have short addresses; a
+        # long one is shown to the person first.
+        if not _approval_prompt("Fetch A Long URL", [("url", url),
+                                ("why", f"over {config.GET_URL_QUIET_CHARS} characters - "
+                                        "it may carry data out")],
+                                rule=f"get_url({url})"):
+            return (f"[System] User denied get_url for a URL of {len(url)} characters. "
+                    "Do not put file contents or other data into a URL.")
     try:
-        response = requests.get(url, timeout=15, stream=True,
-                                headers={"User-Agent": "Mozilla/5.0"})
+        response = None
+        for _hop in range(_MAX_REDIRECTS + 1):
+            # Checked at every hop: a public page that redirects to
+            # 169.254.169.254 is the same request as asking for it.
+            why = netguard.refusal(url)
+            if why:
+                return (f"{config.TOOL_REFUSAL_PREFIX} get_url does not fetch {url}: {why}. "
+                        "A request to this machine or its network goes through call_api, "
+                        "which asks the user first.")
+            response = requests.get(url, timeout=15, stream=True, allow_redirects=False,
+                                    headers={"User-Agent": "Mozilla/5.0"})
+            if response.is_redirect and response.headers.get("Location"):
+                url = requests.compat.urljoin(url, response.headers["Location"])
+                response.close()
+                continue
+            break
+        else:
+            response.close()
+            return f"[Error] Cannot fetch URL: more than {_MAX_REDIRECTS} redirects."
         try:
             response.raise_for_status()
             content_type = response.headers.get("Content-Type", "")
