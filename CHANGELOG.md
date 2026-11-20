@@ -40,6 +40,12 @@ own, and out to a package of its own only when someone needs it there.
   turn ends (`turn_end`). `match` is a permission rule. The call arrives as
   JSON on stdin, with no provider keys in the environment. A project's file is
   asked about like `.mcp.json`. `/hooks` lists them - see `docs/hooks.md`.
+- **`/compact [focus]`** summarises the conversation when the person decides
+  to, not only when the window is nearly full, and keeps the last exchange.
+  The focus tells the summariser what it must keep in full.
+- **A second compression no longer loses the first.** The summary already in
+  the system prompt was left out of what was summarised, so it was replaced
+  by a summary of only what came after it.
 
 Security and data-safety fixes. One of them changes how a project file in the
 Compatibility table is used: `.mcp.json` and `.permissions.json` are still read

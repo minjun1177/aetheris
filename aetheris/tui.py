@@ -190,6 +190,8 @@ COMMANDS = (
     ("/export [filename]", "Write the conversation out as markdown"),
     ("/rewind [n]", "Take back the last prompt and everything after it - or the last n - "
                     "and put it back in the box to edit. Files stay; /undo is for those"),
+    ("/compact [focus]", "Summarise the conversation now, keeping the last exchange - "
+                         "with a focus, what the summary must keep in full"),
     ("/btw <question>", "Ask on the side: answered from this conversation, never kept "
                         "in it, and no tool is run"),
     ("/copy [n] [file]", "Copy the latest answer - or the nth latest, or one of its code "

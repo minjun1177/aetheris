@@ -248,13 +248,27 @@ def _get_conv_pairs(messages: list[dict]) -> list[list[dict]]:
     return pairs
 
 
-async def _compress_context(messages: list[dict]) -> bool:
+_SUMMARY_BLOCK = re.compile(r'\n\n<SUMMARY>\n?(.*?)\n?</SUMMARY>', re.DOTALL)
+
+
+async def _compress_context(messages: list[dict], focus: str = "") -> bool:
     conv_msgs = [m for m in messages if m.get("role") != "system"]
     if not conv_msgs:
         return False
 
     predict_tokens = _get_summary_predict_tokens()
     prompt = summarizeprompt()
+    if focus:
+        # `/compact <focus>`: the person knows what the rest of the session is
+        # for, which no summariser can guess.
+        prompt += (f"Above all, keep everything needed for this, in full: {focus}\n"
+                   "Anything unrelated to it can be one line or left out.\n\n")
+    # The summary already in the system prompt is part of the history being
+    # summarised. Left out, a second compression replaced it with a summary of
+    # only what came after it, and the start of the session was gone.
+    earlier = _SUMMARY_BLOCK.search(_text(messages[0])) if messages else None
+    if earlier and earlier.group(1).strip():
+        prompt += f"[Summary of the conversation before this]: {earlier.group(1).strip()}\n\n"
     for m in conv_msgs:
         role = "User" if m.get("role") == "user" else "Assistant"
         content = re.sub(r'<tool_call>.*?</tool_call>', '', _text(m), flags=re.DOTALL).strip()
@@ -304,6 +318,31 @@ async def _compress_context(messages: list[dict]) -> bool:
     new_sys = f"{sys_content}\n\n<SUMMARY>\n{summary}\n</SUMMARY>"
     messages[0]["content"] = new_sys
     return True
+
+
+async def compact(messages: list[dict], focus: str = "", keep: int = 1) -> dict | None:
+    """`/compact`: summarise the conversation now, keeping the last `keep` exchanges.
+
+    The automatic path waits until the window is nearly full and keeps two
+    exchanges. Asked for by hand, it happens when the person decides - before a
+    new part of the job, after a long dead end - and with what to keep in mind.
+    Changes `messages` in place. Returns the before/after estimate, or None
+    when there was nothing to summarise or the summary failed.
+    """
+    pairs = _get_conv_pairs(messages)
+    if not pairs:
+        return None
+    # At least one exchange is summarised, or there was nothing to compact.
+    keep = max(0, min(keep, len(pairs) - 1))
+    before = _estimate_tokens(messages)
+    if not await _compress_context(messages, focus=focus):
+        return None
+    kept = pairs[-keep:] if keep > 0 else []
+    messages[:] = [messages[0]] + [msg for pair in kept for msg in pair]
+    _sync_loaded_skills(messages)
+    _sync_loaded_mcp_servers(messages)
+    return {"before": before, "after": _estimate_tokens(messages),
+            "pairs": len(pairs), "kept": len(kept)}
 
 
 def _sync_loaded_skills(messages: list[dict]) -> None:

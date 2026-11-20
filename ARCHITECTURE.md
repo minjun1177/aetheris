@@ -1446,6 +1446,7 @@ for t in tests/*.py; do python "$t" || echo "FAILED: $t"; done
 | `test_subagent.py` | What a sub-agent may do, and that only its report crosses back |
 | `test_platform.py` | Waiting-for-input detection on *this* machine. Run it on any new one, especially Windows |
 | `test_permissions.py` | What an allow rule covers, and the two ways one used to cover more than it said; that a path rule is about the file however it is spelled - `./`, `..`, absolute, a symlink - and that `copy_file` needs its `dst` allowed too |
+| `test_compact.py` | That `/compact` puts the summary in the system prompt and keeps the last exchange, that a focus reaches the summariser, that an earlier summary is summarised rather than lost, and that a failed summary changes nothing |
 | `test_hooks.py` | That a failing `pre_tool` hook refuses a call before it runs and says why, that a `post_tool` hook's complaint travels with the result, that `match` is a permission rule, that no hook gets the provider keys, and that a project's `.hooks.json` runs nothing until trusted |
 | `test_trust.py` | That a project's `.mcp.json` starts nothing and its `.permissions.json` allows nothing until trusted, that a no lasts the session and a yes lasts until the file changes; that `get_url` is never handed a secret; that a read outside the project is asked about |
 | `test_paths.py` | That state resolves under `~/.aetheris` and never into the working directory |

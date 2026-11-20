@@ -2526,6 +2526,47 @@ async def _cmd_btw(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+async def _cmd_compact(chat, user_input: str, cmd: str):
+    global _stoppable
+    focus = user_input[len("/compact"):].strip()
+    if providers.current().drives_turns:
+        print(f"  {S.WARN}⚠ Attacca keeps its own context; there is nothing here "
+              f"to compact.{S.R}\n")
+        return _HANDLED
+    from aetheris import context
+    # Its own bar in /usage, as /btw has: the summary is a request of its own.
+    config.next_turn()
+    transcript.start(user_input)
+    leaving = False
+    _stoppable = True
+    try:
+        done = await context.compact(chat.messages, focus=focus)
+        if done is None:
+            print(f"  {S.WARN}⚠ Nothing was compacted - the conversation is empty, "
+                  f"or the summary failed.{S.R}\n")
+        else:
+            chat.session_id = save_session(chat.messages, chat.session_id)
+            print(f"  {S.OK}✓ Compacted:{S.R} {S.WHITE}~{done['before']:,} → "
+                  f"~{done['after']:,} tokens{S.R} {S.MUTED}({done['pairs']} exchanges "
+                  f"summarised into the system prompt, the last {done['kept']} kept "
+                  f"as they were){S.R}\n")
+    except (KeyboardInterrupt, asyncio.CancelledError) as pressed:
+        leaving = _interrupted(pressed)
+        await _absorb_cancel()
+        if not leaving:
+            _say_how_to_leave()
+    except Exception as e:
+        print()
+        connect._print_problem("Error", e)
+    finally:
+        _stoppable = False
+    if leaving:
+        _shut_down()
+        print(f"\n  {S.GRAY}Goodbye!{S.R}\n")
+        return _LEAVE
+    return _HANDLED
+
+
 async def _cmd_rewind(chat, user_input: str, cmd: str):
     chat.session_id = _rewind(chat.messages, user_input[len("/rewind"):].strip(),
                                  chat.session_id)
@@ -2947,6 +2988,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/copy" or cmd.startswith("/copy "), _cmd_copy),
     (lambda cmd: cmd == "/btw" or cmd.startswith("/btw "), _cmd_btw),
     (lambda cmd: cmd == "/rewind" or cmd.startswith("/rewind "), _cmd_rewind),
+    (lambda cmd: cmd == "/compact" or cmd.startswith("/compact "), _cmd_compact),
     (lambda cmd: cmd == "/autotitle" or cmd.startswith("/autotitle "), _cmd_autotitle),
     (lambda cmd: cmd == "/automode" or cmd.startswith("/automode "), _cmd_automode),
     (lambda cmd: cmd == "/fullcontent" or cmd.startswith("/fullcontent "), _cmd_fullcontent),
