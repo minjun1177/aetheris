@@ -3056,6 +3056,28 @@ def _tdd_shell_refusal(function_name: str, arguments: dict) -> str:
     return ""
 
 
+def _canonical(path: str) -> str:
+    """One spelling for a file that may not exist yet, through any symlink.
+
+    `realpath` alone was not enough on Windows: a link to a control file that
+    did not exist yet resolved to the target as written - `RUNNER~1` - while
+    the control itself resolved to the long name, so the two never compared
+    equal and a write through the link went in. The link chain is followed by
+    hand, then the directory, which does exist, is resolved and the name put
+    back on it.
+    """
+    path = os.path.abspath(os.path.expanduser(path))
+    for _ in range(16):
+        if not os.path.islink(path):
+            break
+        target = os.readlink(path)
+        if target.startswith("\\\\?\\"):
+            target = target[4:]
+        path = os.path.abspath(os.path.join(os.path.dirname(path), target))
+    directory, name = os.path.split(path)
+    return os.path.normcase(os.path.join(os.path.realpath(directory), name))
+
+
 def _harness_controls() -> dict:
     """The files in the home that decide what this harness lets run, by real path.
 
@@ -3073,7 +3095,7 @@ def _harness_controls() -> dict:
                         ("MCP servers", mcp_client.USER_CONFIG_FILE),
                         ("trusted project files", trust.trust_file())):
         try:
-            found[os.path.normcase(os.path.realpath(path))] = label
+            found[_canonical(path)] = label
         except (OSError, ValueError):
             continue
     return found
@@ -3087,7 +3109,7 @@ def _writes_harness_control(function_name: str, arguments: dict) -> tuple:
     controls = _harness_controls()
     for path in targets:
         try:
-            real = os.path.normcase(os.path.realpath(os.path.expanduser(path)))
+            real = _canonical(path)
         except (OSError, ValueError):
             continue
         if real in controls:
