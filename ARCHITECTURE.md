@@ -136,7 +136,8 @@ to *all* tools belongs here and nowhere else.
 1. **Normalise** — a string `arguments` is JSON-parsed; anything else becomes `{}`.
 2. **Display** — `_fmt_tool_call`.
 3. **Deepthink read-only gate** — refuses a world-changing tool during a
-   planning stage (§7).
+   planning stage (§7). `_changes_things` decides: `_CHANGES_THINGS` for the
+   built-ins, and every MCP tool not marked `readOnlyHint`.
 4. **Another agent's claim** — `_claimed_by_another` refuses a write to a file
    a different harness in this project is in the middle of changing (§8).
 5. **Permission rules** — `deny` returns without reaching the handler; `allow`

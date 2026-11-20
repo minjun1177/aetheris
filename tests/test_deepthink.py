@@ -7,6 +7,7 @@ not run when nothing was changed - a model asked to review nothing will happily
 report on work that never happened.
 """
 import asyncio
+import contextlib
 import io
 import os
 import re
@@ -405,6 +406,29 @@ check("a command is refused too - a command can write",
       "not available during this stage" in ran_cmd)
 check("reading is still allowed", "not available during this stage" not in allowed)
 check("the refusal tells it what to do instead", "say what you would" in refused)
+
+# An MCP server's tools are the planning stages' business too: a server's
+# write_file used to run in a stage documented as unable to edit.
+from aetheris import mcp_client   # noqa: E402
+fake_tools = {"mcp__fs__write_file": {"name": "write_file"},
+              "mcp__fs__read_file": {"name": "read_file", "annotations": {"readOnlyHint": True}}}
+real_is, real_resolve = mcp_client.is_mcp_tool, mcp_client.resolve_tool
+mcp_client.is_mcp_tool = lambda name: str(name).startswith("mcp__")
+mcp_client.resolve_tool = lambda name: ("server", fake_tools[name]) if name in fake_tools else None
+try:
+    check("an MCP tool is taken to change things", tools._changes_things("mcp__fs__write_file"))
+    check("unless its server marks it readOnlyHint",
+          not tools._changes_things("mcp__fs__read_file"))
+    check("an MCP tool that cannot be found counts as changing things",
+          tools._changes_things("mcp__gone__x"))
+    check("the resource readers are read-only", not tools._changes_things("read_mcp_resource"))
+    config.DEEPTHINK_READONLY = True
+    with contextlib.redirect_stdout(io.StringIO()):
+        refused = tools.dispatch_tool("mcp__fs__write_file", {"path": "x"})
+    check("and a planning stage refuses it", "not available during this stage" in str(refused))
+finally:
+    config.DEEPTHINK_READONLY = False
+    mcp_client.is_mcp_tool, mcp_client.resolve_tool = real_is, real_resolve
 
 # The stages that act must not be crippled by the same flag - and review is
 # not one of them any more: it reports, revise fixes.

@@ -96,6 +96,10 @@ from the working directory, but now only once they have been trusted.
   URL over `GET_URL_QUIET_CHARS` characters is asked about, the pages
   `search_web` reads follow the same rule, and a `search_web` query is capped
   at `SEARCH_QUERY_MAX_CHARS`.
+- **The planning stages refuse MCP tools that write.** Deepthink's read-only
+  stages blocked the built-in tools that change things and let every MCP tool
+  through, so a server's `write_file` could edit during planning. An MCP tool
+  now counts as changing things unless its server marks it `readOnlyHint`.
 - **A project's `.mcp.json` and `.permissions.json` are asked about first.**
   A cloned repository's `.mcp.json` started its commands at launch with the
   person's environment filled in, and its `.permissions.json` could allow

@@ -2859,6 +2859,25 @@ _CHANGES_THINGS = frozenset(_WRITES_FILES) | {
 }
 
 
+def _changes_things(function_name: str) -> bool:
+    """Whether a call may change the world - the read-only stages' question.
+
+    `_CHANGES_THINGS` answers it for the built-in tools. An MCP tool used to be
+    waved through, so a server's `write_file` ran in a deepthink planning stage
+    that is documented as unable to edit. It is taken to change things unless
+    its server marks it `readOnlyHint`.
+    """
+    if toolspec.get(function_name) is not None:
+        return function_name in _CHANGES_THINGS
+    if function_name in ("list_mcp_resources", "read_mcp_resource"):
+        return False
+    found = mcp_client.resolve_tool(function_name) if mcp_client.is_mcp_tool(function_name) else None
+    if found is None:
+        return mcp_client.is_mcp_tool(function_name)
+    annotations = found[1].get("annotations")
+    return not (isinstance(annotations, dict) and annotations.get("readOnlyHint") is True)
+
+
 def _target_paths(function_name: str, arguments: dict) -> list:
     """The files a call would write, from its arguments.
 
@@ -3062,7 +3081,7 @@ def _dispatch(function_name: str, arguments: dict) -> str | None:
 
     _fmt_tool_call(function_name, arguments)
 
-    if config.DEEPTHINK_READONLY and function_name in _CHANGES_THINGS:
+    if config.DEEPTHINK_READONLY and _changes_things(function_name):
         # Telling a model not to edit yet is not enough - it edits anyway, and
         # then the stages that were meant to review a plan are reviewing work
         # nobody planned. So the planning stages are read-only for real.

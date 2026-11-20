@@ -49,7 +49,8 @@ item, because code that runs and is not what was agreed is still not finished.
 
 **The stages that are meant to think cannot edit.** Not "are asked not to" - the
 tools that change things are switched off in stages 1, 2 and 4, and a model that
-tries one is told to say what it would change instead. Telling a model to hold
+tries one is told to say what it would change instead. That includes an MCP
+server's tools, unless the server marks one `readOnlyHint`. Telling a model to hold
 off does not hold it off; a local 4B model tried to edit fifteen times in the
 planning stage before this was enforced.
 
