@@ -74,6 +74,7 @@ Two prefixes act on the message itself rather than being commands:
 The nine commands those switches used to be - `/deepthink`, `/planmode`, `/automode`, `/autoverify`, `/autocommit`, `/autotitle`, `/think`, `/fullcontent` and `/record` - still answer, as they always did: for this session only, and each says once that `/set` is the way that lasts. They are no longer in `/help` or the menu.
 
 | `/undo` | Take back the last file change the AI committed |
+| `/diff [n\|all]` | What the AI committed since the harness started: numbered, oldest first, with lines added and removed per file. `/diff 2` shows that commit's patch; `/diff all` the net change to every file the AI touched, against how it stood at the start. Your own commits are not listed, and an undone commit disappears |
 | `/tdd <request>` | Run one request with this project's test files locked |
 | `/tdd` | Arm that for your next message |
 | `/tdd off` | Lift it without sending anything |

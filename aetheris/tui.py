@@ -211,6 +211,8 @@ COMMANDS = (
 
     # -- taking it back ----------------------------------------------------
     ("/undo", "Take back the last file change the AI committed"),
+    ("/diff [n|all]", "What the AI committed this session, file by file - one "
+                      "commit's patch, or the net change to every file it touched"),
 
     # -- how it answers ----------------------------------------------------
     ("/system <prompt>", "Put a persona in front of the system prompt"),

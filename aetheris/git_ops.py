@@ -394,6 +394,77 @@ def ai_commits_since(sha: str) -> list:
     return commits
 
 
+def session_ai_commits(start: str) -> list:
+    """The AI commits made since `start`, oldest first, each with the files it changed.
+
+    `start` is HEAD as it was when the session began; "" means the repository
+    had no commit then, so every commit is since. Each file is
+    (path, lines added, lines removed), with None for a binary file's counts.
+    """
+    root = repo_root()
+    if not root:
+        return []
+    span = [f"{start}..HEAD"] if start else ["HEAD"]
+    result = _git("log", "--reverse", *span, "--format=%x01%h%x00%s%x00%ar",
+                  "--numstat", cwd=root)
+    if result.returncode != 0:
+        return []
+    commits = []
+    for block in result.stdout.split("\x01")[1:]:
+        lines = block.splitlines()
+        parts = lines[0].split("\x00") if lines else []
+        if len(parts) != 3 or not parts[1].startswith(MESSAGE_PREFIX):
+            continue
+        files = []
+        for line in lines[1:]:
+            fields = line.split("\t", 2)
+            if len(fields) == 3:
+                added = int(fields[0]) if fields[0].isdigit() else None
+                removed = int(fields[1]) if fields[1].isdigit() else None
+                files.append((fields[2], added, removed))
+        commits.append({"sha": parts[0], "subject": parts[1], "when": parts[2],
+                        "files": files})
+    return commits
+
+
+def commit_patch(sha: str, max_chars: int = 20000) -> str:
+    """One commit's patch, without its message. "" when it cannot be shown."""
+    root = repo_root()
+    if not root or not sha:
+        return ""
+    result = _git("show", "--format=", "--no-color", sha, cwd=root)
+    if result.returncode != 0:
+        return ""
+    return _cut(result.stdout, max_chars)
+
+
+def net_patch(start: str, files: list, max_chars: int = 20000) -> str:
+    """What `files` look like now against `start`, as one patch.
+
+    Against the working tree, as `diff_since` is, so it is the files as they
+    stand - including anything changed on top of the AI's commits since.
+    """
+    root = repo_root()
+    if not root or not files:
+        return ""
+    base = start or _EMPTY_TREE
+    result = _git("diff", "--no-color", base, "--", *files, cwd=root)
+    if result.returncode != 0:
+        return ""
+    return _cut(result.stdout, max_chars)
+
+
+# git's well-known id for the empty tree: a base for a diff in a repository
+# whose first commit was the AI's.
+_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _cut(patch: str, max_chars: int) -> str:
+    if len(patch) <= max_chars:
+        return patch
+    return patch[:max_chars] + f"\n… (cut at {max_chars} characters)"
+
+
 def recent_ai_commits(limit: int = 10) -> list:
     """The AI commits at the top of the branch, newest first."""
     root = repo_root()

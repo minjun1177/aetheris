@@ -2880,6 +2880,77 @@ async def _cmd_think(chat, user_input: str, cmd: str):
     return _HANDLED
 
 
+# HEAD when this harness started, for `/diff`: what the AI changed is the AI
+# commits since. None until `main` has looked.
+_session_start_head = None
+
+
+def _print_patch(patch: str) -> None:
+    """A patch in the colours every diff viewer uses."""
+    for line in patch.splitlines():
+        if line.startswith(("+++", "---", "diff --git", "index ")):
+            print(f"  {S.BOLD}{S.WHITE}{line}{S.R}")
+        elif line.startswith("+"):
+            print(f"  {S.OK}{line}{S.R}")
+        elif line.startswith("-"):
+            print(f"  {S.ERR}{line}{S.R}")
+        elif line.startswith("@@"):
+            print(f"  {S.INFO}{line}{S.R}")
+        else:
+            print(f"  {S.GRAY}{line}{S.R}")
+
+
+def _show_diff(argument: str) -> None:
+    """`/diff`, `/diff <n>` and `/diff all`."""
+    if not git_ops.repo_root():
+        print(f"  {S.WARN}⚠ This directory is not a git repository, so the AI's "
+              f"changes are not committed and there is nothing to show.{S.R}\n")
+        return
+    start = _session_start_head if _session_start_head is not None else git_ops.head()
+    commits = git_ops.session_ai_commits(start)
+    if not commits:
+        note = "" if config.GIT_AUTO_COMMIT else " Auto-commit is off: /set GIT_AUTO_COMMIT on."
+        print(f"  {S.GRAY}The AI has committed nothing in this session.{note}{S.R}\n")
+        return
+    if argument == "all":
+        files = sorted({path for commit in commits for path, _, _ in commit["files"]})
+        print(f"\n  {S.BOLD}{S.ACCENT}Net change to the {len(files)} file(s) the AI "
+              f"changed this session{S.R} {S.MUTED}(as they are on disk now){S.R}\n")
+        _print_patch(git_ops.net_patch(start, files) or "(no difference left)")
+        print()
+        return
+    if argument:
+        try:
+            index = int(argument)
+        except ValueError:
+            index = 0
+        if not 1 <= index <= len(commits):
+            print(f"  {S.ERR}✗ Usage: /diff [all|1-{len(commits)}]{S.R}\n")
+            return
+        commit = commits[index - 1]
+        print(f"\n  {S.BOLD}{S.ACCENT}{commit['sha']}{S.R} {S.WHITE}{commit['subject']}"
+              f"{S.R} {S.MUTED}({commit['when']}){S.R}\n")
+        _print_patch(git_ops.commit_patch(commit["sha"]) or "(nothing to show)")
+        print()
+        return
+    print(f"\n  {S.BOLD}{S.ACCENT}What the AI changed this session{S.R} "
+          f"{S.MUTED}({len(commits)} commit(s), oldest first){S.R}")
+    for number, commit in enumerate(commits, 1):
+        print(f"  {S.ACCENT}{number:3}.{S.R} {S.MUTED}{commit['sha']}{S.R} "
+              f"{S.WHITE}{commit['subject']}{S.R} {S.GRAY}({commit['when']}){S.R}")
+        for path, added, removed in commit["files"]:
+            counts = (f"{S.OK}+{added}{S.R} {S.ERR}-{removed}{S.R}"
+                      if added is not None and removed is not None else f"{S.GRAY}binary{S.R}")
+            print(f"       {counts} {S.GRAY}{path}{S.R}")
+    print(f"  {S.MUTED}/diff <n> shows one, /diff all the net change, /undo takes the "
+          f"newest back.{S.R}\n")
+
+
+async def _cmd_diff(chat, user_input: str, cmd: str):
+    _show_diff(user_input[len("/diff"):].strip().lower())
+    return _HANDLED
+
+
 async def _cmd_undo(chat, user_input: str, cmd: str):
     ok, message = git_ops.undo_last()
     colour = S.OK if ok else S.WARN
@@ -3029,6 +3100,7 @@ _COMMANDS = (
     (lambda cmd: cmd == "/hooks" or cmd.startswith("/hooks "), _cmd_hooks),
     (lambda cmd: cmd == "/think" or cmd.startswith("/think "), _cmd_think),
     (lambda cmd: cmd == "/undo", _cmd_undo),
+    (lambda cmd: cmd == "/diff" or cmd.startswith("/diff "), _cmd_diff),
     (lambda cmd: cmd == "/autocommit" or cmd.startswith("/autocommit "), _cmd_autocommit),
     (lambda cmd: cmd == "/autoverify" or cmd.startswith("/autoverify "), _cmd_autoverify),
     (lambda cmd: cmd == "/deepthink" or cmd.startswith("/deepthink "), _cmd_deepthink),
@@ -3059,6 +3131,8 @@ async def main(resume_id: str = "") -> None:
 
     screen.install()
     print("\033[2J\033[H", end="")
+    global _session_start_head
+    _session_start_head = git_ops.head()
     paths.close_home()
     providers.apply_startup()
     _settle_trust()

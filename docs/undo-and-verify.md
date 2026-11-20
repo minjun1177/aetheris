@@ -16,6 +16,9 @@ ai(write_file): parser.py
 
 ```
 /undo             put the last AI edit back the way it was
+/diff             every AI commit since the harness started, with +/- per file
+/diff 2           the second one's patch
+/diff all         the net change to every file the AI touched, as it is on disk now
 /autocommit       whether this is on, and the recent AI commits
 /autocommit off   stop committing (edits still happen, they are just not committed)
 ```

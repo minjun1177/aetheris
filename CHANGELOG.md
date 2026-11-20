@@ -60,6 +60,9 @@ own, and out to a package of its own only when someone needs it there.
   `~/.aetheris/commands/<name>.md`, or in a project's `.aetheris/commands/`,
   is `/<name>`, with `$ARGUMENTS` and `$1`..`$9` filled in from what follows
   it. A file cannot replace a built-in. `/commands` lists them.
+- **`/diff`** shows what the AI committed since the harness started: each
+  commit with lines added and removed per file, `/diff <n>` for one patch,
+  `/diff all` for the net change. The person's own commits are left out.
 - **A second compression no longer loses the first.** The summary already in
   the system prompt was left out of what was summarised, so it was replaced
   by a summary of only what came after it.
