@@ -51,7 +51,7 @@ The settings worth knowing:
 | `NATIVE_TOOLS` | `True` | `False` forces the `<tool_call>` text protocol everywhere |
 | `MAX_TOOL_CALLS` | 10 | Tool calls per turn before asking whether to continue |
 | `AUTO_ALLOW` | `False` | `True` is `/automode on` from startup - no approval prompts |
-| `ACCEPT_EDITS` | `False` | `True` starts in the `accept-edits` mode: file writes, edits, copies and moves inside the project run without asking; commands, deletes and paths outside it still ask. Shift+Tab or `/mode` changes it for the session |
+| `ACCEPT_EDITS` | `False` | `True` starts in the `accept-edits` mode: file writes, edits, copies and moves inside the project run without asking; commands, deletes, paths outside it and anything under a `.git` still ask. Shift+Tab or `/mode` changes it for the session |
 | `PERMISSIONS_ENABLED` | `True` | Whether `.permissions.json` rules are consulted at all |
 | `SECRET_REDACT` | `True` | Whether `.env` values are hidden from the model and pasted back in by the harness - see [Secrets in `.env`](permissions.md#secrets-in-env) |
 | `SECRET_MIN_LENGTH` | 8 | Below this a value is a word like `dev`, not a secret, and hiding it would rewrite every result that mentions it |

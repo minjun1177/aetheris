@@ -132,6 +132,24 @@ try:
           and os.path.exists("b.txt"), str(asked))
     run("run_cmd", command="echo hi")
     check("and a command", asked == ["Run Command"], str(asked))
+    # git runs what these name - `core.fsmonitor` on the next `git status` - so
+    # a write there is a command, inside the project or not.
+    os.makedirs(os.path.join(".git", "hooks"), exist_ok=True)
+    run("write_file", filepath=".git/config", content="[core]\n\tfsmonitor = touch pwned\n")
+    check("a write to .git/config is asked about",
+          asked == ["Write File"] and not os.path.exists(os.path.join(".git", "config")),
+          str(asked))
+    run("write_file", filepath=os.path.join(".git", "hooks", "pre-commit"), content="#!/bin/sh\n")
+    check("and one to a git hook",
+          asked == ["Write File"]
+          and not os.path.exists(os.path.join(".git", "hooks", "pre-commit")), str(asked))
+    run("write_file", filepath="sub/.git/config", content="x\n")
+    check("and one into a nested repository's .git", asked == ["Write File"], str(asked))
+    run("copy_file", src="a.txt", dst=".git/info.txt")
+    check("and a copy into .git", asked == ["Copy File"]
+          and not os.path.exists(os.path.join(".git", "info.txt")), str(asked))
+    run("write_file", filepath="notes.gitignore.txt", content="x\n")
+    check("a name that only contains .git is still an edit", asked == [], str(asked))
     check("nothing is left allowed once the call is over",
           config.POLICY_AUTO_ALLOW is False)
 

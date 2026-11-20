@@ -2966,6 +2966,11 @@ def _accepted_edit(function_name: str, arguments: dict) -> bool:
     when every path it names - what it writes and, for a copy or a move, what
     it takes from - is inside the project. A call whose paths cannot be read
     from its arguments is asked about as before: unknown is not inside.
+
+    Nothing under a `.git` is an edit, though it is inside the project: git
+    runs what `.git/config` and `.git/hooks/` name (`core.fsmonitor` runs on
+    the harness's own next `git status`), so a write there is a command and
+    is asked about like one.
     """
     from aetheris import modes
     if not config.ACCEPT_EDITS or function_name not in modes.ACCEPTED_EDITS:
@@ -2973,7 +2978,22 @@ def _accepted_edit(function_name: str, arguments: dict) -> bool:
     paths = _target_paths(function_name, arguments) + [
         arguments[key] for key in ("src", "dirpath")
         if isinstance(arguments.get(key), str) and arguments[key]]
-    return bool(paths) and not any(_outside_workspace(path) for path in paths)
+    return bool(paths) and not any(_outside_workspace(path) or _in_git_dir(path)
+                                   for path in paths)
+
+
+def _in_git_dir(path: str) -> bool:
+    """Whether `path`, as spelled or followed through symlinks, is or is in a `.git`."""
+    spellings = [path]
+    try:
+        spellings.append(os.path.realpath(path))
+    except (OSError, ValueError):
+        return True
+    for spelled in spellings:
+        parts = os.path.normcase(os.path.normpath(spelled)).replace("\\", "/").split("/")
+        if ".git" in parts:
+            return True
+    return False
 
 
 def _decide(function_name: str, arguments: dict) -> tuple:
