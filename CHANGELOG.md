@@ -32,6 +32,18 @@ own, and out to a package of its own only when someone needs it there.
 
 ---
 
+## 1.3.1 - 2026-11-20
+
+- **`/update` works on Windows.** pip could not replace `Scripts\aetheris.exe`
+  while it was the program running the session, and stopped with WinError 32.
+  The launcher is now renamed aside before pip runs - Windows allows that for a
+  running `.exe` - and put back if pip fails; the old one is deleted on a later
+  start. If even the rename is refused, pip is not run and the command to run
+  after quitting is shown instead. The fix is in the version that runs
+  `/update`, so getting to 1.3.1 itself from 1.3.0 or earlier on Windows still
+  takes quitting Aetheris and running
+  `python -m pip install --upgrade aetheris` once.
+
 ## 1.3.0 - 2026-11-20
 
 Aetheris that works while nobody is typing, and that asks less while somebody
